@@ -1,0 +1,23 @@
+node_modules/
+dist/
+.vite/
+*.local
+
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Runtime data — never commit the live database or uploaded media
+*.db
+*.db-journal
+*.sqlite3
+backend/media/
+backend/.env
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

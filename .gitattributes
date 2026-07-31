@@ -1,0 +1,10 @@
+# Normalise to LF in the repository so the same checkout works on the Windows
+# scope PCs and on a Linux server without spurious whole-file diffs.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary

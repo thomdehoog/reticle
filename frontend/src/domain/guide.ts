@@ -1,0 +1,170 @@
+/**
+ * Pure guide logic, deliberately free of React and of the network.
+ *
+ * The editor is the riskiest part of Reticle — reordering steps, moving
+ * bullets, enforcing limits — so that logic lives here as plain functions that
+ * can be tested directly, instead of being buried in component event handlers
+ * where it can only be reached through a rendered DOM.
+ */
+
+import {
+  type Bullet,
+  type BulletLevel,
+  type Difficulty,
+  type Guide,
+  MAX_MEDIA_PER_STEP,
+  type Step,
+} from './types'
+
+let fallbackCounter = 0
+
+/**
+ * IDs for steps and bullets the user has just created but not yet saved. The
+ * server replaces them with real ULIDs on save; they only need to be unique
+ * within the open document so React keys stay stable while editing.
+ *
+ * `crypto.randomUUID` is unavailable in a non-secure context, which a ZMB
+ * intranet deployment served over plain http would be, so this degrades rather
+ * than throwing in exactly the environment we are most likely to be installed in.
+ */
+export function newLocalId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.()
+  return uuid ? `new-${uuid}` : `new-${Date.now().toString(36)}-${fallbackCounter++}`
+}
+
+export function createBullet(overrides: Partial<Bullet> = {}): Bullet {
+  return {
+    id: newLocalId(),
+    text: '',
+    color: 'black',
+    icon: null,
+    level: 0,
+    ...overrides,
+  }
+}
+
+export function createStep(overrides: Partial<Step> = {}): Step {
+  return {
+    id: newLocalId(),
+    orderIndex: 0,
+    title: '',
+    bullets: [createBullet()],
+    media: [],
+    ...overrides,
+  }
+}
+
+/**
+ * Rewrites `orderIndex` to match array position. Every mutation that changes
+ * step order funnels through here so array position stays the single source of
+ * truth and the two can never disagree.
+ */
+export function renumberSteps(steps: Step[]): Step[] {
+  return steps.map((step, index) =>
+    step.orderIndex === index ? step : { ...step, orderIndex: index },
+  )
+}
+
+/** Moves a step, returning a renumbered array. Out-of-range input is returned unchanged. */
+export function moveStep(steps: Step[], from: number, to: number): Step[] {
+  if (from === to) return steps
+  if (from < 0 || from >= steps.length) return steps
+  if (to < 0 || to >= steps.length) return steps
+
+  const reordered = [...steps]
+  const [moved] = reordered.splice(from, 1)
+  reordered.splice(to, 0, moved)
+  return renumberSteps(reordered)
+}
+
+export function insertStepAfter(steps: Step[], index: number): Step[] {
+  const at = Math.min(Math.max(index + 1, 0), steps.length)
+  const reordered = [...steps]
+  reordered.splice(at, 0, createStep())
+  return renumberSteps(reordered)
+}
+
+/** Removing the final step is refused: a guide with zero steps is not a guide. */
+export function removeStep(steps: Step[], index: number): Step[] {
+  if (steps.length <= 1) return steps
+  if (index < 0 || index >= steps.length) return steps
+  return renumberSteps(steps.filter((_, i) => i !== index))
+}
+
+export function canAcceptMedia(step: Step): boolean {
+  return step.media.length < MAX_MEDIA_PER_STEP
+}
+
+/** Indent is clamped rather than rejected, so holding Tab cannot corrupt a bullet. */
+export function indentBullet(bullet: Bullet, delta: number): Bullet {
+  const level = Math.min(Math.max(bullet.level + delta, 0), 2) as BulletLevel
+  return level === bullet.level ? bullet : { ...bullet, level }
+}
+
+export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
+  very_easy: 'Very easy',
+  easy: 'Easy',
+  moderate: 'Moderate',
+  difficult: 'Difficult',
+  very_difficult: 'Very difficult',
+}
+
+export const DIFFICULTY_ORDER: Difficulty[] = [
+  'very_easy',
+  'easy',
+  'moderate',
+  'difficult',
+  'very_difficult',
+]
+
+/** Renders an estimate the way a person would say it: "1 h 30 min", not "90 min". */
+export function formatDuration(minutes: number | null): string {
+  if (minutes === null || minutes <= 0) return 'Not specified'
+  if (minutes < 60) return `${minutes} min`
+
+  const hours = Math.floor(minutes / 60)
+  const remainder = minutes % 60
+  return remainder === 0 ? `${hours} h` : `${hours} h ${remainder} min`
+}
+
+export interface ValidationIssue {
+  field: string
+  message: string
+}
+
+/**
+ * Publish-time validation. Drafts are intentionally allowed to be incomplete —
+ * an author must be able to save a half-written guide and come back tomorrow —
+ * so these rules are applied when publishing, not when saving.
+ */
+export function validateForPublish(guide: Guide): ValidationIssue[] {
+  const issues: ValidationIssue[] = []
+
+  if (guide.title.trim() === '') {
+    issues.push({ field: 'title', message: 'A guide needs a title before it can be published.' })
+  }
+  if (guide.categoryId.trim() === '') {
+    issues.push({ field: 'categoryId', message: 'Choose a category so people can find this guide.' })
+  }
+  if (guide.steps.length === 0) {
+    issues.push({ field: 'steps', message: 'A guide needs at least one step.' })
+  }
+
+  guide.steps.forEach((step, index) => {
+    const hasText = step.bullets.some((bullet) => bullet.text.trim() !== '')
+    if (!hasText && step.media.length === 0) {
+      issues.push({
+        field: `steps.${index}`,
+        message: `Step ${index + 1} is empty — add an instruction or an image, or remove it.`,
+      })
+    }
+    if (step.media.length > MAX_MEDIA_PER_STEP) {
+      issues.push({
+        field: `steps.${index}.media`,
+        message: `Step ${index + 1} has ${step.media.length} images; the maximum is ${MAX_MEDIA_PER_STEP}.`,
+      })
+    }
+  })
+
+  return issues
+}
