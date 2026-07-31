@@ -6,7 +6,13 @@
  * internal tool drifts into looking unfinished.
  */
 
-import { useEffect, useRef, type ReactNode } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type ReactNode,
+  type TextareaHTMLAttributes,
+} from 'react'
 
 import { ApiError } from '../api/client'
 import type { GuideStatus } from '../domain/types'
@@ -55,6 +61,26 @@ export function ErrorAlert({ error }: { error: unknown }) {
       {message}
     </div>
   )
+}
+
+/**
+ * A textarea that grows to fit what it holds.
+ *
+ * A fixed-height box silently clips an introduction halfway through a sentence,
+ * which reads as data loss even though the text is safe — the author simply
+ * cannot see what they wrote without scrolling inside a small box.
+ */
+export function AutoTextarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  useLayoutEffect(() => {
+    const textarea = ref.current
+    if (!textarea) return
+    textarea.style.height = 'auto'
+    textarea.style.height = `${textarea.scrollHeight}px`
+  }, [props.value])
+
+  return <textarea ref={ref} style={{ overflow: 'hidden' }} {...props} />
 }
 
 interface ModalProps {

@@ -5,7 +5,7 @@ import { ApiError } from '../api/client'
 import { useApi } from '../auth/AuthContext'
 import { StepEditor } from '../components/editor/StepEditor'
 import { IconPlus } from '../components/icons'
-import { ErrorAlert, Spinner, StatusBadge } from '../components/ui'
+import { AutoTextarea, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
 import {
   DIFFICULTY_LABELS,
   DIFFICULTY_ORDER,
@@ -314,7 +314,7 @@ export function GuideEditorPage() {
                 <label className="field__label" htmlFor="guide-summary">
                   Summary
                 </label>
-                <textarea
+                <AutoTextarea
                   id="guide-summary"
                   className="textarea"
                   rows={2}
@@ -377,7 +377,7 @@ export function GuideEditorPage() {
                 <label className="field__label" htmlFor="guide-intro">
                   Introduction
                 </label>
-                <textarea
+                <AutoTextarea
                   id="guide-intro"
                   className="textarea"
                   rows={4}
@@ -393,7 +393,7 @@ export function GuideEditorPage() {
                 <label className="field__label" htmlFor="guide-conclusion">
                   Conclusion
                 </label>
-                <textarea
+                <AutoTextarea
                   id="guide-conclusion"
                   className="textarea"
                   rows={3}

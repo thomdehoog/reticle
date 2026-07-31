@@ -15,7 +15,11 @@ htmlcov/
 *.db-journal
 *.sqlite3
 backend/media/
+backend/media_store/
 backend/.env
+
+# Smoke-test screenshots are build output, not source
+frontend/e2e/shots/
 
 .DS_Store
 Thumbs.db
