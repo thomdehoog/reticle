@@ -1169,3 +1169,149 @@ a:hover {
 .modal__body {
   padding: 1.25rem;
 }
+
+/* -------------------------------------------------------------- responsive */
+
+/**
+ * Guides get read at the microscope, on a phone propped against the bench, as
+ * often as at a desk. Layout collapses rather than scrolling sideways, and
+ * anything that only appeared on hover becomes permanent where there is no
+ * pointer to hover with.
+ */
+
+@media (hover: none) {
+  .editor-bullet__actions {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 900px) {
+  .editor__sidebar {
+    position: static;
+    order: -1;
+  }
+}
+
+@media (max-width: 860px) {
+  .app__header {
+    height: auto;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.6rem 0.9rem;
+  }
+
+  .app__brand-sub {
+    display: none;
+  }
+
+  .searchbar {
+    order: 10;
+    flex: 1 1 100%;
+  }
+
+  .app__user span:not(.avatar) {
+    display: none;
+  }
+
+  .app__main {
+    padding: 1.25rem 0.9rem 3rem;
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    font-size: 16px;
+  }
+
+  h1 {
+    font-size: 1.45rem;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .step {
+    grid-template-columns: 1.9rem 1fr;
+    gap: 0 0.6rem;
+    padding: 1.25rem 0;
+  }
+
+  .step__number {
+    width: 1.9rem;
+    height: 1.9rem;
+    font-size: 0.85rem;
+  }
+
+  .step__title {
+    font-size: 1rem;
+  }
+
+  .step__body {
+    grid-column: 1 / -1;
+    margin-top: 0.75rem;
+  }
+
+  .step__media {
+    grid-template-columns: 1fr;
+  }
+
+  .guide__meta {
+    gap: 0.9rem 1.25rem;
+  }
+
+  .bullet--level-1 {
+    padding-left: 1rem;
+  }
+
+  .bullet--level-2 {
+    padding-left: 2rem;
+  }
+
+  .guide-row {
+    padding: 0.8rem 0.9rem;
+  }
+
+  .editor-step {
+    padding: 0.85rem 0.75rem;
+  }
+
+  .editor-step__head {
+    flex-wrap: wrap;
+  }
+
+  .editor-step__title-input {
+    order: 10;
+    flex: 1 1 100%;
+    border-color: var(--border);
+  }
+
+  .media-slot,
+  .media-dropzone {
+    width: 88px;
+    height: 66px;
+  }
+
+  .modal {
+    max-width: 100%;
+  }
+
+  .login__panel {
+    padding: 1.5rem;
+  }
+
+  .table {
+    font-size: 0.85rem;
+  }
+
+  .table th,
+  .table td {
+    padding: 0.5rem 0.4rem;
+  }
+}
