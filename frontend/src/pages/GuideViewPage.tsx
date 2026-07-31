@@ -58,6 +58,13 @@ export function GuideViewPage() {
   const { guide, categories } = data
   const category = categories.find((candidate) => candidate.id === guide.categoryId)
 
+  /**
+   * Credit everyone who worked on it, without repeating the author. At a
+   * facility the edit history is often the only surviving record of why a
+   * procedure says what it says, and who to ask about it.
+   */
+  const otherContributors = guide.contributors.filter((person) => person.id !== guide.author.id)
+
   return (
     <article className="guide">
       <nav className="breadcrumb">
@@ -118,6 +125,24 @@ export function GuideViewPage() {
           <span className="guide__meta-label">Author</span>
           <span className="guide__meta-value">{guide.author.displayName}</span>
         </div>
+        {otherContributors.length > 0 && (
+          <div className="guide__meta-item">
+            <span className="guide__meta-label">
+              {otherContributors.length === 1 ? 'Contributor' : 'Contributors'}
+            </span>
+            <span className="guide__meta-value">
+              {otherContributors.map((person) => person.displayName).join(', ')}
+            </span>
+          </div>
+        )}
+        {guide.viewCount > 0 && (
+          <div className="guide__meta-item">
+            <span className="guide__meta-label">Read</span>
+            <span className="guide__meta-value">
+              {guide.viewCount.toLocaleString()} {guide.viewCount === 1 ? 'time' : 'times'}
+            </span>
+          </div>
+        )}
         {guide.publishedAt && (
           <div className="guide__meta-item">
             <span className="guide__meta-label">Version</span>
