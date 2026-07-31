@@ -62,12 +62,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
         )}
 
-        <div className="app__user">
+        <Link className="app__user" to="/account" title="Your account">
           <span className="avatar" aria-hidden="true">
             {initials(user?.displayName ?? '')}
           </span>
           <span>{user?.displayName}</span>
-        </div>
+        </Link>
 
         <button className="button" type="button" onClick={() => void logout()}>
           Sign out

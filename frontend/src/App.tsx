@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppShell } from './components/AppShell'
 import { useAuth } from './auth/AuthContext'
+import { AccountPage } from './pages/AccountPage'
 import { CategoryPage } from './pages/CategoryPage'
 import { GuideEditorPage } from './pages/GuideEditorPage'
 import { GuideViewPage } from './pages/GuideViewPage'
@@ -35,6 +36,7 @@ export function App() {
         <Route path="/g/:slug" element={<GuideViewPage />} />
         <Route path="/g/:id/edit" element={<GuideEditorPage />} />
         <Route path="/search" element={<SearchPage />} />
+        <Route path="/account" element={<AccountPage />} />
         <Route path="/users" element={can('admin') ? <UsersPage /> : <Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
