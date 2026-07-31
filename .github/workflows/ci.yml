@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch cancels the first: a facility repo does not
+# need three superseded runs finishing after the one that matters.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npx vite build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      - name: Tests with coverage
+        run: pytest --cov=app --cov-report=term-missing --cov-fail-under=85
+
+  e2e:
+    name: Browser smoke test
+    runs-on: ubuntu-latest
+    needs: [frontend, backend]
+    env:
+      RETICLE_SECRET_KEY: ci-only-secret-not-used-anywhere-real-0000
+      RETICLE_COOKIE_SECURE: 'false'
+      RETICLE_DATABASE_URL: sqlite:///./ci.db
+      RETICLE_MEDIA_ROOT: ./ci_media
+      RETICLE_ADMIN_EMAIL: ci@example.org
+      RETICLE_ADMIN_PASSWORD: ci-only-password-not-real
+      RETICLE_E2E_EMAIL: ci@example.org
+      RETICLE_E2E_PASSWORD: ci-only-password-not-real
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci
+
+      - name: Seed the database
+        working-directory: backend
+        run: python -m app.seed
+
+      - name: Start the backend
+        working-directory: backend
+        run: |
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8000/api/health && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8000/api/health
+
+      - name: Start the frontend
+        working-directory: frontend
+        run: |
+          npm run dev -- --port 5173 &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:5173/ >/dev/null && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:5173/ >/dev/null
+
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Smoke test
+        working-directory: frontend
+        run: node e2e/smoke.mjs
+
+      # Screenshots are the fastest way to see why a run failed, so keep them
+      # whatever the outcome.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-screenshots
+          path: frontend/e2e/shots
+          retention-days: 7

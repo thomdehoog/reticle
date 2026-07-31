@@ -1,0 +1,19 @@
+# Runtime dependencies.
+#
+# On the ZMB machines the environment is built from conda-forge (see README);
+# this file exists so CI and a Linux server can install the same set with pip,
+# which is licensing-safe and avoids pulling the Anaconda `defaults` channel.
+#
+# Bounds are "compatible release": patch and minor updates are accepted, a major
+# version bump is not, so a dependency cannot silently change behaviour under a
+# facility that only reboots the server twice a year.
+
+fastapi~=0.141
+uvicorn~=0.52
+sqlalchemy~=2.0
+pydantic~=2.13
+pydantic-settings~=2.14
+argon2-cffi~=25.1
+pillow~=12.3
+python-multipart~=0.0.32
+python-ulid~=4.0

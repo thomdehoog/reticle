@@ -1,0 +1,7 @@
+# Test and development dependencies, on top of requirements.txt.
+
+-r requirements.txt
+
+pytest~=9.1
+pytest-cov~=7.1
+httpx~=0.28
