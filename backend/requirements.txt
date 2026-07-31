@@ -11,7 +11,11 @@
 fastapi~=0.141
 uvicorn~=0.52
 sqlalchemy~=2.0
-pydantic~=2.13
+
+# The [email] extra pulls in email-validator, which pydantic's EmailStr needs at
+# import time. The conda environment happens to get it transitively, so leaving
+# it implicit here made the pip install work locally and fail everywhere else.
+pydantic[email]~=2.13
 pydantic-settings~=2.14
 argon2-cffi~=25.1
 pillow~=12.3
