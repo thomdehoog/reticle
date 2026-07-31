@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 
 import { useApi, useAuth } from '../auth/AuthContext'
+import { AnnotatedImage } from '../components/AnnotationOverlay'
 import { BulletList } from '../components/BulletList'
 import { IconEdit } from '../components/icons'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
@@ -22,7 +23,12 @@ function StepBlock({ step, number }: { step: Step; number: number }) {
         {step.media.length > 0 && (
           <div className={`step__media${step.media.length === 1 ? ' step__media--single' : ''}`}>
             {step.media.map((image) => (
-              <img key={image.id} src={image.url} alt={image.alt} loading="lazy" />
+              <AnnotatedImage
+                key={image.id}
+                src={image.url}
+                alt={image.alt}
+                annotations={image.annotations}
+              />
             ))}
           </div>
         )}

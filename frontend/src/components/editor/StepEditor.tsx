@@ -148,6 +148,12 @@ export function StepEditor({
         uploading={uploading}
         onAdd={onUpload}
         onRemove={removeMedia}
+        onUpdate={(updated) =>
+          onChange({
+            ...step,
+            media: step.media.map((image) => (image.id === updated.id ? updated : image)),
+          })
+        }
       />
 
       {step.bullets.map((bullet, index) => (

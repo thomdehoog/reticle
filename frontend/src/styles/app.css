@@ -745,19 +745,92 @@ a:hover {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
+.step__media .annotated {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
 .step__media img {
   width: 100%;
   height: 100%;
   max-height: 340px;
   object-fit: cover;
-  background: var(--surface-sunken);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
 }
 
 .step__media--single img {
   object-fit: contain;
   max-height: 460px;
+}
+
+/* -------------------------------------------------------------- annotation */
+
+/**
+ * The image and its shapes share one box. The overlay is sized in pixels from a
+ * ResizeObserver rather than stretched to fit, so a circle stays circular and
+ * an arrowhead keeps its proportions when the picture scales down on a phone.
+ */
+.annotated {
+  position: relative;
+  display: block;
+  line-height: 0;
+}
+
+.annotated img {
+  display: block;
+  width: 100%;
+}
+
+.annotated__overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.annotated__overlay--interactive {
+  pointer-events: auto;
+  cursor: crosshair;
+  /* Without this a drag on a tablet scrolls the page instead of drawing. */
+  touch-action: none;
+}
+
+.annotate {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.annotate__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.annotate__group {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.annotate__group .button[aria-pressed='true'] {
+  color: #fff;
+  background: var(--brand-700);
+  border-color: var(--brand-700);
+}
+
+.annotate__surface {
+  max-height: 58vh;
+  overflow: auto;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* Annotating needs room for the picture; :has keeps it to the one dialog. */
+.modal:has(.annotate) {
+  max-width: 880px;
 }
 
 .bullets {
@@ -1062,6 +1135,7 @@ a:hover {
   background: var(--surface-sunken);
 }
 
+.media-slot .annotated,
 .media-slot img {
   width: 100%;
   height: 100%;
@@ -1069,10 +1143,9 @@ a:hover {
   display: block;
 }
 
-.media-slot__remove {
+.media-slot__action {
   position: absolute;
   top: 3px;
-  right: 3px;
   display: grid;
   place-items: center;
   width: 20px;
@@ -1085,8 +1158,32 @@ a:hover {
   cursor: pointer;
 }
 
+.media-slot__remove {
+  right: 3px;
+}
+
 .media-slot__remove:hover {
   background: var(--danger-600);
+}
+
+.media-slot__annotate {
+  right: 27px;
+}
+
+.media-slot__annotate:hover {
+  background: var(--brand-600);
+}
+
+.media-slot__badge {
+  position: absolute;
+  bottom: 3px;
+  left: 3px;
+  padding: 0 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(16, 21, 28, 0.72);
+  border-radius: 999px;
 }
 
 .media-dropzone {
