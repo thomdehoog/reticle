@@ -20,7 +20,7 @@ export const ANNOTATION_COLORS: Record<BulletColor, string> = {
   orange: '#bc4c00',
   yellow: '#9a6700',
   green: '#1a7f37',
-  light_blue: '#249fd6',
+  light_blue: '#1590c7',
   blue: '#0969da',
   violet: '#8250df',
 }

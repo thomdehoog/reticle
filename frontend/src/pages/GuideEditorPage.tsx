@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { useApi } from '../auth/AuthContext'
 import { StepEditor } from '../components/editor/StepEditor'
+import { StepNavigator } from '../components/editor/StepNavigator'
 import { TagInput } from '../components/editor/TagInput'
 import { IconPlus } from '../components/icons'
 import { AutoTextarea, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
@@ -51,6 +52,7 @@ export function GuideEditorPage() {
   const [publishing, setPublishing] = useState(false)
 
   const dirtyRef = useRef(false)
+  const stepsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (loaded) setGuide(loaded)
@@ -212,8 +214,14 @@ export function GuideEditorPage() {
         </div>
       )}
 
-      <div className="editor">
-        <div>
+      <div className="editor editor--with-nav">
+        <StepNavigator
+          steps={guide.steps}
+          stepsContainer={stepsRef}
+          onReorder={(steps) => mutate((current) => ({ ...current, steps }))}
+        />
+
+        <div ref={stepsRef}>
           {guide.steps.map((step, index) => (
             <StepEditor
               key={step.id}

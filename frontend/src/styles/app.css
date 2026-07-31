@@ -42,6 +42,7 @@
   --bullet-orange: #bc4c00;
   --bullet-yellow: #9a6700;
   --bullet-green: #1a7f37;
+  --bullet-light-blue: #1590c7;
   --bullet-blue: #0969da;
   --bullet-violet: #8250df;
 
@@ -1131,6 +1132,9 @@ a:hover {
 .bullet--color-green {
   color: var(--bullet-green);
 }
+.bullet--color-light_blue {
+  color: var(--bullet-light-blue);
+}
 .bullet--color-blue {
   color: var(--bullet-blue);
 }
@@ -1783,5 +1787,216 @@ a:hover {
   .table th,
   .table td {
     padding: 0.5rem 0.4rem;
+  }
+}
+
+/* --------------------------------------------------------- step navigator */
+
+/**
+ * The rail listing a guide's steps down the left of the editor.
+ *
+ * Guides here average 8.3 steps and the longest is 33, so a single scrolling
+ * column hides most of the guide from its own author. The rail is an addition:
+ * the metadata panel on the far side keeps its column, because a guide's title,
+ * tags and difficulty belong beside its steps rather than behind tabs.
+ *
+ * The editor grid and the step cards' scroll margin are set here, after the
+ * editor block that defines them, so that everything the rail brings with it
+ * reads — and could be removed — as one piece. The grid change is scoped to
+ * `.editor--with-nav`: the page editor uses the same two-column `.editor` and
+ * must not gain a column it has nothing to put in.
+ */
+
+.editor--with-nav {
+  grid-template-columns: 200px minmax(0, 1fr) 300px;
+}
+
+.editor-step {
+  scroll-margin-top: calc(var(--header-height) + 1rem);
+}
+
+/**
+ * Below a tablet's width the rail would take more room from the steps than the
+ * overview gives back, and scrolling is the natural gesture on a small screen
+ * anyway. The single-column rule below restates the editor's own breakpoint,
+ * which this later block would otherwise override.
+ */
+@media (max-width: 1024px) {
+  .editor--with-nav {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
+
+  .step-nav {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .editor--with-nav {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.step-nav {
+  position: sticky;
+  top: calc(var(--header-height) + 1rem);
+  max-height: calc(100vh - var(--header-height) - 3rem);
+  overflow-y: auto;
+  padding: 0.5rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.step-nav__head {
+  margin: 0 0 0.45rem;
+  padding: 0 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+
+.step-nav__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step-nav__item {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  cursor: grab;
+}
+
+.step-nav__item:active {
+  cursor: grabbing;
+}
+
+.step-nav__item--dragging {
+  opacity: 0.45;
+}
+
+.step-nav__link {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.4rem;
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink-700);
+  background: none;
+  border: none;
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-sm);
+}
+
+.step-nav__link:hover {
+  background: var(--surface-sunken);
+}
+
+/* The bar and the weight carry the active state as well as the colour does. */
+.step-nav__link[aria-current] {
+  font-weight: 650;
+  color: var(--brand-800);
+  background: var(--brand-050);
+  border-left-color: var(--brand-600);
+}
+
+.step-nav__number {
+  flex: 0 0 auto;
+  min-width: 1.1rem;
+  text-align: right;
+  font-size: 0.7rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-400);
+}
+
+.step-nav__link[aria-current] .step-nav__number {
+  color: var(--brand-700);
+}
+
+.step-nav__thumb {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 26px;
+  object-fit: cover;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.step-nav__title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+
+.step-nav__title--empty {
+  color: var(--ink-400);
+  font-weight: 400;
+}
+
+.step-nav__move {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  opacity: 0.4;
+}
+
+.step-nav__item:hover .step-nav__move,
+.step-nav__item:focus-within .step-nav__move {
+  opacity: 1;
+}
+
+.step-nav__nudge {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 19px;
+  padding: 0;
+  cursor: pointer;
+  color: var(--ink-500);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+}
+
+.step-nav__nudge:hover:not(:disabled) {
+  color: var(--ink-900);
+  background: var(--surface-sunken);
+}
+
+.step-nav__nudge:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* Reordering is the only path where there is no pointer to drag with. */
+@media (hover: none) {
+  .step-nav__move {
+    opacity: 1;
+  }
+}
+
+/* On paper the rail is a list of links to nowhere, like the panel opposite it. */
+@media print {
+  .step-nav {
+    display: none;
   }
 }
