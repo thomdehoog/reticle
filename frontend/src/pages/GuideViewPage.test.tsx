@@ -64,7 +64,7 @@ describe('GuideViewPage', () => {
     expect(screen.getByText('Thom de Hoog')).toBeInTheDocument()
   })
 
-  it('announces a caution bullet to screen readers as well as colouring it', async () => {
+  it('labels a caution in words, not by colour or icon alone', async () => {
     const server = createFakeServer({
       guides: [
         guideFixture({
@@ -92,7 +92,14 @@ describe('GuideViewPage', () => {
 
     const bullet = (await screen.findByText('Never look into the beam path.')).closest('li')
     expect(bullet).not.toBeNull()
-    expect(within(bullet as HTMLElement).getByText('Caution:')).toBeInTheDocument()
+
+    /* The word is the accessible signal. An icon and a colour both vanish in a
+       greyscale printout taped to an instrument, and for a colour-blind reader. */
+    expect(within(bullet as HTMLElement).getByText('Caution')).toBeInTheDocument()
+
+    /* Treatment follows the kind, so a caution is red whatever colour the
+       author picked — here they chose red anyway. */
+    expect(bullet).toHaveClass('bullet--kind-caution')
     expect(bullet).toHaveClass('bullet--color-red')
   })
 

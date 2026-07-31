@@ -7,6 +7,8 @@
  * where it can only be reached through a rendered DOM.
  */
 
+import { ulid } from 'ulid'
+
 import {
   type Bullet,
   type BulletLevel,
@@ -16,25 +18,26 @@ import {
   type Step,
 } from './types'
 
-let fallbackCounter = 0
-
 /**
- * IDs for steps and bullets the user has just created but not yet saved. The
- * server replaces them with real ULIDs on save; they only need to be unique
- * within the open document so React keys stay stable while editing.
+ * Identifiers for rows the author has just created.
  *
- * `crypto.randomUUID` is unavailable in a non-secure context, which a ZMB
- * intranet deployment served over plain http would be, so this degrades rather
- * than throwing in exactly the environment we are most likely to be installed in.
+ * These are real ULIDs, not placeholders. The server validates every
+ * client-supplied id and accepts an unknown one precisely so an optimistically
+ * created row keeps the key it was given — so minting a proper ULID here means
+ * a step keeps one identity from the moment it appears on screen, through
+ * every autosave, to the database. A placeholder scheme would be rejected
+ * outright, and autosave would fail silently from the first added step onward.
+ *
+ * `ulid()` also avoids `crypto.randomUUID`, which is unavailable outside a
+ * secure context — exactly what a ZMB intranet deployment over plain http is.
  */
-export function newLocalId(): string {
-  const uuid = globalThis.crypto?.randomUUID?.()
-  return uuid ? `new-${uuid}` : `new-${Date.now().toString(36)}-${fallbackCounter++}`
+export function newId(): string {
+  return ulid()
 }
 
 export function createBullet(overrides: Partial<Bullet> = {}): Bullet {
   return {
-    id: newLocalId(),
+    id: newId(),
     text: '',
     color: 'black',
     icon: null,
@@ -45,7 +48,7 @@ export function createBullet(overrides: Partial<Bullet> = {}): Bullet {
 
 export function createStep(overrides: Partial<Step> = {}): Step {
   return {
-    id: newLocalId(),
+    id: newId(),
     orderIndex: 0,
     title: '',
     bullets: [createBullet()],

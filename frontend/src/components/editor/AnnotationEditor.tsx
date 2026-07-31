@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 
 import { AnnotationShape, ANNOTATION_COLORS } from '../AnnotationOverlay'
 import { isMeaningfulDrag, normaliseAnnotation } from '../../domain/annotation'
-import { newLocalId } from '../../domain/guide'
+import { newId } from '../../domain/guide'
 import type { Annotation, BulletColor, Media } from '../../domain/types'
 import { useElementSize } from '../../hooks/useElementSize'
 import { IconTrash } from '../icons'
@@ -85,7 +85,7 @@ export function AnnotationEditor({ media, onChange, onClose }: AnnotationEditorP
 
     event.currentTarget.setPointerCapture(event.pointerId)
     setSelectedId(null)
-    setDrawing({ id: newLocalId(), shape, color, x: origin.x, y: origin.y, width: 0, height: 0 })
+    setDrawing({ id: newId(), shape, color, x: origin.x, y: origin.y, width: 0, height: 0 })
   }
 
   function onPointerMove(event: ReactPointerEvent) {

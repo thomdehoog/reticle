@@ -20,12 +20,24 @@ export const ANNOTATION_COLORS: Record<BulletColor, string> = {
   orange: '#bc4c00',
   yellow: '#9a6700',
   green: '#1a7f37',
-  light_blue: '#1590c7',
+  light_blue: '#0e7490',
   blue: '#0969da',
   violet: '#8250df',
 }
 
 const STROKE_WIDTH = 3
+
+/**
+ * Every shape is drawn twice: a white stroke underneath, the colour on top.
+ *
+ * Annotations land on screenshots of instrument software, and half of those are
+ * near-black — a LAS X or ZEN acquisition window. Against that, the black
+ * annotation colour measures about 1.01:1 and simply disappears, and the rest
+ * sit at a marginal 3.2:1. The halo makes the whole palette legible over any
+ * photograph, light or dark, and survives greyscale printing.
+ */
+const HALO_WIDTH = STROKE_WIDTH + 3
+const HALO_COLOR = '#ffffff'
 
 export function AnnotationShape({
   annotation,
@@ -44,13 +56,13 @@ export function AnnotationShape({
   const w = annotation.width * width
   const h = annotation.height * height
 
-  const common = {
-    stroke,
-    strokeWidth: STROKE_WIDTH,
+  const geometry = {
     fill: 'none',
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
   }
+  const halo = { ...geometry, stroke: HALO_COLOR, strokeWidth: HALO_WIDTH, opacity: 0.85 }
+  const common = { ...geometry, stroke, strokeWidth: STROKE_WIDTH }
 
   const highlight = selected ? (
     <rect
@@ -67,31 +79,33 @@ export function AnnotationShape({
   ) : null
 
   if (annotation.shape === 'rectangle') {
+    const box = {
+      x: Math.min(x, x + w),
+      y: Math.min(y, y + h),
+      width: Math.abs(w),
+      height: Math.abs(h),
+      rx: 2,
+    }
     return (
       <g>
-        <rect
-          x={Math.min(x, x + w)}
-          y={Math.min(y, y + h)}
-          width={Math.abs(w)}
-          height={Math.abs(h)}
-          rx={2}
-          {...common}
-        />
+        <rect {...box} {...halo} />
+        <rect {...box} {...common} />
         {highlight}
       </g>
     )
   }
 
   if (annotation.shape === 'ellipse') {
+    const oval = {
+      cx: x + w / 2,
+      cy: y + h / 2,
+      rx: Math.abs(w) / 2,
+      ry: Math.abs(h) / 2,
+    }
     return (
       <g>
-        <ellipse
-          cx={x + w / 2}
-          cy={y + h / 2}
-          rx={Math.abs(w) / 2}
-          ry={Math.abs(h) / 2}
-          {...common}
-        />
+        <ellipse {...oval} {...halo} />
+        <ellipse {...oval} {...common} />
         {highlight}
       </g>
     )
@@ -101,17 +115,21 @@ export function AnnotationShape({
   const headLength = Math.min(16, Math.hypot(w, h) * 0.35)
   const spread = 0.42
 
+  const shaft = { x1: x, y1: y, x2: x + w, y2: y + h }
+  const head = {
+    points: [
+      `${x + w - headLength * Math.cos(angle - spread)},${y + h - headLength * Math.sin(angle - spread)}`,
+      `${x + w},${y + h}`,
+      `${x + w - headLength * Math.cos(angle + spread)},${y + h - headLength * Math.sin(angle + spread)}`,
+    ].join(' '),
+  }
+
   return (
     <g>
-      <line x1={x} y1={y} x2={x + w} y2={y + h} {...common} />
-      <polyline
-        points={[
-          `${x + w - headLength * Math.cos(angle - spread)},${y + h - headLength * Math.sin(angle - spread)}`,
-          `${x + w},${y + h}`,
-          `${x + w - headLength * Math.cos(angle + spread)},${y + h - headLength * Math.sin(angle + spread)}`,
-        ].join(' ')}
-        {...common}
-      />
+      <line {...shaft} {...halo} />
+      <polyline {...head} {...halo} />
+      <line {...shaft} {...common} />
+      <polyline {...head} {...common} />
       {highlight}
     </g>
   )

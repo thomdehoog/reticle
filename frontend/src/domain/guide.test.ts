@@ -7,7 +7,7 @@ import {
   indentBullet,
   insertStepAfter,
   moveStep,
-  newLocalId,
+  newId,
   removeStep,
   renumberSteps,
   validateForPublish,
@@ -57,11 +57,14 @@ function guideFixture(overrides: Partial<Guide> = {}): Guide {
   }
 }
 
-describe('newLocalId', () => {
-  it('produces unique ids that are recognisably unsaved', () => {
-    const ids = new Set(Array.from({ length: 200 }, () => newLocalId()))
+describe('newId', () => {
+  it('mints unique ULIDs the server will accept', () => {
+    const ids = new Set(Array.from({ length: 200 }, () => newId()))
     expect(ids.size).toBe(200)
-    for (const id of ids) expect(id.startsWith('new-')).toBe(true)
+    /* The server validates every client-supplied id and refuses anything that
+       is not a ULID, so a placeholder scheme would break autosave the moment
+       an author added a step. */
+    for (const id of ids) expect(id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/)
   })
 })
 

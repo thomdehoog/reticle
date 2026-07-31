@@ -42,7 +42,7 @@
   --bullet-orange: #bc4c00;
   --bullet-yellow: #9a6700;
   --bullet-green: #1a7f37;
-  --bullet-light-blue: #1590c7;
+  --bullet-light-blue: #0e7490;
   --bullet-blue: #0969da;
   --bullet-violet: #8250df;
 
@@ -116,6 +116,12 @@ a:hover {
   outline: 2px solid var(--brand-600);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
+}
+
+/* brand-600 on the dark header is 2.08:1 — below the 3:1 a focus indicator
+   needs, so tabbing across the header showed nothing at all. */
+.app__header :focus-visible {
+  outline-color: #8fb6f5;
 }
 
 .visually-hidden {
@@ -284,9 +290,14 @@ a:hover {
   background: var(--brand-100);
 }
 
+/* 24px is the WCAG 2.2 floor for a target, and this one deletes something.
+   Negative margin keeps the chip its original size. */
 .tag__remove {
   display: grid;
   place-items: center;
+  min-width: 24px;
+  min-height: 24px;
+  margin: -2px -6px -2px 0;
   padding: 0;
   color: inherit;
   background: none;
@@ -365,7 +376,7 @@ a:hover {
 }
 
 .tag-input__count {
-  color: var(--ink-400);
+  color: var(--ink-500);
 }
 
 .checkbox {
@@ -768,13 +779,15 @@ a:hover {
   white-space: nowrap;
 }
 
+/* ink-400 is 3.69:1 on white — below AA, and this is the line people scan to
+   choose a guide, on a phone, in a darkened imaging room. */
 .guide-row__meta {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
   margin-top: 0.25rem;
   font-size: 0.78rem;
-  color: var(--ink-400);
+  color: var(--ink-500);
 }
 
 /* ------------------------------------------------------------------- badge */
@@ -934,7 +947,7 @@ a:hover {
   font-weight: 650;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--ink-400);
+  color: var(--ink-500);
 }
 
 .guide__meta-value {
@@ -993,11 +1006,17 @@ a:hover {
   overflow: hidden;
 }
 
+/**
+ * `contain`, never `cover`. Cropping a step photo can cut out the very knob the
+ * bullet is describing — and because the annotation overlay is sized to the
+ * element box while a cropped picture is not, `cover` also lands every drawn
+ * shape in the wrong place on any step with more than one image.
+ */
 .step__media img {
   width: 100%;
   height: 100%;
   max-height: 340px;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .step__media--single img {
@@ -1094,13 +1113,22 @@ a:hover {
   padding-left: 3rem;
 }
 
+/**
+ * The colour lives on the list item and is inherited by the marker. Setting it
+ * on the marker instead silently killed the whole palette: a child's own
+ * declaration beats an inherited one, so every bullet rendered black however it
+ * was authored.
+ */
+.bullet {
+  color: var(--bullet-black);
+}
+
 .bullet__marker {
   flex: 0 0 auto;
   display: grid;
   place-items: center;
   width: 1.05rem;
   height: 1.55rem;
-  color: var(--bullet-black);
 }
 
 .bullet__dot {
@@ -1146,11 +1174,59 @@ a:hover {
   color: var(--ink-900);
 }
 
+/**
+ * A flag's treatment follows its kind, not the colour the author happened to
+ * pick — colour and kind are independent in the model, so nothing else
+ * guarantees that a caution looks like a caution.
+ *
+ * The accent travels as a custom property rather than `currentColor`, because
+ * the text element sets its own colour for legibility and would otherwise hand
+ * the border and tint a dark grey.
+ */
+.bullet--kind-caution {
+  --flag-accent: var(--bullet-red);
+  color: var(--bullet-red);
+}
+
+.bullet--kind-note {
+  --flag-accent: var(--bullet-blue);
+  color: var(--bullet-blue);
+}
+
+.bullet--kind-reminder {
+  --flag-accent: var(--bullet-violet);
+  color: var(--bullet-violet);
+}
+
 .bullet--flagged .bullet__text {
   padding: 0.35rem 0.6rem;
   border-radius: var(--radius-sm);
-  border-left: 3px solid currentColor;
-  background: color-mix(in srgb, currentColor 7%, transparent);
+  border-left: 3px solid var(--flag-accent);
+  background: color-mix(in srgb, var(--flag-accent) 10%, transparent);
+  /* Browsers drop backgrounds when printing; without this a caution loses its
+     tint on the sheet taped next to the instrument. */
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+.bullet--kind-caution .bullet__text {
+  border-left-width: 4px;
+  background: color-mix(in srgb, var(--flag-accent) 13%, transparent);
+}
+
+/**
+ * The kind is spelled out, not left to an icon. An icon alone vanishes for a
+ * colour-blind reader, in a greyscale photocopy, and at arm's length on a
+ * phone — and "caution" reading like "note" is the failure that matters in a
+ * building with lasers and cryogens.
+ */
+.bullet__flag-label {
+  margin-right: 0.45em;
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--flag-accent);
 }
 
 /* ------------------------------------------------------------------ editor */
@@ -1387,19 +1463,32 @@ a:hover {
   display: block;
 }
 
+/* Two 20px targets 4px apart, one of which deletes an image with no undo, is
+   how a tablet author loses a photograph at the bench. */
 .media-slot__action {
   position: absolute;
   top: 3px;
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   color: #fff;
-  background: rgba(16, 21, 28, 0.66);
+  background: rgba(16, 21, 28, 0.72);
   border: none;
   border-radius: 50%;
   cursor: pointer;
+}
+
+@media (hover: none) {
+  .media-slot__action {
+    width: 32px;
+    height: 32px;
+  }
+
+  .media-slot__annotate {
+    right: 41px;
+  }
 }
 
 .media-slot__remove {
@@ -1411,7 +1500,7 @@ a:hover {
 }
 
 .media-slot__annotate {
-  right: 27px;
+  right: 35px;
 }
 
 .media-slot__annotate:hover {
@@ -1522,7 +1611,7 @@ a:hover {
   font-size: 0.76rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--ink-400);
+  color: var(--ink-500);
 }
 
 /* ------------------------------------------------------------------- modal */
@@ -1657,12 +1746,21 @@ a:hover {
   .editor-bullet__actions {
     opacity: 1;
   }
+
+  /* Roomier for a gloved hand at an instrument. */
+  .tag {
+    padding: 0.35rem 0.7rem;
+  }
 }
 
 @media (max-width: 900px) {
+  /**
+   * The sidebar follows the steps rather than preceding them. Putting it first
+   * pushed step 1 roughly 700px down on a tablet and 1100px on a phone: those
+   * fields are written once, the steps are what an author keeps coming back to.
+   */
   .editor__sidebar {
     position: static;
-    order: -1;
   }
 }
 
@@ -1750,6 +1848,36 @@ a:hover {
 
   .guide-row {
     padding: 0.8rem 0.9rem;
+  }
+
+  /* The summary is how you tell the confocal guide from the widefield one, so
+     wrap it to two lines rather than cutting it off mid-word. */
+  .guide-row__summary {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    overflow: hidden;
+  }
+
+  /**
+   * The bullet row gives the text its own line on a phone. Squeezed beside the
+   * style picker, the indent offset and three always-visible action buttons, it
+   * had roughly 150px left and wrapped at three or four words.
+   */
+  .editor-bullet {
+    flex-wrap: wrap;
+  }
+
+  .editor-bullet__text {
+    order: 2;
+    flex: 1 1 100%;
+  }
+
+  .editor-bullet__actions {
+    order: 3;
+    flex: 1 0 100%;
+    justify-content: flex-end;
   }
 
   .editor-step {
