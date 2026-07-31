@@ -249,6 +249,55 @@ a:hover {
   color: var(--ink-500);
 }
 
+.field-pair {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ------------------------------------------------------------------- tags */
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1.25rem;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 550;
+  color: var(--brand-800);
+  background: var(--brand-050);
+  border: 1px solid var(--brand-100);
+  border-radius: 999px;
+}
+
+.tag:hover {
+  text-decoration: none;
+  border-color: var(--brand-600);
+  background: var(--brand-100);
+}
+
+.tag__remove {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.tag__remove:hover {
+  opacity: 1;
+}
+
 .field__error {
   font-size: 0.82rem;
   color: var(--danger-700);

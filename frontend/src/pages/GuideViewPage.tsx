@@ -4,7 +4,7 @@ import { useApi, useAuth } from '../auth/AuthContext'
 import { BulletList } from '../components/BulletList'
 import { IconEdit } from '../components/icons'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
-import { DIFFICULTY_LABELS, formatDuration } from '../domain/guide'
+import { DIFFICULTY_LABELS, formatDurationRange } from '../domain/guide'
 import type { Step } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 
@@ -39,12 +39,8 @@ export function GuideViewPage() {
 
   const { data, error, loading } = useAsync(
     async () => {
-      const guide = await api.getGuide(slug)
-      const [categories, allGuides] = await Promise.all([
-        api.listCategories(),
-        guide.prerequisiteIds.length > 0 ? api.listGuides() : Promise.resolve([]),
-      ])
-      return { guide, categories, allGuides }
+      const [guide, categories] = await Promise.all([api.getGuide(slug), api.listCategories()])
+      return { guide, categories }
     },
     [api, slug],
   )
@@ -53,11 +49,8 @@ export function GuideViewPage() {
   if (error) return <ErrorAlert error={error} />
   if (!data) return <EmptyState>That guide does not exist.</EmptyState>
 
-  const { guide, categories, allGuides } = data
+  const { guide, categories } = data
   const category = categories.find((candidate) => candidate.id === guide.categoryId)
-  const prerequisites = allGuides.filter((candidate) =>
-    guide.prerequisiteIds.includes(candidate.id),
-  )
 
   return (
     <article className="guide">
@@ -94,7 +87,9 @@ export function GuideViewPage() {
         </div>
         <div className="guide__meta-item">
           <span className="guide__meta-label">Time required</span>
-          <span className="guide__meta-value">{formatDuration(guide.timeRequiredMinutes)}</span>
+          <span className="guide__meta-value">
+            {formatDurationRange(guide.timeRequiredMinMinutes, guide.timeRequiredMaxMinutes)}
+          </span>
         </div>
         <div className="guide__meta-item">
           <span className="guide__meta-label">Steps</span>
@@ -114,14 +109,12 @@ export function GuideViewPage() {
         )}
       </div>
 
-      {prerequisites.length > 0 && (
-        <div className="alert alert--info">
-          <strong>Before you start:</strong>{' '}
-          {prerequisites.map((prerequisite, index) => (
-            <span key={prerequisite.id}>
-              {index > 0 && ', '}
-              <Link to={`/g/${prerequisite.slug}`}>{prerequisite.title}</Link>
-            </span>
+      {guide.tags.length > 0 && (
+        <div className="tag-row">
+          {guide.tags.map((tag) => (
+            <Link key={tag} className="tag" to={`/t/${encodeURIComponent(tag)}`}>
+              {tag}
+            </Link>
           ))}
         </div>
       )}

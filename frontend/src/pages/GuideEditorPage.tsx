@@ -350,23 +350,44 @@ export function GuideEditorPage() {
               </div>
 
               <div className="field">
-                <label className="field__label" htmlFor="guide-time">
-                  Time required (minutes)
-                </label>
-                <input
-                  id="guide-time"
-                  className="input"
-                  type="number"
-                  min={0}
-                  value={guide.timeRequiredMinutes ?? ''}
-                  onChange={(event) =>
-                    mutate((current) => ({
-                      ...current,
-                      timeRequiredMinutes:
-                        event.target.value === '' ? null : Number(event.target.value),
-                    }))
-                  }
-                />
+                <span className="field__label">Time required (minutes)</span>
+                <div className="field-pair">
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    aria-label="Time required, from"
+                    placeholder="from"
+                    value={guide.timeRequiredMinMinutes ?? ''}
+                    onChange={(event) =>
+                      mutate((current) => ({
+                        ...current,
+                        timeRequiredMinMinutes:
+                          event.target.value === '' ? null : Number(event.target.value),
+                      }))
+                    }
+                  />
+                  <span aria-hidden="true">–</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    aria-label="Time required, to"
+                    placeholder="to"
+                    value={guide.timeRequiredMaxMinutes ?? ''}
+                    onChange={(event) =>
+                      mutate((current) => ({
+                        ...current,
+                        timeRequiredMaxMinutes:
+                          event.target.value === '' ? null : Number(event.target.value),
+                      }))
+                    }
+                  />
+                </div>
+                <span className="field__hint">
+                  A range is more honest than a single number. Leave the second box empty if it is
+                  reliably one duration.
+                </span>
               </div>
             </div>
           </div>

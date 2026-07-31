@@ -117,14 +117,32 @@ export const DIFFICULTY_ORDER: Difficulty[] = [
   'very_difficult',
 ]
 
-/** Renders an estimate the way a person would say it: "1 h 30 min", not "90 min". */
-export function formatDuration(minutes: number | null): string {
-  if (minutes === null || minutes <= 0) return 'Not specified'
+/** Renders a duration the way a person would say it: "1 h 30 min", not "90 min". */
+export function formatMinutes(minutes: number): string {
   if (minutes < 60) return `${minutes} min`
 
   const hours = Math.floor(minutes / 60)
   const remainder = minutes % 60
   return remainder === 0 ? `${hours} h` : `${hours} h ${remainder} min`
+}
+
+/**
+ * Estimates are a range because that is how long a procedure honestly takes —
+ * a confocal session is "30 minutes to an hour and a half" depending on how the
+ * sample behaves, and a single number would be a lie in one direction.
+ */
+export function formatDurationRange(
+  minMinutes: number | null,
+  maxMinutes: number | null,
+): string {
+  const low = minMinutes !== null && minMinutes > 0 ? minMinutes : null
+  const high = maxMinutes !== null && maxMinutes > 0 ? maxMinutes : null
+
+  if (low === null && high === null) return 'Not specified'
+  if (low === null) return `up to ${formatMinutes(high as number)}`
+  if (high === null || high === low) return formatMinutes(low)
+  if (high < low) return `${formatMinutes(high)} – ${formatMinutes(low)}`
+  return `${formatMinutes(low)} – ${formatMinutes(high)}`
 }
 
 export interface ValidationIssue {

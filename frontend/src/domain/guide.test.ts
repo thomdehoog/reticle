@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   canAcceptMedia,
   createStep,
-  formatDuration,
+  formatDurationRange,
   indentBullet,
   insertStepAfter,
   moveStep,
@@ -23,7 +23,7 @@ function threeSteps(): Step[] {
 }
 
 function media(id: string): Media {
-  return { id, url: `/api/media/${id}`, alt: '', width: 800, height: 600 }
+  return { id, url: `/api/media/${id}`, alt: '', width: 800, height: 600, annotations: [] }
 }
 
 function guideFixture(overrides: Partial<Guide> = {}): Guide {
@@ -34,8 +34,10 @@ function guideFixture(overrides: Partial<Guide> = {}): Guide {
     title: 'Confocal startup',
     summary: '',
     categoryId: 'c-light-microscopy',
+    tags: [],
     difficulty: 'moderate',
-    timeRequiredMinutes: 30,
+    timeRequiredMinMinutes: 30,
+    timeRequiredMaxMinutes: null,
     introduction: '',
     conclusion: '',
     status: 'draft',
@@ -43,9 +45,10 @@ function guideFixture(overrides: Partial<Guide> = {}): Guide {
       ...step,
       bullets: [{ id: `b-${step.title}`, text: 'Do the thing', color: 'black', icon: null, level: 0 }],
     })),
-    prerequisiteIds: [],
     author: user,
     lastEditedBy: user,
+    contributors: [user],
+    viewCount: 0,
     createdAt: '2026-07-31T08:00:00Z',
     updatedAt: '2026-07-31T08:00:00Z',
     publishedAt: null,
@@ -143,18 +146,25 @@ describe('indentBullet', () => {
   })
 })
 
-describe('formatDuration', () => {
+describe('formatDurationRange', () => {
   it.each([
-    [null, 'Not specified'],
-    [0, 'Not specified'],
-    [5, '5 min'],
-    [59, '59 min'],
-    [60, '1 h'],
-    [90, '1 h 30 min'],
-    [125, '2 h 5 min'],
-    [240, '4 h'],
-  ])('formats %s as %s', (minutes, expected) => {
-    expect(formatDuration(minutes)).toBe(expected)
+    [null, null, 'Not specified'],
+    [0, 0, 'Not specified'],
+    [5, null, '5 min'],
+    [59, null, '59 min'],
+    [60, null, '1 h'],
+    [90, null, '1 h 30 min'],
+    [125, null, '2 h 5 min'],
+    [30, 30, '30 min'],
+    [30, 90, '30 min – 1 h 30 min'],
+    [60, 240, '1 h – 4 h'],
+    [null, 45, 'up to 45 min'],
+  ])('formats %s..%s as %s', (low, high, expected) => {
+    expect(formatDurationRange(low, high)).toBe(expected)
+  })
+
+  it('reads a reversed range in the order a person would say it', () => {
+    expect(formatDurationRange(90, 30)).toBe('30 min – 1 h 30 min')
   })
 })
 

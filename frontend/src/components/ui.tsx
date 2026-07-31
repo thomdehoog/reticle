@@ -15,17 +15,17 @@ import {
 } from 'react'
 
 import { ApiError } from '../api/client'
-import type { GuideStatus } from '../domain/types'
+import type { ContentStatus } from '../domain/types'
 import { IconClose } from './icons'
 
-const STATUS_LABELS: Record<GuideStatus, string> = {
+const STATUS_LABELS: Record<ContentStatus, string> = {
   draft: 'Draft',
   in_review: 'In review',
   published: 'Published',
   archived: 'Archived',
 }
 
-export function StatusBadge({ status }: { status: GuideStatus }) {
+export function StatusBadge({ status }: { status: ContentStatus }) {
   return <span className={`badge badge--${status}`}>{STATUS_LABELS[status]}</span>
 }
 

@@ -7,11 +7,15 @@
 
 import type {
   Category,
+  ContentStatus,
   Guide,
-  GuideStatus,
   GuideSummary,
   Media,
+  Page,
+  PageSummary,
   Role,
+  SearchResult,
+  Tag,
   User,
 } from '../domain/types'
 import type { ApiClient } from './client'
@@ -23,12 +27,20 @@ import type { ApiClient } from './client'
  */
 export type GuideQuery = {
   categoryId?: string
-  status?: GuideStatus
+  status?: ContentStatus
   q?: string
   authorId?: string
+  /** Comma-separated tag slugs; a guide must carry all of them to match. */
+  tags?: string
 }
 
-export interface GuideRevisionSummary {
+export type PageQuery = {
+  categoryId?: string
+  status?: ContentStatus
+  q?: string
+}
+
+export interface RevisionSummary {
   version: number
   publishedAt: string
   publishedBy: { id: string; displayName: string }
@@ -62,11 +74,19 @@ export class ReticleApi {
     return this.http.get<Category[]>('/categories')
   }
 
-  createCategory(input: { name: string; description?: string; parentId?: string | null }): Promise<Category> {
+  createCategory(input: {
+    name: string
+    description?: string
+    parentId?: string | null
+    isHidden?: boolean
+  }): Promise<Category> {
     return this.http.post<Category>('/categories', input)
   }
 
-  updateCategory(id: string, changes: Partial<Pick<Category, 'name' | 'description' | 'parentId' | 'orderIndex'>>): Promise<Category> {
+  updateCategory(
+    id: string,
+    changes: Partial<Pick<Category, 'name' | 'description' | 'parentId' | 'orderIndex' | 'isHidden'>>,
+  ): Promise<Category> {
     return this.http.patch<Category>(`/categories/${id}`, changes)
   }
 
@@ -110,12 +130,61 @@ export class ReticleApi {
     return this.http.delete<void>(`/guides/${id}`)
   }
 
-  listRevisions(id: string): Promise<GuideRevisionSummary[]> {
-    return this.http.get<GuideRevisionSummary[]>(`/guides/${id}/revisions`)
+  listGuideRevisions(id: string): Promise<RevisionSummary[]> {
+    return this.http.get<RevisionSummary[]>(`/guides/${id}/revisions`)
   }
 
-  getRevision(id: string, version: number): Promise<Guide> {
+  getGuideRevision(id: string, version: number): Promise<Guide> {
     return this.http.get<Guide>(`/guides/${id}/revisions/${version}`)
+  }
+
+  listPages(query: PageQuery = {}): Promise<PageSummary[]> {
+    return this.http.get<PageSummary[]>(`/pages${queryString(query)}`)
+  }
+
+  getPage(idOrSlug: string): Promise<Page> {
+    return this.http.get<Page>(`/pages/${encodeURIComponent(idOrSlug)}`)
+  }
+
+  /** The landing page for a category, or null when it has not been written yet. */
+  getCategoryLandingPage(categoryId: string): Promise<Page | null> {
+    return this.http.get<Page | null>(`/categories/${categoryId}/page`)
+  }
+
+  createPage(input: {
+    title: string
+    categoryId?: string | null
+    isLanding?: boolean
+  }): Promise<Page> {
+    return this.http.post<Page>('/pages', input)
+  }
+
+  savePage(page: Page): Promise<Page> {
+    return this.http.put<Page>(`/pages/${page.id}`, {
+      ...page,
+      expectedUpdatedAt: page.updatedAt,
+    })
+  }
+
+  publishPage(id: string): Promise<Page> {
+    return this.http.post<Page>(`/pages/${id}/publish`)
+  }
+
+  unpublishPage(id: string): Promise<Page> {
+    return this.http.post<Page>(`/pages/${id}/unpublish`)
+  }
+
+  listPageRevisions(id: string): Promise<RevisionSummary[]> {
+    return this.http.get<RevisionSummary[]>(`/pages/${id}/revisions`)
+  }
+
+  /** Every tag in use, with counts, for the tag picker and guide-list embeds. */
+  listTags(): Promise<Tag[]> {
+    return this.http.get<Tag[]>('/tags')
+  }
+
+  search(term: string): Promise<SearchResult[]> {
+    return this.http.get<SearchResult[]>(`/search${queryString({ q: term })}`)
   }
 
   uploadMedia(file: File): Promise<Media> {
@@ -126,11 +195,19 @@ export class ReticleApi {
     return this.http.get<User[]>('/users')
   }
 
-  createUser(input: { email: string; displayName: string; role: Role; password: string }): Promise<User> {
+  createUser(input: {
+    email: string
+    displayName: string
+    role: Role
+    password: string
+  }): Promise<User> {
     return this.http.post<User>('/users', input)
   }
 
-  updateUser(id: string, changes: { displayName?: string; role?: Role; isActive?: boolean }): Promise<User> {
+  updateUser(
+    id: string,
+    changes: { displayName?: string; role?: Role; isActive?: boolean },
+  ): Promise<User> {
     return this.http.patch<User>(`/users/${id}`, changes)
   }
 

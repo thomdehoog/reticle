@@ -15,11 +15,19 @@ import {
   IconPalette,
   IconReminder,
   IconTrash,
-  IconWarning,
 } from '../icons'
 import type { Bullet, BulletColor, BulletIcon } from '../../domain/types'
 
-const COLORS: BulletColor[] = ['black', 'red', 'orange', 'yellow', 'green', 'blue', 'violet']
+const COLORS: BulletColor[] = [
+  'black',
+  'red',
+  'orange',
+  'yellow',
+  'green',
+  'light_blue',
+  'blue',
+  'violet',
+]
 
 const ICON_CHOICES: {
   value: BulletIcon | null
@@ -29,7 +37,6 @@ const ICON_CHOICES: {
   { value: null, label: 'Plain bullet', Icon: null },
   { value: 'note', label: 'Note', Icon: IconNote },
   { value: 'caution', label: 'Caution', Icon: IconCaution },
-  { value: 'warning', label: 'Warning', Icon: IconWarning },
   { value: 'reminder', label: 'Reminder', Icon: IconReminder },
 ]
 

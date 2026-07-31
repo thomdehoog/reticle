@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 
-import { DIFFICULTY_LABELS, formatDuration } from '../domain/guide'
+import { DIFFICULTY_LABELS, formatDurationRange } from '../domain/guide'
 import type { GuideSummary } from '../domain/types'
 import { StatusBadge } from './ui'
 
@@ -16,7 +16,9 @@ export function GuideRow({ guide, to }: { guide: GuideSummary; to?: string }) {
             {guide.stepCount} {guide.stepCount === 1 ? 'step' : 'steps'}
           </span>
           <span>{DIFFICULTY_LABELS[guide.difficulty]}</span>
-          <span>{formatDuration(guide.timeRequiredMinutes)}</span>
+          <span>
+            {formatDurationRange(guide.timeRequiredMinMinutes, guide.timeRequiredMaxMinutes)}
+          </span>
           <span>{guide.author.displayName}</span>
         </div>
       </div>

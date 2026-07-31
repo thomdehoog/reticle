@@ -20,6 +20,7 @@ const ADMIN: User = {
   email: 'thom.dehoog@zmb.uzh.ch',
   displayName: 'Thom de Hoog',
   role: 'admin',
+  isActive: true,
   createdAt: '2026-01-01T00:00:00Z',
 }
 
@@ -31,8 +32,10 @@ export function guideFixture(overrides: Partial<Guide> = {}): Guide {
     title: 'Confocal startup',
     summary: '',
     categoryId: 'c-light',
+    tags: [],
     difficulty: 'moderate',
-    timeRequiredMinutes: 30,
+    timeRequiredMinMinutes: 30,
+    timeRequiredMaxMinutes: null,
     introduction: '',
     conclusion: '',
     status: 'draft',
@@ -45,9 +48,10 @@ export function guideFixture(overrides: Partial<Guide> = {}): Guide {
         media: [],
       },
     ],
-    prerequisiteIds: [],
     author,
     lastEditedBy: author,
+    contributors: [author],
+    viewCount: 0,
     createdAt: '2026-07-01T08:00:00Z',
     updatedAt: '2026-07-01T08:00:00Z',
     publishedAt: null,
@@ -67,6 +71,7 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
         description: '',
         parentId: null,
         orderIndex: 2,
+        isHidden: false,
       },
     ],
     guides: initial.guides ?? [guideFixture()],
@@ -97,11 +102,14 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       title: guide.title,
       summary: guide.summary,
       categoryId: guide.categoryId,
+      tags: guide.tags,
       difficulty: guide.difficulty,
-      timeRequiredMinutes: guide.timeRequiredMinutes,
+      timeRequiredMinMinutes: guide.timeRequiredMinMinutes,
+      timeRequiredMaxMinutes: guide.timeRequiredMaxMinutes,
       status: guide.status,
       stepCount: guide.steps.length,
       author: guide.author,
+      viewCount: guide.viewCount,
       updatedAt: guide.updatedAt,
       publishedAt: guide.publishedAt,
     }
@@ -182,6 +190,7 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
         alt: '',
         width: 800,
         height: 600,
+        annotations: [],
       }
       state.media.push(image)
       return json(image)

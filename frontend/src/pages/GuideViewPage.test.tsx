@@ -49,12 +49,18 @@ describe('GuideViewPage', () => {
 
   it('shows the guide metadata a microscopist needs before starting', async () => {
     const server = createFakeServer({
-      guides: [guideFixture({ difficulty: 'very_easy', timeRequiredMinutes: 90 })],
+      guides: [
+        guideFixture({
+          difficulty: 'very_easy',
+          timeRequiredMinMinutes: 30,
+          timeRequiredMaxMinutes: 90,
+        }),
+      ],
     })
     renderGuide(server)
 
     expect(await screen.findByText('Very easy')).toBeInTheDocument()
-    expect(screen.getByText('1 h 30 min')).toBeInTheDocument()
+    expect(screen.getByText('30 min – 1 h 30 min')).toBeInTheDocument()
     expect(screen.getByText('Thom de Hoog')).toBeInTheDocument()
   })
 
@@ -101,8 +107,22 @@ describe('GuideViewPage', () => {
               title: 'Route to the building',
               bullets: [{ id: 'b1', text: 'Walk to Lengghalde 5.', color: 'black', icon: null, level: 0 }],
               media: [
-                { id: 'm1', url: '/api/media/m1', alt: 'Entrance', width: 800, height: 600 },
-                { id: 'm2', url: '/api/media/m2', alt: 'Reception', width: 800, height: 600 },
+                {
+                  id: 'm1',
+                  url: '/api/media/m1',
+                  alt: 'Entrance',
+                  width: 800,
+                  height: 600,
+                  annotations: [],
+                },
+                {
+                  id: 'm2',
+                  url: '/api/media/m2',
+                  alt: 'Reception',
+                  width: 800,
+                  height: 600,
+                  annotations: [],
+                },
               ],
             },
           ],
@@ -115,21 +135,16 @@ describe('GuideViewPage', () => {
     expect(screen.getByAltText('Reception')).toBeInTheDocument()
   })
 
-  it('lists prerequisite guides before the first step', async () => {
-    const prerequisite = guideFixture({
-      id: 'g-safety',
-      slug: 'laser-safety',
-      title: 'Laser safety briefing',
-      status: 'published',
+  it('links each tag to the listing that gathers guides across categories', async () => {
+    const server = createFakeServer({
+      guides: [guideFixture({ tags: ['stellaris', 'confocal'] })],
     })
-    const main = guideFixture({ prerequisiteIds: ['g-safety'] })
-    const server = createFakeServer({ guides: [main, prerequisite] })
     renderGuide(server)
 
-    expect(await screen.findByText('Before you start:')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Laser safety briefing' })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'stellaris' })).toHaveAttribute(
       'href',
-      '/g/laser-safety',
+      '/t/stellaris',
     )
+    expect(screen.getByRole('link', { name: 'confocal' })).toHaveAttribute('href', '/t/confocal')
   })
 })

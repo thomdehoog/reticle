@@ -1,19 +1,17 @@
 import type { ComponentType } from 'react'
 
 import type { Bullet, BulletIcon } from '../domain/types'
-import { IconCaution, IconNote, IconReminder, IconWarning } from './icons'
+import { IconCaution, IconNote, IconReminder } from './icons'
 
 const ICON_COMPONENTS: Record<BulletIcon, ComponentType<{ size?: number }>> = {
   note: IconNote,
   caution: IconCaution,
-  warning: IconWarning,
   reminder: IconReminder,
 }
 
 const ICON_LABELS: Record<BulletIcon, string> = {
   note: 'Note',
   caution: 'Caution',
-  warning: 'Warning',
   reminder: 'Reminder',
 }
 
