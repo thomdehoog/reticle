@@ -522,6 +522,22 @@ a:hover {
   margin-bottom: 0.5rem;
 }
 
+.result-kind {
+  font-weight: 650;
+  color: var(--brand-700);
+}
+
+.result-count {
+  padding: 0.05rem 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--ink-500);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
 .field__error {
   font-size: 0.82rem;
   color: var(--danger-700);
@@ -1538,6 +1554,90 @@ a:hover {
 
 .modal__body {
   padding: 1.25rem;
+}
+
+/* ------------------------------------------------------------------- print */
+
+/**
+ * Printing is how a procedure gets taped next to an instrument, and it is also
+ * how the platform exports a PDF — every browser prints to one, so there is no
+ * PDF library to keep patched on the server for the next decade.
+ *
+ * The priorities are different from the screen: nothing interactive, a step
+ * must never be split across a page break, and the printout has to say which
+ * version it is, because the worst failure mode here is somebody following a
+ * two-year-old sheet taped to a microscope.
+ */
+@media print {
+  :root {
+    --surface: #fff;
+    --surface-sunken: #fff;
+  }
+
+  body {
+    background: #fff;
+    font-size: 10.5pt;
+  }
+
+  .app__header,
+  .page-actions,
+  .breadcrumb,
+  .searchbar,
+  .editor__sidebar,
+  .wiki-toolbar,
+  .media-slot__action,
+  .media-dropzone {
+    display: none !important;
+  }
+
+  .app__main {
+    max-width: none;
+    padding: 0;
+  }
+
+  .guide {
+    max-width: none;
+  }
+
+  .print-only {
+    display: block !important;
+    margin-bottom: 0.6rem;
+    padding-bottom: 0.4rem;
+    font-size: 9pt;
+    color: #333;
+    border-bottom: 1px solid #999;
+  }
+
+  .step {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border-top: 1px solid #bbb;
+  }
+
+  .step__media {
+    grid-template-columns: repeat(auto-fit, minmax(45mm, 1fr));
+  }
+
+  .step__media img {
+    max-height: 55mm;
+  }
+
+  .guide__meta {
+    border-color: #999;
+  }
+
+  .bullet--flagged .bullet__text {
+    border-left-width: 2pt;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+}
+
+.print-only {
+  display: none;
 }
 
 /* -------------------------------------------------------------- responsive */

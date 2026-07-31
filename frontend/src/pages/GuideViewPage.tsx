@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useApi, useAuth } from '../auth/AuthContext'
 import { AnnotatedImage } from '../components/AnnotationOverlay'
 import { BulletList } from '../components/BulletList'
-import { IconEdit } from '../components/icons'
+import { IconEdit, IconPrint } from '../components/icons'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
 import { DIFFICULTY_LABELS, formatDurationRange } from '../domain/guide'
 import type { Step } from '../domain/types'
@@ -70,6 +70,15 @@ export function GuideViewPage() {
         )}
       </nav>
 
+      {/* Only ever seen on paper: a printout with no provenance is how somebody
+          ends up following a superseded procedure taped to an instrument. */}
+      <div className="print-only">
+        Reticle · ZMB, University of Zurich — {guide.title}
+        {guide.publishedAt &&
+          ` · version ${guide.version}, published ${new Date(guide.publishedAt).toLocaleDateString()}`}
+        {` · printed ${new Date().toLocaleDateString()}`}
+      </div>
+
       <div className="page-header">
         <div className="page-header__text">
           <h1>{guide.title}</h1>
@@ -77,6 +86,10 @@ export function GuideViewPage() {
         </div>
         <div className="page-actions">
           {guide.status !== 'published' && <StatusBadge status={guide.status} />}
+          <button className="button" type="button" onClick={() => window.print()}>
+            <IconPrint />
+            Print
+          </button>
           {can('author') && (
             <Link className="button" to={`/g/${guide.id}/edit`}>
               <IconEdit />

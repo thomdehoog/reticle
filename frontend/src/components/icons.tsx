@@ -182,6 +182,16 @@ export function IconImage(props: IconProps) {
   )
 }
 
+export function IconPrint(props: IconProps) {
+  return (
+    <svg {...svgProps(props)}>
+      <path d="M7 9V3.5h10V9" />
+      <path d="M7 18H5.2A2.2 2.2 0 0 1 3 15.8v-4.6A2.2 2.2 0 0 1 5.2 9h13.6A2.2 2.2 0 0 1 21 11.2v4.6a2.2 2.2 0 0 1-2.2 2.2H17" />
+      <path d="M7 14.5h10v6H7z" />
+    </svg>
+  )
+}
+
 export function IconEdit(props: IconProps) {
   return (
     <svg {...svgProps(props)}>
