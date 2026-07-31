@@ -19,8 +19,17 @@ from typing import Annotated
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from .images import MAX_IMAGE_PIXELS_DEFAULT
+
 ENV_FILE_VARIABLE = "RETICLE_ENV_FILE"
 DEFAULT_ENV_FILE = ".env"
+
+WILDCARD_ORIGIN_REFUSAL = (
+    "RETICLE_CORS_ORIGINS must not contain '*'. Reticle authenticates with cookies and sends "
+    "Access-Control-Allow-Credentials, and a wildcard makes the server reflect whichever origin "
+    "asks — so any page a signed-in colleague happens to visit could read every guide in the "
+    "institute. List the exact origins instead, for example https://guides.zmb.uzh.ch."
+)
 
 
 class Settings(BaseSettings):
@@ -43,20 +52,25 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./reticle.db"
     media_root: Path = Path("./media")
 
+    debug: bool = False
+
     cookie_secure: bool = True
     cookie_domain: str | None = None
     session_lifetime_hours: int = 12
 
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
-    login_max_attempts_per_email: int = 5
+    login_max_attempts_per_email_and_ip: int = 5
+    login_max_attempts_per_email: int = 50
     login_max_attempts_per_ip: int = 20
     login_attempt_window_minutes: int = 15
 
     trust_forwarded_for: bool = False
 
+    max_request_bytes: int = 2 * 1024 * 1024
     max_upload_bytes: int = 20 * 1024 * 1024
     max_image_dimension: int = 10_000
+    max_image_pixels: int = MAX_IMAGE_PIXELS_DEFAULT
     max_media_per_step: int = 3
 
     min_password_length: int = 12
@@ -86,6 +100,22 @@ class Settings(BaseSettings):
         if text.startswith("["):
             return json.loads(text)
         return [origin.strip() for origin in text.split(",") if origin.strip()]
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _refuse_wildcard_origin(cls, value: list[str]) -> list[str]:
+        """Refuse to start rather than reflect every origin back with credentials.
+
+        Starlette treats ``["*"]`` together with ``allow_credentials=True`` as an
+        instruction to echo the request's own ``Origin`` header, which is not a
+        wildcard at all — it is universal approval. An operator reaching for
+        ``*`` is almost always trying to unblock one forgotten hostname, so
+        failing loudly at start-up costs them a minute and refusing quietly
+        would cost the institute every guide it holds.
+        """
+        if any(origin.strip() == "*" for origin in value):
+            raise ValueError(WILDCARD_ORIGIN_REFUSAL)
+        return value
 
 
 @lru_cache(maxsize=1)

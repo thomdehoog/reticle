@@ -29,7 +29,18 @@ def test_a_successful_login_is_recorded_with_the_source_address(client_factory, 
     assert record.actor_id is not None
 
 
-def test_a_failed_login_is_recorded_without_the_password(client_factory, make_user, db_session):
+def test_a_failed_login_records_neither_the_password_nor_the_typed_address(
+    client_factory, make_user, db_session
+):
+    """The submitted string is never stored verbatim.
+
+    A password typed into the email box only needs an ``@`` to satisfy
+    validation and reach this record, and it would then sit in the audit table
+    in plaintext. A digest still lets an admin correlate repeated attempts
+    against one account without holding the text.
+    """
+    from app.security import email_fingerprint
+
     make_user("audited@zmb.uzh.ch")
     client_factory("198.51.100.23").login("audited@zmb.uzh.ch", "the-wrong-password")
 
@@ -37,7 +48,8 @@ def test_a_failed_login_is_recorded_without_the_password(client_factory, make_us
 
     assert record.action == "auth.login_failed"
     assert "the-wrong-password" not in repr(record.detail)
-    assert record.detail["email"] == "audited@zmb.uzh.ch"
+    assert "audited@zmb.uzh.ch" not in repr(record.detail)
+    assert record.detail["emailDigest"] == email_fingerprint("audited@zmb.uzh.ch")
 
 
 def test_a_failed_login_for_an_unknown_account_records_no_actor(anon, db_session):

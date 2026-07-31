@@ -15,10 +15,13 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from ulid import ULID
 
 from .db import Base, JsonDocument, UtcDateTime, utcnow
+
+IP_ADDRESS_LENGTH = 45
+LOGIN_ATTEMPT_KEY_LENGTH = 370
 
 ROLES = ("viewer", "author", "admin")
 GUIDE_STATUSES = ("draft", "in_review", "published", "archived")
@@ -40,6 +43,19 @@ def is_valid_id(value: str) -> bool:
     except (ValueError, TypeError, AttributeError):
         return False
     return True
+
+
+def clip(value: str | None, length: int) -> str | None:
+    """Hold a string to its column width at the boundary, not at each caller.
+
+    SQLite ignores a declared ``VARCHAR`` length, so an over-long value inserts
+    happily in development and raises on PostgreSQL in production — which is the
+    worst possible place to find out. Truncating here means the guarantee holds
+    for every writer, including the ones that do not exist yet.
+    """
+    if value is None:
+        return None
+    return value[:length]
 
 
 class User(Base):
@@ -73,10 +89,14 @@ class Session(Base):
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(UtcDateTime)
     revoked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
-    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(IP_ADDRESS_LENGTH), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(400), nullable=True)
 
     user: Mapped[User] = relationship(back_populates="sessions")
+
+    @validates("ip_address")
+    def _clip_ip_address(self, _key: str, value: str | None) -> str | None:
+        return clip(value, IP_ADDRESS_LENGTH)
 
     def is_live(self, now: datetime) -> bool:
         return self.revoked_at is None and self.expires_at > now
@@ -88,6 +108,9 @@ class LoginAttempt(Base):
     Kept in the database rather than in process memory so that the limit still
     holds when Reticle runs under more than one uvicorn worker, and so that a
     restart is not a free reset for an attacker mid-spray.
+
+    ``key`` is wide enough for the longest scope, ``email_ip``, whose key is an
+    address and a source address joined together.
     """
 
     __tablename__ = "login_attempts"
@@ -95,8 +118,12 @@ class LoginAttempt(Base):
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
     scope: Mapped[str] = mapped_column(String(8))
-    key: Mapped[str] = mapped_column(String(320))
+    key: Mapped[str] = mapped_column(String(LOGIN_ATTEMPT_KEY_LENGTH))
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+    @validates("key")
+    def _clip_key(self, _key: str, value: str) -> str:
+        return clip(value, LOGIN_ATTEMPT_KEY_LENGTH)
 
 
 class Category(Base):
@@ -285,7 +312,11 @@ class AuditLog(Base):
     entity_type: Mapped[str] = mapped_column(String(40), index=True)
     entity_id: Mapped[str | None] = mapped_column(String(26), nullable=True, index=True)
     detail: Mapped[dict[str, Any]] = mapped_column(JsonDocument, default=dict)
-    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(IP_ADDRESS_LENGTH), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, index=True)
 
     actor: Mapped[User | None] = relationship()
+
+    @validates("ip_address")
+    def _clip_ip_address(self, _key: str, value: str | None) -> str | None:
+        return clip(value, IP_ADDRESS_LENGTH)

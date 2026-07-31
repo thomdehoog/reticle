@@ -10,6 +10,8 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 
 from __future__ import annotations
 
+import ipaddress
+import logging
 from typing import Annotated
 
 from fastapi import Cookie, Depends, Request
@@ -23,20 +25,70 @@ from .settings import get_settings
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 
+FORWARDED_HEADER = "x-forwarded-for"
+
 DbDep = Annotated[DbSession, Depends(get_db)]
+
+logger = logging.getLogger(__name__)
+
+_untrusted_forwarding_warned = False
+
+
+def parse_ip_address(value: str | None) -> str | None:
+    """Accept a candidate address only if it really is one.
+
+    ``X-Forwarded-For`` stays client-supplied even where a proxy is declared: a
+    proxy that appends rather than overwrites leaves whatever the caller sent
+    sitting in front of its own entry. Every consumer of this value writes it
+    down — ``login_attempts.key``, ``audit_log.ip_address``,
+    ``sessions.ip_address`` — so anything that is not an IP address is dropped
+    here rather than persisted, which is also what keeps a 45-character column
+    from being handed a kilobyte of attacker-chosen text.
+    """
+    if not value:
+        return None
+    try:
+        return str(ipaddress.ip_address(value.strip()))
+    except ValueError:
+        return None
+
+
+def _warn_about_untrusted_forwarding(peer: str | None) -> None:
+    """Say once that the throttle is counting the proxy, not the caller.
+
+    This is the misconfiguration that looks like nothing at all. With
+    ``trust_forwarded_for`` off behind a reverse proxy — which is the deployment
+    the README describes — every request reports the proxy's address, so the
+    per-address login limit buckets the entire institute and twenty mistyped
+    passwords lock everybody out at once. Nothing in the logs says so unless
+    something says so.
+    """
+    global _untrusted_forwarding_warned
+    if _untrusted_forwarding_warned:
+        return
+    _untrusted_forwarding_warned = True
+    logger.warning(
+        "Requests carry X-Forwarded-For but RETICLE_TRUST_FORWARDED_FOR is false, so every caller is "
+        "being attributed to %s and the per-address login throttle now covers all of them at once. "
+        "Set RETICLE_TRUST_FORWARDED_FOR=true if — and only if — that proxy overwrites the header "
+        "rather than appending to it.",
+        peer or "the peer address",
+    )
 
 
 def client_address(request: Request) -> str | None:
-    """The address the throttle counts against.
+    """The address the throttle counts against and the audit trail records.
 
     ``X-Forwarded-For`` is only consulted when the operator has declared that
     Reticle sits behind a proxy that rewrites it; trusting it unconditionally
     would let any client pick its own throttle bucket.
     """
+    forwarded = request.headers.get(FORWARDED_HEADER)
     if get_settings().trust_forwarded_for:
-        forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
-            return forwarded.split(",")[0].strip()
+            return parse_ip_address(forwarded.split(",")[0])
+    elif forwarded:
+        _warn_about_untrusted_forwarding(request.client.host if request.client else None)
     return request.client.host if request.client else None
 
 

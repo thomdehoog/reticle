@@ -16,7 +16,29 @@ from sqlalchemy import select
 from app.models import Media
 from app.settings import get_settings
 
-from .conftest import image_bytes, jpeg_with_exif, noisy_png
+from .conftest import (
+    create_guide,
+    document_from,
+    image_bytes,
+    jpeg_with_exif,
+    noisy_png,
+    step,
+    upload_media,
+)
+
+
+def _attach_to_guide(author, category, image: dict, publish: bool) -> dict:
+    """Put an uploaded image on a guide, optionally publishing it."""
+    created = create_guide(author, category.id)
+    saved = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, steps=[step("Mount the sample", media=[image])]),
+    )
+    assert saved.status_code == 200, saved.text
+    if publish:
+        published = author.post(f"/api/guides/{created['id']}/publish")
+        assert published.status_code == 200, published.text
+    return saved.json()
 
 
 def test_uploading_a_png_returns_the_domain_media_object(author, media_root):
@@ -197,11 +219,46 @@ def test_media_bytes_are_behind_the_login(anon, author):
     assert anon.get(f"/api/media/{created['id']}").status_code == 401
 
 
-def test_viewers_may_read_media_but_not_upload(viewer, author):
-    created = author.post("/api/media", files={"file": ("x.png", image_bytes(), "image/png")}).json()
+def test_viewers_may_read_an_image_on_a_published_guide_but_not_upload(viewer, author, category):
+    image = upload_media(author)
+    _attach_to_guide(author, category, image, publish=True)
 
-    assert viewer.get(f"/api/media/{created['id']}").status_code == 200
+    assert viewer.get(f"/api/media/{image['id']}").status_code == 200
     assert viewer.post("/api/media", files={"file": ("x.png", image_bytes(), "image/png")}).status_code == 403
+
+
+def test_a_viewer_cannot_read_an_image_from_an_unpublished_guide(viewer, author, category):
+    """Authentication is not the same as permission.
+
+    The realistic case is not a guessed URL — media ids are ULIDs. It is a guide
+    that was unpublished *because* it turned out to hold something it should
+    not, whose images would otherwise keep being served to every account for
+    ever.
+    """
+    image = upload_media(author)
+    guide = _attach_to_guide(author, category, image, publish=False)
+
+    assert viewer.get(f"/api/guides/{guide['id']}").status_code == 404
+    assert viewer.get(f"/api/media/{image['id']}").status_code == 404
+
+
+def test_unpublishing_a_guide_withdraws_its_images_too(viewer, author, category):
+    image = upload_media(author)
+    guide = _attach_to_guide(author, category, image, publish=True)
+    assert viewer.get(f"/api/media/{image['id']}").status_code == 200
+
+    assert author.post(f"/api/guides/{guide['id']}/unpublish").status_code == 200
+
+    assert viewer.get(f"/api/media/{image['id']}").status_code == 404
+
+
+def test_an_orphaned_upload_is_not_readable_by_a_viewer(viewer, author):
+    """Media is never deleted, so an upload that was never attached to anything
+    must not become a permanently readable object."""
+    image = upload_media(author)
+
+    assert author.get(f"/api/media/{image['id']}").status_code == 200
+    assert viewer.get(f"/api/media/{image['id']}").status_code == 404
 
 
 def test_an_unknown_media_id_is_not_found(author):

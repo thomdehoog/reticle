@@ -27,6 +27,17 @@ BulletColor = Literal["black", "red", "orange", "yellow", "green", "blue", "viol
 BulletIcon = Literal["note", "caution", "warning", "reminder"]
 BulletLevel = Literal[0, 1, 2]
 
+MAX_STEPS_PER_GUIDE = 200
+MAX_BULLETS_PER_STEP = 200
+"""Ceilings on what one document may contain.
+
+Both are far above anything a procedure has ever needed and far below what one
+request can be used for: a single ``PUT`` carrying 2000 steps of 20 bullets
+wrote forty thousand rows and held the only SQLite writer for nearly five
+seconds, which is a denial of service that any author account can perform by
+accident as easily as on purpose.
+"""
+
 
 def iso_utc(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
@@ -62,10 +73,20 @@ class UserRefOut(Wire):
 
 
 class UserOut(Wire):
+    """An account as an administrator sees it.
+
+    ``is_active`` is on the wire because it is enforced everywhere and was
+    visible nowhere: a deactivated account behaved differently from an active
+    one at every turn, yet the user list gave an administrator no way to tell
+    which was which, so a colleague switched off after they left could not be
+    audited without opening the database.
+    """
+
     id: str
     email: str
     display_name: str
     role: Role
+    is_active: bool
     created_at: Instant
 
 
@@ -181,9 +202,17 @@ class MediaRefIn(Document):
 
 
 class StepIn(Document):
+    """One step.
+
+    ``media`` carries no schema-level cap because its limit is operator-owned:
+    ``documents`` rejects anything over ``max_media_per_step`` so that raising
+    the setting raises the real limit rather than colliding with a second one
+    hidden here.
+    """
+
     id: str | None = None
     title: str = Field(default="", max_length=400)
-    bullets: list[BulletIn] = Field(default_factory=list)
+    bullets: list[BulletIn] = Field(default_factory=list, max_length=MAX_BULLETS_PER_STEP)
     media: list[MediaRefIn] = Field(default_factory=list)
 
 
@@ -203,7 +232,7 @@ class GuideDocumentIn(Document):
     introduction: str = Field(default="", max_length=20_000)
     conclusion: str = Field(default="", max_length=20_000)
     prerequisite_ids: list[str] = Field(default_factory=list)
-    steps: list[StepIn] = Field(default_factory=list)
+    steps: list[StepIn] = Field(default_factory=list, max_length=MAX_STEPS_PER_GUIDE)
     updated_at: datetime
 
 
@@ -263,6 +292,7 @@ def user_out(user: models.User) -> UserOut:
         email=user.email,
         display_name=user.display_name,
         role=user.role,
+        is_active=user.is_active,
         created_at=user.created_at,
     )
 

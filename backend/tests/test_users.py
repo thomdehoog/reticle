@@ -21,7 +21,15 @@ def test_an_admin_lists_users(admin, make_user):
     listing = {entry["email"]: entry for entry in response.json()}
     assert set(listing) == {"admin@zmb.uzh.ch", "colleague@zmb.uzh.ch"}
     assert listing["colleague@zmb.uzh.ch"]["role"] == "author"
-    assert set(listing["colleague@zmb.uzh.ch"]) == {"id", "email", "displayName", "role", "createdAt"}
+    assert set(listing["colleague@zmb.uzh.ch"]) == {
+        "id",
+        "email",
+        "displayName",
+        "role",
+        "isActive",
+        "createdAt",
+    }
+    assert listing["colleague@zmb.uzh.ch"]["isActive"] is True
 
 
 def test_authors_and_viewers_cannot_manage_users(author, viewer, make_user):

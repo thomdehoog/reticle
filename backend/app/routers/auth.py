@@ -23,6 +23,7 @@ from ..security import (
     burn_password_time,
     clear_failed_logins,
     create_session,
+    email_fingerprint,
     hash_password,
     login_is_throttled,
     needs_rehash,
@@ -77,7 +78,7 @@ def login(payload: LoginIn, request: Request, response: Response, db: DbDep) -> 
             action="auth.login_throttled",
             entity_type="auth",
             ip_address=address,
-            detail={"email": email},
+            detail={"emailDigest": email_fingerprint(email)},
         )
         db.commit()
         raise errors.rate_limited()
@@ -97,7 +98,7 @@ def login(payload: LoginIn, request: Request, response: Response, db: DbDep) -> 
             entity_type="auth",
             actor_id=user.id if user is not None else None,
             ip_address=address,
-            detail={"email": email},
+            detail={"emailDigest": email_fingerprint(email)},
         )
         db.commit()
         raise errors.invalid_credentials()
@@ -105,7 +106,7 @@ def login(payload: LoginIn, request: Request, response: Response, db: DbDep) -> 
     if needs_rehash(user.password_hash):
         user.password_hash = hash_password(payload.password)
 
-    clear_failed_logins(db, email)
+    clear_failed_logins(db, email, address)
     prune_login_attempts(db)
     session_row, token = create_session(db, user, address, request.headers.get("user-agent"))
     audit.record(

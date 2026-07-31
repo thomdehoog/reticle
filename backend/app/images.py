@@ -32,7 +32,17 @@ ACCEPTED_FORMATS = {
 
 READ_CHUNK_BYTES = 64 * 1024
 
-Image.MAX_IMAGE_PIXELS = 10_000 * 10_000
+MAX_IMAGE_PIXELS_DEFAULT = 40_000_000
+"""Ceiling on width times height, independent of the per-side limit.
+
+A per-side limit alone is not a memory limit: 10000 x 10000 satisfies "at most
+10000 pixels on each side" and is 100 megapixels, which costs the process
+several hundred megabytes the moment anything decodes it. Forty megapixels sits
+comfortably above a stitched 8000 x 5000 microscopy panel and far below the
+point at which one upload can exhaust the host.
+"""
+
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS_DEFAULT
 
 
 @dataclass(frozen=True)
@@ -63,9 +73,46 @@ def read_within_limit(stream: BinaryIO, limit: int) -> bytes:
     return b"".join(chunks)
 
 
-def normalise(payload: bytes, max_dimension: int) -> NormalisedImage:
+def too_many_pixels_message(max_pixels: int) -> str:
+    return (
+        f"That image is larger than {max_pixels // 1_000_000} megapixels, which is more than Reticle "
+        "will decode. Downscale it — a guide is read on a screen, so 2000 pixels on the long edge is "
+        "already generous — or split a large stitched figure into one image per panel."
+    )
+
+
+def normalise(payload: bytes, max_dimension: int, max_pixels: int) -> NormalisedImage:
+    """Validate the declared geometry, then re-encode.
+
+    Every size question is answered from the header, before anything decodes.
+    That ordering is the whole point: ``open()`` and ``verify()`` read structure
+    only, and ``save()`` is what actually asks for width times height pixels of
+    memory, so a limit applied anywhere after the format probe has already let
+    the allocation happen. A 300 KiB flat PNG declaring 10000 x 10000 is the
+    concrete case — cheap to transfer, three quarters of a gigabyte to encode.
+    """
     if not payload:
         raise errors.validation_failed("The uploaded file is empty.")
+
+    Image.MAX_IMAGE_PIXELS = max_pixels
+
+    try:
+        with Image.open(BytesIO(payload)) as header:
+            image_format = header.format or ""
+            width, height = header.size
+    except Image.DecompressionBombError as exc:
+        raise errors.validation_failed(too_many_pixels_message(max_pixels)) from exc
+    except Exception as exc:
+        raise errors.validation_failed("That file is not a readable image.") from exc
+
+    if image_format not in ACCEPTED_FORMATS:
+        raise errors.validation_failed("Images must be PNG, JPEG, WebP or GIF.")
+    if width == 0 or height == 0:
+        raise errors.validation_failed("That image has no pixels.")
+    if width > max_dimension or height > max_dimension:
+        raise errors.validation_failed(f"Images must be at most {max_dimension} pixels on each side.")
+    if width * height > max_pixels:
+        raise errors.validation_failed(too_many_pixels_message(max_pixels))
 
     try:
         with Image.open(BytesIO(payload)) as probe:
@@ -74,16 +121,6 @@ def normalise(payload: bytes, max_dimension: int) -> NormalisedImage:
         raise errors.validation_failed("That file is not a readable image.") from exc
 
     with Image.open(BytesIO(payload)) as image:
-        image_format = image.format or ""
-        if image_format not in ACCEPTED_FORMATS:
-            raise errors.validation_failed("Images must be PNG, JPEG, WebP or GIF.")
-
-        width, height = image.size
-        if width > max_dimension or height > max_dimension:
-            raise errors.validation_failed(f"Images must be at most {max_dimension} pixels on each side.")
-        if width == 0 or height == 0:
-            raise errors.validation_failed("That image has no pixels.")
-
         buffer = BytesIO()
         save_options = {}
         if getattr(image, "n_frames", 1) > 1:

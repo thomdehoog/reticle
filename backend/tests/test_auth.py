@@ -203,9 +203,9 @@ def test_csrf_applies_to_every_mutating_verb(author, method, path):
     assert author.raw.request(method, path, json={}).status_code == 403
 
 
-def test_login_is_throttled_per_email(anon, client_factory, make_user):
+def test_login_is_throttled_per_account_and_address(anon, make_user):
     make_user("target@zmb.uzh.ch")
-    limit = get_settings().login_max_attempts_per_email
+    limit = get_settings().login_max_attempts_per_email_and_ip
 
     for _ in range(limit):
         assert anon.login("target@zmb.uzh.ch", "wrong").status_code == 401
@@ -215,14 +215,36 @@ def test_login_is_throttled_per_email(anon, client_factory, make_user):
     assert blocked.json()["error"]["code"] == "rate_limited"
 
 
-def test_throttled_email_is_blocked_even_from_a_fresh_address(anon, client_factory, make_user):
-    """The lock follows the account, otherwise a botnet trivially sidesteps it."""
-    make_user("target@zmb.uzh.ch")
-    for _ in range(get_settings().login_max_attempts_per_email):
-        anon.login("target@zmb.uzh.ch", "wrong")
+def test_a_guessed_at_account_can_still_sign_in_from_its_own_machine(client_factory, make_user):
+    """The tripwire follows the guesser, not the account.
 
-    elsewhere = client_factory("198.51.100.7")
-    assert elsewhere.login("target@zmb.uzh.ch", TEST_PASSWORD).status_code == 429
+    Counting wrong guesses against the account alone means the counter the owner
+    is measured by is the one an attacker fills. Five requests would lock out a
+    named colleague whose address is on the ZMB website, and one request every
+    three minutes would keep them out — while Reticle holds the instrument
+    safety procedures they need to reach.
+    """
+    make_user("target@zmb.uzh.ch")
+
+    attacker = client_factory("198.51.100.7")
+    for _ in range(get_settings().login_max_attempts_per_email_and_ip):
+        attacker.login("target@zmb.uzh.ch", "wrong")
+    assert attacker.login("target@zmb.uzh.ch", TEST_PASSWORD).status_code == 429
+
+    owner = client_factory("192.0.2.50")
+    assert owner.login("target@zmb.uzh.ch", TEST_PASSWORD).status_code == 200
+
+
+def test_a_distributed_guess_at_one_account_still_hits_the_ceiling(client_factory, make_user):
+    """Spreading the guess across addresses evades the tripwire, so a much
+    larger per-account ceiling stays behind it as a backstop."""
+    make_user("target@zmb.uzh.ch")
+
+    for index in range(get_settings().login_max_attempts_per_email):
+        client_factory(f"203.0.113.{index % 250 + 1}").login("target@zmb.uzh.ch", "wrong")
+
+    fresh = client_factory("198.51.100.200")
+    assert fresh.login("target@zmb.uzh.ch", TEST_PASSWORD).status_code == 429
 
 
 def test_login_is_throttled_per_source_address(client_factory, make_user):
@@ -236,12 +258,13 @@ def test_login_is_throttled_per_source_address(client_factory, make_user):
 
 def test_a_successful_login_clears_that_account_s_failures(anon, make_user):
     make_user("recovers@zmb.uzh.ch")
-    for _ in range(get_settings().login_max_attempts_per_email - 1):
+    limit = get_settings().login_max_attempts_per_email_and_ip
+    for _ in range(limit - 1):
         anon.login("recovers@zmb.uzh.ch", "wrong")
 
     assert anon.login("recovers@zmb.uzh.ch", TEST_PASSWORD).status_code == 200
 
-    for _ in range(get_settings().login_max_attempts_per_email - 1):
+    for _ in range(limit - 1):
         assert anon.login("recovers@zmb.uzh.ch", "wrong").status_code == 401
 
 
@@ -272,9 +295,15 @@ def test_unknown_path_under_api_returns_the_error_envelope(author):
     assert response.json()["error"]["code"] == "not_found"
 
 
-def test_every_api_route_is_behind_authentication():
+def test_every_route_is_behind_authentication():
     """A route added without an auth dependency is a silent hole; assert it can
-    never happen rather than trusting review to catch it."""
-    from app.main import unauthenticated_api_routes
+    never happen rather than trusting review to catch it.
 
-    assert unauthenticated_api_routes(exempt={"/api/auth/login", "/api/health"}) == []
+    The sweep covers every route rather than those under ``/api``, and owns its
+    own allow-list. The earlier version did neither, and so could not see that
+    ``/docs``, ``/redoc`` and ``/openapi.json`` were publishing the whole route
+    inventory to anyone who asked.
+    """
+    from app.main import unauthenticated_routes
+
+    assert unauthenticated_routes() == []
