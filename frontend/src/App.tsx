@@ -8,7 +8,10 @@ import { GuideEditorPage } from './pages/GuideEditorPage'
 import { GuideViewPage } from './pages/GuideViewPage'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
+import { PageEditorPage } from './pages/PageEditorPage'
+import { PageViewPage } from './pages/PageViewPage'
 import { SearchPage } from './pages/SearchPage'
+import { TagPage } from './pages/TagPage'
 import { UsersPage } from './pages/UsersPage'
 
 /**
@@ -35,6 +38,9 @@ export function App() {
         <Route path="/c/:slug" element={<CategoryPage />} />
         <Route path="/g/:slug" element={<GuideViewPage />} />
         <Route path="/g/:id/edit" element={<GuideEditorPage />} />
+        <Route path="/w/:slug" element={<PageViewPage />} />
+        <Route path="/w/:id/edit" element={<PageEditorPage />} />
+        <Route path="/t/:tag" element={<TagPage />} />
         <Route path="/search" element={<SearchPage />} />
         <Route path="/account" element={<AccountPage />} />
         <Route path="/users" element={can('admin') ? <UsersPage /> : <Navigate to="/" replace />} />

@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { useApi } from '../auth/AuthContext'
 import { StepEditor } from '../components/editor/StepEditor'
+import { TagInput } from '../components/editor/TagInput'
 import { IconPlus } from '../components/icons'
 import { AutoTextarea, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
 import {
@@ -308,6 +309,18 @@ export function GuideEditorPage() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="field">
+                <span className="field__label">Tags</span>
+                <TagInput
+                  tags={guide.tags}
+                  onChange={(tags) => mutate((current) => ({ ...current, tags }))}
+                />
+                <span className="field__hint">
+                  Tags decide where this guide appears. A wiki page can gather every guide
+                  carrying a tag, so one guide can show up under several instruments.
+                </span>
               </div>
 
               <div className="field">
