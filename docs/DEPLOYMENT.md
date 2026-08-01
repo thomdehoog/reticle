@@ -24,7 +24,7 @@ Reticle is three things and a disk:
                     │
         ┌───────────┴───────────┐
         │  reticle.db (SQLite)  │   guides, users, history
-        │  media/               │   uploaded images
+        │  media/               │   uploaded images and step videos
         └───────────────────────┘
 ```
 
@@ -320,7 +320,7 @@ safe unless a release explicitly says otherwise in its notes.
 | Live code | `/opt/reticle/current` (symlink) |
 | Configuration | `/opt/reticle/shared/.env` |
 | Database | `/opt/reticle/shared/reticle.db` |
-| Uploaded images | `/opt/reticle/shared/media/` |
+| Uploaded images and videos | `/opt/reticle/shared/media/` |
 | Built frontend | `/opt/reticle/static/` |
 | Logs | `journalctl -u reticle` |
 | Web server config | `/etc/nginx/sites-available/reticle` |

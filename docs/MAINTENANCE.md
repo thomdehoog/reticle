@@ -27,7 +27,7 @@ backup you have never restored is a hypothesis, not a backup.
 Only two things. If you have these, you have everything:
 
 - `/opt/reticle/shared/reticle.db` — every guide, user, and publish history
-- `/opt/reticle/shared/media/` — every uploaded image
+- `/opt/reticle/shared/media/` — every uploaded image and step video
 
 The code is in git and can be rebuilt. `/opt/reticle/shared/.env` is worth
 keeping too, though its secret can be regenerated (everyone gets signed out).
@@ -134,6 +134,7 @@ journalctl -u reticle -n 100 --no-pager
 | Uploads fail on large photographs | nginx `client_max_body_size` below the app's limit | Raise it above 20 MB |
 | "Someone else saved this guide while you were editing" | Two people editing the same guide — working as designed | Reload their version and reapply your change |
 | Disk full | Media store growing, or backups never pruned | `du -sh /opt/reticle/shared/media /var/backups/reticle` |
+| Disk full after a migration | The importer stores every picture at full resolution, which is the point of it | Same check; budget for the whole corpus before running it |
 
 **Two commands that answer most questions:**
 
