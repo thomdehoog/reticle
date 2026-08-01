@@ -86,6 +86,18 @@ PostgreSQL gives concurrent writers, replication, and point-in-time recovery
 measured in seconds. Every managed provider offers it, in Switzerland and in the
 EU, which matters here — see *Residency* below.
 
+A worked example of the difference, found in this codebase rather than imagined.
+Every search in the application is an `ilike`. SQLAlchemy renders that on SQLite
+as `lower(a) LIKE lower(b)`, and **SQLite's `lower()` folds A–Z and stops** —
+full Unicode folding would drag ICU into a library that fits on a
+microcontroller. Against a corpus half of which is German, searching
+*Präparation* in the case it appears in the title returned nothing. The fix was
+to override a built-in C function on every connection (`app/db.py`). On
+PostgreSQL the bug does not exist: `ILIKE` is a real operator that folds by
+collation. That is the shape of the whole trade — SQLite makes you hand-build
+what PostgreSQL already has, and each hand-built piece is one nobody else
+maintains.
+
 The code is SQLAlchemy throughout and does not depend on SQLite, but two things
 have to be dealt with first:
 
@@ -96,6 +108,16 @@ have to be dealt with first:
   a prerequisite, not an improvement**, and it is the first thing to do.
 - **Run the test suite against both.** The suite is fast and in-memory today;
   a CI job running it against a real PostgreSQL is what keeps the two honest.
+
+**On timing**, since it is the part that is easy to get wrong in both
+directions. Migrating *before* Alembic exists produces a PostgreSQL database
+whose schema cannot be evolved — strictly worse than a SQLite file that can be
+deleted and reseeded. Migrating *after* ZMB's corpus is loaded means moving
+tens of gigabytes rather than an empty schema. The window between those two is
+where this should happen, and it is open now: the database is empty and Alembic
+is a few days' work. The one thing that softens the second half is that
+`portability export` followed by `restore` into a PostgreSQL instance is already
+the migration path, and the suite proves that round trip on every run.
 
 #### 2. Local disk → object storage
 
