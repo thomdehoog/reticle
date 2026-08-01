@@ -219,6 +219,69 @@ def test_the_cap_is_per_step_not_per_guide(author, category):
     assert [len(s["media"]) for s in body["steps"]] == [4, 1]
 
 
+def test_the_same_image_twice_in_one_step_is_rejected(author, category):
+    """The link table is keyed on the pair, so a repeat is a failed insert at
+    commit rather than a readable message — unless it is caught here."""
+    created = create_guide(author, category.id)
+    image = upload_media(author)
+
+    response = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, steps=[step("Twice", media=[image, image])]),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+
+
+def test_the_same_step_twice_in_one_guide_is_rejected(author, category):
+    created = create_guide(author, category.id)
+    saved = author.put(f"/api/guides/{created['id']}", json=document_from(created, steps=[step("Once")])).json()
+    repeated = saved["steps"][0]
+
+    response = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(saved, steps=[repeated, dict(repeated)]),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+
+
+def test_the_same_bullet_twice_in_one_step_is_rejected(author, category):
+    created = create_guide(author, category.id)
+    saved = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, steps=[step("Once", bullets=[bullet("Only")])]),
+    ).json()
+    only = saved["steps"][0]
+    only["bullets"] = [only["bullets"][0], dict(only["bullets"][0])]
+
+    response = author.put(f"/api/guides/{created['id']}", json=document_from(saved, steps=[only]))
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+
+
+def test_replacing_the_images_on_an_existing_step_detaches_the_old_ones(author, category):
+    """The step survives the save, so its old links have to be cleared rather
+    than left beside the new ones."""
+    created = create_guide(author, category.id)
+    first = upload_media(author)
+    second = upload_media(author)
+    saved = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, steps=[step("Pictures", media=[first])]),
+    ).json()
+
+    existing = saved["steps"][0]
+    existing["media"] = [second]
+    replaced = author.put(f"/api/guides/{created['id']}", json=document_from(saved, steps=[existing])).json()
+
+    assert [m["id"] for m in replaced["steps"][0]["media"]] == [second["id"]]
+    assert replaced["steps"][0]["id"] == saved["steps"][0]["id"]
+
+
 def test_media_order_within_a_step_is_preserved(author, category):
     created = create_guide(author, category.id)
     media = [upload_media(author) for _ in range(3)]

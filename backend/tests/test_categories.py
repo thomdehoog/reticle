@@ -116,6 +116,39 @@ def test_reparenting_to_an_unknown_category_is_rejected(admin, category):
     assert response.status_code == 422
 
 
+def test_creating_a_category_under_an_unknown_parent_is_rejected(admin):
+    response = admin.post("/api/categories", json={"name": "Orphan", "parentId": "01JQNOTAREALULID00000000"})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+
+
+def test_a_category_can_be_moved_back_to_the_root(admin, category):
+    child = admin.post("/api/categories", json={"name": "Child", "parentId": category.id}).json()
+
+    detached = admin.patch(f"/api/categories/{child['id']}", json={"parentId": None}).json()
+
+    assert detached["parentId"] is None
+
+
+def test_the_description_is_editable_on_its_own(admin, category):
+    body = admin.patch(
+        f"/api/categories/{category.id}",
+        json={"description": "Widefield, confocal and superresolution."},
+    ).json()
+
+    assert body["description"] == "Widefield, confocal and superresolution."
+    assert body["name"] == "Light Microscopy"
+
+
+def test_renaming_a_category_to_nothing_is_rejected(admin, category):
+    response = admin.patch(f"/api/categories/{category.id}", json={"name": "   "})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+    assert admin.get("/api/categories").json()[0]["name"] == "Light Microscopy"
+
+
 def test_deleting_an_empty_category_succeeds(admin):
     created = admin.post("/api/categories", json={"name": "Temporary"}).json()
 

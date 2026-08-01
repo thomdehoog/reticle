@@ -51,6 +51,13 @@ def test_creating_a_guide_in_an_unknown_category_is_rejected(author):
     assert response.json()["error"]["code"] == "validation_failed"
 
 
+def test_a_blank_guide_title_is_rejected(author, category):
+    response = author.post("/api/guides", json={"title": "   ", "categoryId": category.id})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+
+
 def test_viewers_cannot_create_guides(viewer, category):
     response = viewer.post("/api/guides", json={"title": "Nope", "categoryId": category.id})
 

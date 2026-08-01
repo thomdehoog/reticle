@@ -147,6 +147,22 @@ def test_the_example_guide_carries_the_tags_that_navigate_to_it(seeded):
     assert {t.slug for t in seeded.scalars(select(Tag))} == {"confocal", "stellaris", "startup"}
 
 
+def test_seeding_reuses_a_tag_an_operator_already_created(db_session, monkeypatch):
+    """Seeding runs on every deployment, so it has to attach to the vocabulary
+    that is already there rather than colliding with it."""
+    monkeypatch.setenv("RETICLE_ADMIN_EMAIL", "zmb.admin@zmb.uzh.ch")
+    monkeypatch.setenv("RETICLE_ADMIN_PASSWORD", SEED_PASSWORD)
+    get_settings.cache_clear()
+    db_session.add(Tag(slug="confocal", name="Confocal"))
+    db_session.commit()
+
+    seed(db_session, get_settings())
+
+    assert len(db_session.scalars(select(Tag).where(Tag.slug == "confocal")).all()) == 1
+    assert db_session.scalars(select(Tag).where(Tag.slug == "confocal")).one().name == "Confocal"
+    assert db_session.scalars(select(Guide)).one().tag_slugs == ["confocal", "stellaris", "startup"]
+
+
 def test_the_seeding_admin_is_credited_as_the_only_contributor(seeded):
     guide = seeded.scalars(select(Guide)).one()
 

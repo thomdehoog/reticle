@@ -17,10 +17,10 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 from __future__ import annotations
 
 from fastapi import APIRouter, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 
 from ..auth import AnyUser, DbDep
-from ..models import Guide, GuideTag, Page, Step, Tag
+from ..models import Bullet, Guide, GuideTag, Page, Step, Tag
 from ..schemas import (
     GuideHitOut,
     PageHitOut,
@@ -88,11 +88,31 @@ def search(
     step_count = (
         select(func.count(Step.id)).where(Step.guide_id == Guide.id).correlate(Guide).scalar_subquery()
     )
+    # A reader searching for "immersion oil" is looking for the step that says
+    # it, and at ZMB that phrase is usually in a bullet rather than in a title
+    # or a summary. A search that only covered the front matter would answer
+    # "nothing found" about a procedure that explains it in detail.
+    inside_a_step = (
+        select(Step.id)
+        .outerjoin(Bullet, Bullet.step_id == Step.id)
+        .where(
+            Step.guide_id == Guide.id,
+            or_(
+                Step.title.ilike(pattern, escape="\\"),
+                Bullet.text.ilike(pattern, escape="\\"),
+            ),
+        )
+        .correlate(Guide)
+        .exists()
+    )
+
     guides = select(Guide, step_count.label("step_count")).where(
         or_(
             Guide.title.ilike(pattern, escape="\\"),
             Guide.summary.ilike(pattern, escape="\\"),
             Guide.introduction.ilike(pattern, escape="\\"),
+            Guide.conclusion.ilike(pattern, escape="\\"),
+            inside_a_step,
         )
     )
     pages = select(Page).where(
@@ -110,8 +130,17 @@ def search(
         guides = guides.where(Guide.status != "archived")
         pages = pages.where(Page.status != "archived")
 
-    guides = guides.order_by(Guide.updated_at.desc()).limit(SEARCH_LIMIT)
-    pages = pages.order_by(Page.updated_at.desc()).limit(SEARCH_LIMIT)
+    # A title match is what the reader almost always meant. Without this the
+    # ordering is "most recently edited", which puts the guide that merely
+    # mentions the term in a bullet above the one named after it.
+    guides = guides.order_by(
+        case((Guide.title.ilike(pattern, escape="\\"), 0), else_=1),
+        Guide.updated_at.desc(),
+    ).limit(SEARCH_LIMIT)
+    pages = pages.order_by(
+        case((Page.title.ilike(pattern, escape="\\"), 0), else_=1),
+        Page.updated_at.desc(),
+    ).limit(SEARCH_LIMIT)
 
     hits: list[SearchHitOut] = [
         GuideHitOut(guide=guide_summary_out(guide, count)) for guide, count in db.execute(guides)

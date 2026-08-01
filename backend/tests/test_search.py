@@ -216,3 +216,114 @@ def test_each_content_type_is_capped_so_one_query_cannot_dump_the_corpus(
 
 def test_search_requires_a_session(anon):
     assert anon.get("/api/search", params={"q": "anything"}).status_code == 401
+
+
+def test_a_term_written_only_in_a_bullet_is_found(author, category):
+    """The answer to "immersion oil" is in a step, not in the front matter.
+
+    A search restricted to titles and summaries answers "nothing found" about a
+    procedure that explains the thing in detail three steps in, which is the
+    single most likely way for this endpoint to look broken to a reader.
+    """
+    publish_guide_with(
+        author,
+        category.id,
+        "Aligning the Confocal",
+        steps=[
+            {
+                "title": "Mount the sample",
+                "bullets": [
+                    {
+                        "text": "Use the immersion oil printed on the objective.",
+                        "color": "black",
+                        "icon": None,
+                        "level": 0,
+                    }
+                ],
+                "media": [],
+            }
+        ],
+    )
+
+    assert titles(author.get("/api/search?q=immersion oil").json()) == ["Aligning the Confocal"]
+
+
+def test_a_term_written_only_in_a_step_title_is_found(author, category):
+    publish_guide_with(
+        author,
+        category.id,
+        "Shutting Down",
+        steps=[{"title": "Purge the objective turret", "bullets": [], "media": []}],
+    )
+
+    assert titles(author.get("/api/search?q=turret").json()) == ["Shutting Down"]
+
+
+def test_a_term_in_the_conclusion_is_found(author, category):
+    publish_guide_with(
+        author,
+        category.id,
+        "Booking a Session",
+        conclusion="Report any fault in the booking system the same day.",
+    )
+
+    assert titles(author.get("/api/search?q=booking system").json()) == ["Booking a Session"]
+
+
+def test_a_guide_named_for_the_term_outranks_one_that_merely_mentions_it(author, category):
+    """Otherwise the ordering is "most recently edited", which buries the answer."""
+    publish_guide_with(
+        author,
+        category.id,
+        "Cleaning an Objective",
+        steps=[{"title": "Wipe", "bullets": [], "media": []}],
+    )
+    publish_guide_with(
+        author,
+        category.id,
+        "Starting the Stellaris",
+        steps=[
+            {
+                "title": "Prepare",
+                "bullets": [
+                    {
+                        "text": "Cleaning an objective is covered elsewhere.",
+                        "color": "black",
+                        "icon": None,
+                        "level": 0,
+                    }
+                ],
+                "media": [],
+            }
+        ],
+    )
+
+    found = titles(author.get("/api/search?q=Cleaning an Objective").json())
+    assert found[0] == "Cleaning an Objective"
+
+
+def test_a_bullet_inside_a_draft_is_not_searchable_by_a_viewer(author, viewer, category):
+    guide = create_guide(author, category.id, "Unfinished Procedure")
+    author.put(
+        f"/api/guides/{guide['id']}",
+        json=document_from(
+            guide,
+            steps=[
+                {
+                    "title": "Step",
+                    "bullets": [
+                        {
+                            "text": "The spare key is taped under the bench.",
+                            "color": "black",
+                            "icon": None,
+                            "level": 0,
+                        }
+                    ],
+                    "media": [],
+                }
+            ],
+        ),
+    )
+
+    assert viewer.get("/api/search?q=spare key").json() == []
+    assert titles(author.get("/api/search?q=spare key").json()) == ["Unfinished Procedure"]
