@@ -33,10 +33,10 @@ model that census replaced.
 
 | | |
 | --- | --- |
-| Backend tests | 514 passing, 93% branch coverage |
-| Frontend tests | see `frontend/` — run `npm test` |
-| Browser smoke test | `e2e/smoke.mjs` at 1440 / 768 / 390 px |
-| Authoring round-trip | `e2e/cms.mjs` |
+| Backend tests | 551 passing |
+| Frontend tests | 305 passing |
+| Browser smoke test | `e2e/smoke.mjs` — 18/18 at 1440 / 768 / 390 px |
+| Authoring round-trip | `e2e/cms.mjs` — 24/24, writes a guide and reads it back |
 
 ### Running it locally
 
@@ -148,7 +148,17 @@ Decisions worth not re-litigating:
   proxies `/api`. Same origin in production, so CORS does not apply there.
 - **Annotations are data, not pixels.** Fractions of the image, in the same
   eight colours as bullets, because a red shape on the picture and the red
-  bullet beside it are one instruction.
+  bullet beside it are one instruction. An arrow carries a *signed* vector so it
+  keeps its direction; a box cannot.
+- **Browsing is visual.** Sections, wiki pages and guides are reached from walls
+  of pictures rather than lists of titles: a reader recognises the instrument
+  they are standing in front of faster than they can read thirty lines. The
+  words on a card are held to what identifies the destination. A guide's picture
+  is its own first step image; a section carries one an administrator sets; and
+  anything with no picture yet gets a figure drawn from its name rather than a
+  blank, so a section stays recognisable before the migration has run.
+- **The section is listed beside what you are read**, scoped to that section and
+  never to the institute.
 - **The importer never guesses.** Anything it does not recognise stops the run
   and appears in the report. Counts come from the raw payload rather than from
   the mapped document, so a value the mapping failed to read cannot vanish from
@@ -186,6 +196,16 @@ Decisions worth not re-litigating:
       that refuses to guess, full-resolution images, annotation geometry
       normalised to fractions, idempotent re-runs, and a reconciliation report
       that fails the run rather than quietly losing content
+- [x] **Visual navigation** — section, wiki and guide cards; a guide thumbnail
+      taken from its first step image; a section picture an administrator sets;
+      drawn placeholder artwork for anything without one yet
+- [x] **A dark theme**, because a live-cell room is dark and a reader at the
+      eyepiece is dark-adapted. Paper stays white.
+- [x] **A section list beside every guide and wiki page**, scoped to that
+      section, with the current item marked
+- [x] **Every defect the adversarial tests had documented** — nine of them,
+      including an arrow that made a guide permanently unsaveable and German
+      tags folding to unreadable slugs. No `it.fails` remains in the suite.
 
 ## What is left
 
