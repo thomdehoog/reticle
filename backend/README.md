@@ -59,8 +59,10 @@ $env:RETICLE_ADMIN_PASSWORD = "<a long passphrase>"
 C:\ProgramData\MinicondaZMB\envs\reticle\python.exe -m app.seed
 ```
 
-Seeding creates the schema, the eight ZMB categories, an admin account and one
-worked example guide. It is idempotent, so it is safe on every deploy, and it
+Seeding creates the schema, the ZMB categories — including one hidden holding
+category, because that is how the real corpus is arranged — an admin account,
+one worked example guide with tags, and a published category landing page whose
+body embeds tag-filtered guide lists. It is idempotent, so it is safe on every deploy, and it
 never resets a password an operator has already changed. It **refuses** to run
 without `RETICLE_ADMIN_PASSWORD` rather than falling back to a known default.
 
@@ -70,7 +72,9 @@ without `RETICLE_ADMIN_PASSWORD` rather than falling back to a known default.
 C:\ProgramData\MinicondaZMB\envs\reticle\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Add `--reload` while developing. Interactive docs are at `/docs`.
+Add `--reload` while developing. Interactive docs are at `/docs`, and only when
+`RETICLE_DEBUG=true` — on a deployed instance they published the whole route
+inventory to anybody who asked, unauthenticated.
 
 Behind a reverse proxy, terminate TLS there, keep `RETICLE_COOKIE_SECURE=true`,
 and set `RETICLE_TRUST_FORWARDED_FOR=true` only if the proxy rewrites the
@@ -102,11 +106,13 @@ them.
 | `app/schemas.py` | camelCase wire format and the ORM → wire serialisers. |
 | `app/auth.py` | Authentication and role dependencies. |
 | `app/security.py` | Argon2id hashing, session tokens, login throttle. |
-| `app/documents.py` | The whole-guide `PUT`: renumbering, media cap, concurrency. |
-| `app/images.py` | Upload decoding, EXIF stripping, safe storage paths. |
+| `app/documents.py` | The whole-guide and whole-page `PUT`: renumbering, media cap, tags, annotations, concurrency, contributors. |
+| `app/images.py` | Image upload decoding, EXIF stripping, safe storage paths. |
+| `app/videos.py` | Video identification from header bytes, and why it is not re-encoded. |
 | `app/audit.py` | The who-changed-what trail. |
-| `app/seed.py` | First-run data. |
+| `app/seed.py` | First-run data, including one worked guide and a category landing page. |
 | `app/routers/` | One module per resource in the contract. |
+| `app/importer/` | The migration tool. Nothing in `app` imports it; see `../docs/MIGRATION.md`. |
 
 ## Security notes
 
@@ -126,9 +132,20 @@ them.
   response and an identical amount of Argon2 work for an unknown email and a
   wrong password, so the endpoint is not an account-enumeration oracle.
 - **Uploads** are validated by decoding, never by filename or declared MIME.
-  Accepted formats are PNG, JPEG, WebP and GIF; the file is re-encoded, which
-  strips EXIF, and stored under a generated ULID path so a hostile filename
-  cannot traverse.
+  Accepted image formats are PNG, JPEG, WebP and GIF; the file is re-encoded,
+  which strips EXIF, and stored under a generated ULID path so a hostile
+  filename cannot traverse. A pixel-product cap applies before decode, because a
+  per-side limit is not a memory limit.
+- **Video** is identified from its own header bytes (MP4 `ftyp` with a known
+  brand, WebM's EBML magic) under a separate, larger cap, and is *not*
+  re-encoded — that would mean shipping ffmpeg onto AppLocker-managed machines
+  for no gain, since the bytes are served back with a fixed `Content-Type` and
+  `nosniff` either way. This is a smaller guarantee than the image path gives
+  and is a deliberate, recorded acceptance.
+- **Media delivery is gated by content visibility, not only by the login.** A
+  viewer gets 404 for a file unless a published guide or page actually shows
+  it — as a step image, as a step video, or as a page's hero image. Each of
+  those three was a separate copy of the same hole.
 - **Authorisation** is a dependency on every route.
   `test_every_api_route_is_behind_authentication` fails if a new route is added
   without one.
@@ -137,27 +154,36 @@ them.
 
 Recorded here rather than silently absorbed:
 
-1. **`User` has no readable active flag.** `PATCH /api/users/{id}` is specified
-   to change "active flag", but `User` in `types.ts` has no `isActive` field, so
-   an admin can set it and never see it. The flag is implemented and enforced —
-   deactivation blocks login and revokes live sessions — but the response stays
-   field-for-field identical to `types.ts`. Adding `isActive: boolean` to `User`
-   is a one-line contract change on both sides.
-2. **`slug`, `status` and `version` are read-only in `PUT /api/guides/{id}`.**
+1. **`slug`, `status` and `version` are read-only in `PUT /api/guides/{id}`.**
    The editor round-trips the whole guide object, so these arrive in the body;
    they are ignored. Status moves through publish/unpublish only, and a mutable
    slug would break every link a ZMB guide is cited by.
-3. **`publishedBy` is a `UserRef` object**, not a bare id. The contract writes
+2. **`publishedBy` is a `UserRef` object**, not a bare id. The contract writes
    `{version, publishedAt, publishedBy}` without saying which; an object matches
    how every other user reference in the model is shaped.
-4. **No separate draft revision of a published guide.** `types.ts` says authors
-   "work on a draft revision so the live version never breaks mid-edit", but the
-   endpoint list has nothing to create, read or promote such a revision. Editing
-   is therefore in place, and `GuideRevision` is immutable publish history —
-   which is exactly what `POST /publish` and `GET /revisions/{version}` describe.
-   Implementing the parallel-draft model needs new endpoints and a contract
-   change; doing half of it would let a reader see a new title in a listing and
-   the old one on the page.
-5. **`GET /api/guides` excludes archived guides** unless `status=archived` is
+3. **No separate draft revision of a published guide.** Editing is in place, and
+   `GuideRevision` is immutable publish history — which is exactly what
+   `POST /publish` and `GET /revisions/{version}` describe. Implementing a
+   parallel-draft model would need new endpoints and a contract change; doing
+   half of it would let a reader see a new title in a listing and the old one on
+   the page.
+4. **`GET /api/guides` excludes archived guides** unless `status=archived` is
    asked for explicitly. Archiving is a soft delete, so a default listing that
    still contained the archived guides would make the delete look broken.
+
+## Migrating from the vendor
+
+`app/importer/` reads the vendor API and writes the corpus into these models.
+It is an operator tool: nothing in `app` imports it, and it only runs by hand.
+
+```powershell
+C:\ProgramData\MinicondaZMB\envs\reticle\python.exe -m app.importer.run `
+    --base-url https://zmb.dozuki.com --dry-run --report dry-run.txt
+```
+
+It refuses to guess. Any bullet colour, flag, shape, difficulty, time format or
+media type it does not recognise stops the run and is listed in the report, and
+the reconciliation counts come from the raw payload rather than from the mapped
+document — so a value the mapping failed to read cannot disappear from both
+sides of the comparison at once. `../docs/MIGRATION.md` has the field-by-field
+mapping and the verification checklist.

@@ -135,6 +135,14 @@ jobs:
         working-directory: frontend
         run: node e2e/smoke.mjs
 
+      # The authoring round-trip writes a guide the way a person does and reads
+      # it back. It is the only check that would notice the editor saving
+      # something the reader cannot render — which a component test cannot see,
+      # because both sides of it would be mocked.
+      - name: Authoring round-trip
+        working-directory: frontend
+        run: node e2e/cms.mjs
+
       # Screenshots are the fastest way to see why a run failed, so keep them
       # whatever the outcome.
       - uses: actions/upload-artifact@v4
