@@ -114,6 +114,26 @@ Read `NOTICE.md` before running it, and note the one time-sensitive point:
 **export before the subscription lapses**, because the API goes away with it and
 the contract contains no obligation to hand the data back afterwards.
 
+## Getting the data out again
+
+Reticle exists because ZMB's material was held somewhere it could only be
+retrieved through an API that ends with the subscription. So the way out is part
+of the product, not a favour performed later with a database client:
+
+```powershell
+python -m app.portability export --archive D:\reticle-export.tar.gz
+python -m app.portability restore --from D:\reticle-export.tar.gz
+```
+
+The archive is documented JSON plus the actual image and video files, each with
+a checksum — readable by another platform without running Reticle, and
+restorable into an empty database. `docs/EXPORT.md` describes the format
+completely enough to write an importer against. The test suite exports a corpus,
+restores it and compares the two on every run, because an export nobody has
+restored is a hypothesis.
+
+Administrators can take the same export over HTTP at `/api/export/archive`.
+
 ## Licence and provenance
 
 Reticle is MIT licensed — see `LICENSE`. It is an independent implementation

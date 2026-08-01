@@ -125,6 +125,7 @@ reticle/
 ├── docs/DEPLOYMENT.md   first install, systemd, nginx, TLS, rollback
 ├── docs/MAINTENANCE.md  backups, restores, people, troubleshooting
 ├── docs/MIGRATION.md    the importer, the mapping, and the verification checklist
+├── docs/EXPORT.md       the export format, for whoever moves the data on next
 ├── frontend/            React 19 + TypeScript + Vite
 └── backend/             FastAPI + SQLAlchemy + SQLite
     └── app/importer/    the migration tool; nothing in app imports it
@@ -203,6 +204,10 @@ Decisions worth not re-litigating:
       eyepiece is dark-adapted. Paper stays white.
 - [x] **A section list beside every guide and wiki page**, scoped to that
       section, with the current item marked
+- [x] **Data portability** — `/api/export`, a streaming archive of the corpus
+      and its files, a command line that works with the server down, and a
+      restore that reads it back. Round-tripped in the suite: export, restore
+      into an empty database, compare field for field.
 - [x] **Every defect the adversarial tests had documented** — nine of them,
       including an arrow that made a guide permanently unsaveable and German
       tags folding to unreadable slugs. No `it.fails` remains in the suite.

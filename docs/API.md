@@ -190,6 +190,22 @@ picture and the red bullet beside it are one instruction.
 | PATCH  | `/api/users/{id}`  | admin | Change role, display name, active flag.   |
 | POST   | `/api/users/{id}/password` | self or admin | Change password. |
 
+## Export
+
+| Method | Path                  | Role  | Purpose                                  |
+| ------ | --------------------- | ----- | ---------------------------------------- |
+| GET    | `/api/export`         | admin | The whole corpus as JSON, without file bytes. |
+| GET    | `/api/export/archive` | admin | The same document plus every image and video, streamed as `.tar.gz`. |
+
+Both are audited. This is the entire institute's documentation in one request,
+which makes it the most useful thing here to somebody who should not have it.
+
+Guides and pages appear in exactly the shapes this document already describes,
+so the export has no second contract to drift from. The format, and how to read
+it without Reticle, is `EXPORT.md`. `python -m app.portability` does the same
+job from the command line and can restore an export into an empty database —
+which is what makes the format a promise rather than a claim.
+
 ## Schema changes
 
 `create_all` adds tables that do not exist; it never alters one that does. A
