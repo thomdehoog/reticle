@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import DateTime, Engine, Text, TypeDecorator, create_engine, event
@@ -153,7 +154,47 @@ def get_db() -> Iterator[Session]:
         session.close()
 
 
-def init_db() -> None:
-    from . import models  # noqa: F401  -- registers the mappers before create_all
+def init_db(target_engine: Engine | None = None) -> None:
+    """Bring the database up to the current schema, whatever state it is in.
 
-    Base.metadata.create_all(engine)
+    Three cases, and the middle one is the reason this is not simply
+    ``alembic upgrade head``:
+
+    1. **Empty.** Migrations run from the beginning. Ordinary first install.
+    2. **Has tables but no ``alembic_version``.** A database created by the
+       ``create_all`` this function used to call, before migrations existed.
+       Running migrations against it would try to create tables that are
+       already there and fail. It is stamped instead — recorded as being at the
+       current revision — which is correct because the schema-equivalence test
+       proves ``create_all`` and ``upgrade head`` produce the same thing.
+    3. **Already stamped.** Any pending migrations run; usually none.
+
+    Called on startup so a deployment that forgets the migration step does not
+    serve traffic against last release's schema. That is safe for the additive
+    migrations this project writes, and it is the right trade for an
+    installation whose operator is a microscopy facility rather than a DBA.
+
+    ⚠️ A destructive migration should not run itself on startup. When one is
+    written, run it deliberately and take a backup first — ``MAINTENANCE.md``.
+    """
+    from alembic import command
+    from alembic.config import Config
+    from alembic.runtime.migration import MigrationContext
+    from sqlalchemy import inspect
+
+    from . import models  # noqa: F401  -- registers the mappers
+
+    target = target_engine or engine
+    config = Config(str(Path(__file__).resolve().parent.parent / "alembic.ini"))
+    config.attributes["connection"] = target
+
+    with target.connect() as connection:
+        stamped = MigrationContext.configure(connection).get_current_revision()
+        existing = set(inspect(connection).get_table_names()) - {"alembic_version"}
+
+    if existing and stamped is None:
+        Base.metadata.create_all(target)  # fills in anything a partial install missed
+        command.stamp(config, "head")
+        return
+
+    command.upgrade(config, "head")

@@ -25,3 +25,7 @@ frontend/e2e/shots/
 Thumbs.db
 .idea/
 .vscode/
+
+# Alembic writes nothing here, but a stray local database from a migration
+# rehearsal is easy to leave behind.
+backend/migrations/**/__pycache__/

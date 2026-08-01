@@ -12,6 +12,11 @@ fastapi~=0.141
 uvicorn~=0.52
 sqlalchemy~=2.0
 
+# Schema migrations. `create_all` adds a missing table and never alters an
+# existing one, so without this a column added in a release simply never
+# reaches a database that already exists.
+alembic~=1.18
+
 # The [email] extra pulls in email-validator, which pydantic's EmailStr needs at
 # import time. The conda environment happens to get it transitively, so leaving
 # it implicit here made the pip install work locally and fail everywhere else.

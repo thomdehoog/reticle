@@ -1,0 +1,201 @@
+"""Migrations, and the one way they go wrong that nobody notices.
+
+The failure this file exists for is drift. Somebody adds a column to
+``models.py``, the test suite creates its tables from that metadata, everything
+passes — and the migration that would have added the column to a real database
+was never written. Nothing is wrong until a deploy, at which point production
+is running new code against last release's schema.
+
+So the central test is not that migrations run. It is that running them
+produces a schema **identical** to the one the models describe, column by
+column, index by index, constraint by constraint. That test fails the moment
+somebody edits a model without generating a migration, which is exactly when
+they need to be told.
+
+Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
+"""
+
+from __future__ import annotations
+
+import pytest
+from alembic import command
+from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
+from sqlalchemy import inspect, text
+
+from app import models  # noqa: F401  -- registers every mapper
+from app.db import Base, build_engine, init_db
+
+BACKEND = __import__("pathlib").Path(__file__).resolve().parents[1]
+
+
+def alembic_config(engine=None) -> Config:
+    config = Config(str(BACKEND / "alembic.ini"))
+    if engine is not None:
+        config.attributes["connection"] = engine
+    return config
+
+
+def schema_of(engine) -> dict:
+    """Everything about the shape of a database that a query could depend on."""
+    inspector = inspect(engine)
+    schema = {}
+    for table in sorted(inspector.get_table_names()):
+        if table == "alembic_version":
+            continue
+        schema[table] = {
+            "columns": {
+                column["name"]: (str(column["type"]), column["nullable"])
+                for column in inspector.get_columns(table)
+            },
+            "indexes": sorted(
+                (index["name"], tuple(index["column_names"]), bool(index["unique"]))
+                for index in inspector.get_indexes(table)
+            ),
+            "foreign_keys": sorted(
+                (tuple(key["constrained_columns"]), key["referred_table"])
+                for key in inspector.get_foreign_keys(table)
+            ),
+            "unique_constraints": sorted(
+                (constraint["name"], tuple(constraint["column_names"]))
+                for constraint in inspector.get_unique_constraints(table)
+            ),
+        }
+    return schema
+
+
+@pytest.fixture
+def migrated(tmp_path):
+    engine = build_engine(f"sqlite:///{tmp_path / 'migrated.db'}")
+    command.upgrade(alembic_config(engine), "head")
+    return engine
+
+
+@pytest.fixture
+def from_models(tmp_path):
+    engine = build_engine(f"sqlite:///{tmp_path / 'models.db'}")
+    Base.metadata.create_all(engine)
+    return engine
+
+
+# --- the one that matters --------------------------------------------------
+
+
+def test_migrating_produces_exactly_the_schema_the_models_describe(migrated, from_models):
+    """If this fails, somebody changed a model without writing a migration.
+
+    The fix is to generate one, not to relax this test:
+
+        alembic revision --autogenerate -m "what changed"
+    """
+    assert schema_of(migrated) == schema_of(from_models)
+
+
+def test_autogenerate_finds_nothing_left_to_do(migrated):
+    """The same claim from the other direction, and the stricter of the two.
+
+    Comparing two inspected schemas can miss a difference the inspector does not
+    surface. Asking Alembic itself whether the migrated database still differs
+    from the metadata catches those, because that comparison is the one it would
+    use to write the next migration.
+    """
+    from alembic.autogenerate import compare_metadata
+
+    with migrated.connect() as connection:
+        context = MigrationContext.configure(
+            connection, opts={"compare_type": True, "compare_server_default": True}
+        )
+        difference = compare_metadata(context, Base.metadata)
+
+    assert difference == [], f"models and migrations have drifted: {difference}"
+
+
+# --- the history itself ----------------------------------------------------
+
+
+def test_there_is_exactly_one_head(tmp_path):
+    """Two heads means two people generated a migration from the same parent.
+
+    Alembic will not upgrade past it, and the failure appears during a deploy
+    rather than in the pull request that caused it.
+    """
+    scripts = ScriptDirectory.from_config(alembic_config())
+
+    assert len(scripts.get_heads()) == 1
+
+
+def test_every_migration_can_be_undone(tmp_path):
+    """A migration without a working downgrade is a one-way door.
+
+    Rolling a release back is the cheapest incident response there is, and it
+    stops being available the moment a downgrade is left as ``pass``.
+    """
+    engine = build_engine(f"sqlite:///{tmp_path / 'roundtrip.db'}")
+    config = alembic_config(engine)
+
+    command.upgrade(config, "head")
+    assert inspect(engine).get_table_names() != ["alembic_version"]
+
+    command.downgrade(config, "base")
+
+    remaining = set(inspect(engine).get_table_names()) - {"alembic_version"}
+    assert remaining == set(), f"downgrade left tables behind: {sorted(remaining)}"
+
+
+# --- how a server actually starts ------------------------------------------
+
+
+def test_a_fresh_database_comes_up_migrated_and_stamped(tmp_path):
+    engine = build_engine(f"sqlite:///{tmp_path / 'fresh.db'}")
+
+    init_db(engine)
+
+    with engine.connect() as connection:
+        stamped = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
+    assert stamped is not None
+    assert schema_of(engine) == schema_of_metadata(tmp_path)
+
+
+def schema_of_metadata(tmp_path):
+    engine = build_engine(f"sqlite:///{tmp_path / 'reference.db'}")
+    Base.metadata.create_all(engine)
+    return schema_of(engine)
+
+
+def test_a_database_from_before_migrations_existed_is_adopted_not_broken(tmp_path):
+    """The upgrade path for the installation already running.
+
+    Its tables were made by ``create_all`` and it has no ``alembic_version``.
+    Running migrations against it would try to create tables that are already
+    there and fail on the first one — during a deploy, on somebody's server.
+    """
+    engine = build_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
+    Base.metadata.create_all(engine)
+    assert "alembic_version" not in inspect(engine).get_table_names()
+
+    init_db(engine)
+
+    with engine.connect() as connection:
+        stamped = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
+    heads = ScriptDirectory.from_config(alembic_config()).get_heads()
+    assert stamped == heads[0]
+
+
+def test_starting_twice_changes_nothing(tmp_path):
+    """Startup runs this, and servers restart."""
+    engine = build_engine(f"sqlite:///{tmp_path / 'twice.db'}")
+
+    init_db(engine)
+    once = schema_of(engine)
+    init_db(engine)
+
+    assert schema_of(engine) == once
+
+
+def test_the_url_is_not_committed_into_the_ini():
+    """A URL in ``alembic.ini`` is one that gets copied between facilities, and
+    pointing a migration at the wrong database is not undone by rolling back."""
+    ini = (BACKEND / "alembic.ini").read_text(encoding="utf-8")
+
+    assert "sqlalchemy.url =" not in ini
