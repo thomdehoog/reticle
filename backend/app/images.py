@@ -144,10 +144,16 @@ def relative_storage_path(media_id: str, extension: str) -> str:
 
 
 def write_file(media_root: Path, storage_path: str, payload: bytes) -> Path:
-    target = media_root / storage_path
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(payload)
-    return target
+    """Kept as a thin wrapper over ``LocalStorage``.
+
+    New code should take a ``Storage`` rather than a media root — see
+    ``app/storage.py``. This exists so the local path stays a single
+    implementation rather than two that can drift.
+    """
+    from .storage import LocalStorage
+
+    LocalStorage(media_root).write(storage_path, payload)
+    return media_root / storage_path
 
 
 def resolve_file(media_root: Path, storage_path: str) -> Path:
@@ -156,8 +162,6 @@ def resolve_file(media_root: Path, storage_path: str) -> Path:
     The stored path is generated, so this can only fire if the database has been
     tampered with directly, which is exactly when a path check is worth having.
     """
-    root = media_root.resolve()
-    target = (root / storage_path).resolve()
-    if not target.is_relative_to(root) or not target.is_file():
-        raise errors.not_found("That image is no longer available.")
-    return target
+    from .storage import LocalStorage
+
+    return LocalStorage(media_root).local_path_or_404(storage_path)

@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, File, Form, Request, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
@@ -22,6 +22,7 @@ from ..auth import AnyUser, AuthorUser, DbDep, client_address
 from ..models import Guide, Media, Page, Step, StepMedia, new_id
 from ..schemas import MediaOut, media_out
 from ..settings import get_settings
+from ..storage import get_storage
 from .guides import READER_STATUS
 
 router = APIRouter(prefix="/api/media", tags=["media"])
@@ -55,7 +56,7 @@ def upload_media(
 
     media_id = new_id()
     storage_path = images.relative_storage_path(media_id, normalised.extension)
-    images.write_file(settings.media_root, storage_path, normalised.payload)
+    get_storage().write(storage_path, normalised.payload)
 
     media = Media(
         id=media_id,
@@ -111,7 +112,7 @@ def _store_video(
     identified = videos.identify(payload)
     media_id = new_id()
     storage_path = images.relative_storage_path(media_id, identified.extension)
-    images.write_file(settings.media_root, storage_path, payload)
+    get_storage().write(storage_path, payload)
 
     media = Media(
         id=media_id,
@@ -179,14 +180,31 @@ def _shown_by_a_published_guide(db: DbSession, media_id: str) -> bool:
 
 
 @router.get("/{media_id}")
-def read_media(media_id: str, db: DbDep, user: AnyUser) -> FileResponse:
+def read_media(media_id: str, db: DbDep, user: AnyUser) -> Response:
+    """Serve a file, once the caller has been shown to be allowed to see it.
+
+    The visibility check above the storage call is the important line in this
+    function, and it stays above it for every backend. A remote store is handed
+    out as a short-lived signed URL **after** that check, never as a public
+    object — otherwise the redirect becomes a way to read any file by id
+    without a session, which is the hole this check exists to close.
+    """
     media = db.get(Media, media_id)
     if media is None:
         raise errors.not_found("That file does not exist.")
     if user.role == "viewer" and not _shown_by_a_published_guide(db, media_id):
         raise errors.not_found("That file does not exist.")
 
-    path = images.resolve_file(get_settings().media_root, media.storage_path)
+    store = get_storage()
+    path = store.local_path(media.storage_path)
+    if path is None:
+        signed = store.signed_url(media.storage_path)
+        if signed is None:
+            raise errors.not_found("That file is no longer available.")
+        # 302 rather than 301: the URL expires, and a permanent redirect would
+        # be cached by the browser long past the point where it still works.
+        return RedirectResponse(signed, status_code=302)
+
     return FileResponse(
         path,
         media_type=media.content_type,

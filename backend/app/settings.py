@@ -52,6 +52,15 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./reticle.db"
     media_root: Path = Path("./media")
 
+    # "local" or "s3". Local disk is right for one facility on one server; it
+    # cannot be shared between processes and does not survive the instance
+    # being replaced, which is what object storage is for. See app/storage.py.
+    storage_backend: str = "local"
+    s3_bucket: str = ""
+    s3_prefix: str = ""
+    s3_endpoint_url: str = ""  # set for MinIO or a non-AWS provider
+    s3_region: str = ""
+
     debug: bool = False
 
     # DEBUG logs every SQL statement, which on this application means the full
