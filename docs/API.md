@@ -53,6 +53,12 @@ controls a role cannot use, but that is cosmetic, never the check.
 | DELETE | `/api/categories/{id}`      | admin  | 409 `conflict` if it still holds guides, pages or children. |
 | GET    | `/api/categories/{id}/page` | any    | The category's landing `Page`, or `null` when nobody has written one. |
 
+`Category` carries `heroMediaId` and the `imageUrl` derived from it. Browsing is
+visual — a reader recognises the instrument before they finish reading its name
+— so a section without a picture is shown with a figure drawn from its own name
+rather than with a blank. `GuideSummary` carries `thumbnailUrl`, taken from the
+guide's first step image, and `PageSummary` carries `heroImageUrl`.
+
 `isHidden` marks a **holding category**: one that exists to own guides reached
 through tags rather than by browsing. The client leaves them out of the tree.
 They are not a permission — a hidden category's published guides are readable by
@@ -183,6 +189,14 @@ picture and the red bullet beside it are one instruction.
 | POST   | `/api/users`       | admin | Create with a role and an initial password. |
 | PATCH  | `/api/users/{id}`  | admin | Change role, display name, active flag.   |
 | POST   | `/api/users/{id}/password` | self or admin | Change password. |
+
+## Schema changes
+
+`create_all` adds tables that do not exist; it never alters one that does. A
+release that adds a column therefore needs either a fresh database or the
+`ALTER TABLE` run by hand — there is no migration tool here, deliberately, for
+an installation that has one operator and reboots twice a year. `DEPLOYMENT.md`
+says which release needs which.
 
 ## Health
 

@@ -57,17 +57,21 @@ export function GuideCard({ guide, to }: { guide: GuideSummary; to?: string }) {
         <span className="tile__name">{guide.title}</span>
         <span className="tile__meta">
           <IconSteps size={13} />
-          {guide.stepCount} {guide.stepCount === 1 ? 'step' : 'steps'}
+          <span>
+            {guide.stepCount} {guide.stepCount === 1 ? 'step' : 'steps'}
+          </span>
           <span className="tile__dot" aria-hidden="true">
             ·
           </span>
-          {DIFFICULTY_LABELS[guide.difficulty]}
+          <span>{DIFFICULTY_LABELS[guide.difficulty]}</span>
           {(guide.timeRequiredMinMinutes !== null || guide.timeRequiredMaxMinutes !== null) && (
             <>
               <span className="tile__dot" aria-hidden="true">
                 ·
               </span>
-              {formatDurationRange(guide.timeRequiredMinMinutes, guide.timeRequiredMaxMinutes)}
+              <span>
+                {formatDurationRange(guide.timeRequiredMinMinutes, guide.timeRequiredMaxMinutes)}
+              </span>
             </>
           )}
         </span>
@@ -96,7 +100,7 @@ export function WikiCard({ page, context }: { page: PageSummary; context?: strin
         <span className="tile__name">{page.title}</span>
         <span className="tile__meta">
           <IconBook size={13} />
-          {page.isLanding ? 'Section front page' : 'Wiki page'}
+          <span>{page.isLanding ? 'Section front page' : 'Wiki page'}</span>
           {context && (
             <>
               <span className="tile__dot" aria-hidden="true">

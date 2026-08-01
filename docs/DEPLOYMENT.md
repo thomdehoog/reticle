@@ -45,6 +45,25 @@ local development, where the frontend is on port 5173 and the API on 8000.
 right answer — no separate service, no separate backup story, no separate thing
 to break. Section 9 covers when that stops being true.
 
+## Upgrading across a schema change
+
+Reticle creates any table that is missing on start-up and never alters one that
+already exists, which is the right trade for a single-operator installation but
+means a release that adds a *column* needs a hand.
+
+Before deploying a release whose notes mention a schema change:
+
+```bash
+sudo /usr/local/bin/reticle-backup          # always first
+sudo -u reticle sqlite3 /opt/reticle/shared/reticle.db \
+  "ALTER TABLE categories ADD COLUMN hero_media_id VARCHAR(26);"
+```
+
+On an installation that has not gone live yet — which is the case until the
+migration in `MIGRATION.md` has been run — it is simpler and safer to delete
+`reticle.db` and re-seed, because there is nothing in it worth keeping.
+
+
 ## 2. What you need before starting
 
 - A Linux VM (Debian or Ubuntu assumed below), 1 vCPU and 1 GB RAM is plenty.

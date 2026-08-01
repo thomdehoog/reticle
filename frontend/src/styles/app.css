@@ -2588,3 +2588,25 @@ a:hover {
 .tile__body {
   flex: 1 1 auto;
 }
+
+.hero-picker {
+  display: flex;
+  gap: 0.9rem;
+  align-items: flex-start;
+}
+
+.hero-picker__preview {
+  flex: 0 0 auto;
+  width: 148px;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.hero-picker__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}

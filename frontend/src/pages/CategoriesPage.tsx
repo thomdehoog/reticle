@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { useApi } from '../auth/AuthContext'
 import { IconChevronDown, IconChevronUp, IconPlus, IconTrash } from '../components/icons'
+import { Thumbnail } from '../components/Thumbnail'
 import { EmptyState, ErrorAlert, Modal, Spinner } from '../components/ui'
 import type { Category } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
@@ -39,8 +40,31 @@ function CategoryDialog({
   const [description, setDescription] = useState(category?.description ?? '')
   const [parentId, setParentId] = useState(category?.parentId ?? '')
   const [isHidden, setIsHidden] = useState(category?.isHidden ?? false)
+  const [heroMediaId, setHeroMediaId] = useState(category?.heroMediaId ?? null)
+  const [heroUrl, setHeroUrl] = useState(category?.imageUrl ?? null)
+  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  /**
+   * The picture is what the section is browsed by, so setting it belongs here
+   * rather than in a separate screen: an administrator creating "CryoEM" is
+   * exactly the person who knows which photograph says CryoEM.
+   */
+  async function onPickImage(file: File | null) {
+    if (!file) return
+    setUploading(true)
+    setError(null)
+    try {
+      const media = await api.uploadMedia(file)
+      setHeroMediaId(media.id)
+      setHeroUrl(media.url)
+    } catch (cause) {
+      setError(cause)
+    } finally {
+      setUploading(false)
+    }
+  }
 
   /**
    * A category cannot be moved inside itself or inside its own descendants —
@@ -68,6 +92,7 @@ function CategoryDialog({
           description: description.trim(),
           parentId: parentId === '' ? null : parentId,
           isHidden,
+          heroMediaId,
         })
       } else {
         await api.createCategory({
@@ -75,6 +100,7 @@ function CategoryDialog({
           description: description.trim(),
           parentId: parentId === '' ? null : parentId,
           isHidden,
+          heroMediaId,
         })
       }
       onSaved()
@@ -135,6 +161,38 @@ function CategoryDialog({
                 </option>
               ))}
           </select>
+        </div>
+
+        <div className="field">
+          <span className="field__label">Picture</span>
+          <div className="hero-picker">
+            <Thumbnail seed={name || 'New section'} src={heroUrl} className="hero-picker__preview" />
+            <div className="hero-picker__controls">
+              <input
+                id="category-hero"
+                type="file"
+                accept="image/*"
+                onChange={(event) => void onPickImage(event.target.files?.[0] ?? null)}
+              />
+              {heroUrl && (
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => {
+                    setHeroMediaId(null)
+                    setHeroUrl(null)
+                  }}
+                >
+                  Remove
+                </button>
+              )}
+              {uploading && <span className="save-state">Uploading…</span>}
+            </div>
+          </div>
+          <span className="field__hint">
+            Browsing is done by eye. Without a picture the section is shown with a drawn figure
+            derived from its name, which is recognisable but says nothing about the instrument.
+          </span>
         </div>
 
         <label className="checkbox">

@@ -151,6 +151,24 @@ export function categoryFixture(overrides: Partial<Category> = {}): Category {
   }
 }
 
+/** A page as a listing carries it, which is what a browse card is given. */
+export function pageSummaryFixture(overrides: Partial<PageSummary> = {}): PageSummary {
+  const page = pageFixture()
+  return {
+    id: page.id,
+    slug: page.slug,
+    title: page.title,
+    summary: page.summary,
+    categoryId: page.categoryId,
+    isLanding: page.isLanding,
+    status: page.status,
+    heroImageUrl: null,
+    updatedAt: page.updatedAt,
+    publishedAt: page.publishedAt,
+    ...overrides,
+  }
+}
+
 function slugify(title: string, fallback: string): string {
   const slug = title
     .toLowerCase()

@@ -79,13 +79,19 @@ export class ReticleApi {
     description?: string
     parentId?: string | null
     isHidden?: boolean
+    heroMediaId?: string | null
   }): Promise<Category> {
     return this.http.post<Category>('/categories', input)
   }
 
   updateCategory(
     id: string,
-    changes: Partial<Pick<Category, 'name' | 'description' | 'parentId' | 'orderIndex' | 'isHidden'>>,
+    changes: Partial<
+      Pick<
+        Category,
+        'name' | 'description' | 'parentId' | 'orderIndex' | 'isHidden' | 'heroMediaId'
+      >
+    >,
   ): Promise<Category> {
     return this.http.patch<Category>(`/categories/${id}`, changes)
   }

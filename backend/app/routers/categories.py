@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from .. import audit, errors
 from ..auth import AdminUser, AnyUser, DbDep, client_address
-from ..models import Category, Guide, Page
+from ..models import Category, Guide, Media, Page
 from ..schemas import CategoryCreateIn, CategoryOut, CategoryPatchIn, PageOut, category_out, page_out
 from ..slugs import unique_slug
 
@@ -34,6 +34,21 @@ def _load(db: DbSession, category_id: str) -> Category:
 
 def _slug_taken(db: DbSession, slug: str) -> bool:
     return db.scalar(select(func.count()).select_from(Category).where(Category.slug == slug)) > 0
+
+
+def _validated_hero(db: DbSession, media_id: str | None) -> str | None:
+    """The picture a section is browsed by.
+
+    Refused rather than stored blindly: an identifier that resolves to nothing
+    would leave every tile for that section showing a broken image, which is
+    worse than the drawn figure it would otherwise fall back to.
+    """
+    if media_id is None:
+        return None
+    media = db.get(Media, media_id)
+    if media is None or media.kind != "image":
+        raise errors.validation_failed("That picture does not exist.")
+    return media.id
 
 
 def _next_order_index(db: DbSession, parent_id: str | None) -> int:
@@ -97,6 +112,7 @@ def create_category(payload: CategoryCreateIn, request: Request, db: DbDep, user
         parent_id=payload.parent_id,
         order_index=_next_order_index(db, payload.parent_id),
         is_hidden=payload.is_hidden,
+        hero_media_id=_validated_hero(db, payload.hero_media_id),
     )
     db.add(category)
     db.flush()
@@ -147,6 +163,9 @@ def patch_category(
 
     if "is_hidden" in changed and payload.is_hidden is not None:
         category.is_hidden = payload.is_hidden
+
+    if "hero_media_id" in changed:
+        category.hero_media_id = _validated_hero(db, payload.hero_media_id)
 
     audit.record(
         db,

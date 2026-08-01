@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .conftest import create_guide
+from .conftest import create_guide, upload_media, upload_video
 
 
 def test_any_authenticated_role_can_list_categories(viewer, category):
@@ -202,3 +202,49 @@ def test_creating_a_category_without_a_name_is_rejected(admin):
 
 def test_a_blank_name_is_rejected(admin):
     assert admin.post("/api/categories", json={"name": "   "}).status_code == 422
+
+
+def test_a_section_can_be_given_the_picture_it_is_browsed_by(admin, category):
+    """Browsing is done by eye, so the picture is part of the category."""
+    image = upload_media(admin)
+
+    body = admin.patch(f"/api/categories/{category.id}", json={"heroMediaId": image["id"]}).json()
+
+    assert body["heroMediaId"] == image["id"]
+    assert body["imageUrl"] == f"/api/media/{image['id']}"
+
+
+def test_a_section_picture_can_be_taken_away_again(admin, category):
+    image = upload_media(admin)
+    admin.patch(f"/api/categories/{category.id}", json={"heroMediaId": image["id"]})
+
+    body = admin.patch(f"/api/categories/{category.id}", json={"heroMediaId": None}).json()
+
+    assert body["heroMediaId"] is None
+    assert body["imageUrl"] is None
+
+
+def test_a_picture_that_does_not_exist_is_refused(admin, category):
+    """Storing it would leave every tile for the section showing a broken image."""
+    response = admin.patch(
+        f"/api/categories/{category.id}", json={"heroMediaId": "01JQNOTAREALULID00000000"}
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+
+
+def test_a_video_cannot_be_a_section_picture(admin, category):
+    video = upload_video(admin)
+
+    response = admin.patch(f"/api/categories/{category.id}", json={"heroMediaId": video["id"]})
+
+    assert response.status_code == 422
+
+
+def test_a_section_can_be_created_with_its_picture(admin):
+    image = upload_media(admin)
+
+    body = admin.post("/api/categories", json={"name": "CryoEM", "heroMediaId": image["id"]}).json()
+
+    assert body["imageUrl"] == f"/api/media/{image['id']}"
