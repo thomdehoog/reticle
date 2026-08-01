@@ -54,6 +54,11 @@ class Settings(BaseSettings):
 
     debug: bool = False
 
+    # DEBUG logs every SQL statement, which on this application means the full
+    # text of a guide on every save. Useful for an afternoon, never in
+    # production.
+    log_level: str = "INFO"
+
     cookie_secure: bool = True
     cookie_domain: str | None = None
     session_lifetime_hours: int = 12

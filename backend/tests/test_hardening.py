@@ -198,17 +198,89 @@ def test_the_public_allow_list_holds_only_what_has_been_argued_for():
     """The sweep measures against this set, so widening it is how a hole gets
     declared safe rather than fixed.
 
-    Three entries, each with a reason that has to survive being read aloud.
-    The probe reveals liveness. The login endpoint cannot require a session it
-    exists to create. And ``/api/config`` carries the name of the facility
-    running the instance, which the login screen has to show before anybody has
-    signed in and which the hostname pointing at the server already gives away.
+    Four entries, each with a reason that has to survive being read aloud.
+    ``/api/health`` reveals liveness. The login endpoint cannot require a
+    session it exists to create. And ``/api/config`` carries the name of the
+    facility running the instance, which the login screen has to show before
+    anybody has signed in and which the hostname pointing at the server already
+    gives away.
+
+    ``/api/ready`` is the newest and the one worth arguing hardest, because it
+    is the only entry that discloses something operational: whether this
+    instance can currently reach its database. It is here because the thing
+    that reads it is a load balancer or an orchestrator, which has no session
+    and cannot be given one — and a readiness probe behind a login is a
+    readiness probe that reports "not ready" forever. The disclosure is bounded
+    on purpose: a status word and nothing else, no error text, no driver
+    message, no URL. **It should still be bound to an internal interface where
+    the deployment allows it** — see ``DEPLOYMENT.md``.
 
     Anything else appearing here is a hole somebody decided not to fix.
     """
     from app.main import PUBLIC_PATHS
 
-    assert set(PUBLIC_PATHS) == {"/api/health", "/api/auth/login", "/api/config"}
+    assert set(PUBLIC_PATHS) == {
+        "/api/health",
+        "/api/ready",
+        "/api/auth/login",
+        "/api/config",
+    }
+
+
+def test_the_readiness_probe_discloses_a_status_word_and_nothing_else(anon):
+    """It is unauthenticated, so what it returns is the whole of its risk.
+
+    In particular it must never echo the exception: a driver error names the
+    host, the database and sometimes the user.
+
+    Both branches are exercised here because the interesting one is the
+    negative. ``state.ready`` is set by the lifespan handler after migrations
+    finish, so an instance that has not completed startup answers 503 — which
+    is what stops a load balancer sending requests to a process whose schema is
+    still being changed underneath it.
+    """
+    from app.main import app
+
+    app.state.ready = False
+    starting = anon.get("/api/ready")
+    assert starting.status_code == 503
+    assert starting.json() == {"status": "starting"}
+
+    app.state.ready = True
+    try:
+        response = anon.get("/api/ready")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ready"}
+    finally:
+        app.state.ready = False
+
+
+def test_the_readiness_probe_reports_a_lost_database_without_describing_it(anon, monkeypatch):
+    """The failure path is the one that leaks, and it is never exercised by
+    accident: a driver error message names the host, the database and often the
+    user, and this endpoint needs no session to read."""
+    from app import main
+
+    class Unreachable:
+        def __enter__(self):
+            raise RuntimeError(
+                "connection to server at 'db.internal' (10.0.0.5), user 'reticle' failed"
+            )
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(main, "SessionLocal", lambda: Unreachable())
+    main.app.state.ready = True
+    try:
+        response = anon.get("/api/ready")
+    finally:
+        main.app.state.ready = False
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "database_unavailable"}
+    assert "db.internal" not in response.text
+    assert "reticle" not in response.text
 
 
 def test_the_public_config_endpoint_carries_nothing_but_the_name(anon):
@@ -243,5 +315,9 @@ def test_an_unmapped_http_error_still_uses_the_error_envelope(author):
     response = author.get("/api/guides/x/revisions/not-a-number")
 
     assert response.status_code == 422
-    assert set(response.json()) == {"error"}
+    # ``requestId`` accompanies ``error`` on every failure so a user can quote
+    # it when reporting one. Nothing else may appear: FastAPI's own body has a
+    # ``detail`` key that leaks the raw validation structure.
+    assert set(response.json()) == {"error", "requestId"}
+    assert set(response.json()["error"]) == {"code", "message"}
     assert response.json()["error"]["code"] == "validation_failed"

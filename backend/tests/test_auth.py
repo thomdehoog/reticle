@@ -12,6 +12,24 @@ from app.settings import get_settings
 from .conftest import TEST_PASSWORD
 
 
+def apart_from_the_request_id(response) -> dict:
+    """An error body with the correlation id removed.
+
+    Every error carries a ``requestId`` so a user can quote it when reporting a
+    failure, and it is unique per request by construction. The tests below
+    compare two responses to prove one cannot be told from the other, so they
+    have to compare everything *except* the field that is designed to differ.
+
+    This weakens nothing: the id is generated from ``uuid4`` before the request
+    is routed, so it is independent of whether the account exists. What those
+    tests guard — that the code, the message and the status are identical — is
+    still compared in full.
+    """
+    body = dict(response.json())
+    body.pop("requestId", None)
+    return body
+
+
 def test_health_needs_no_session(anon):
     response = anon.get("/api/health")
 
@@ -97,7 +115,7 @@ def test_unknown_email_and_wrong_password_are_indistinguishable(anon, client_fac
     unknown_email = client_factory("10.0.0.9").login("ghost@zmb.uzh.ch", "not-the-password")
 
     assert wrong_password.status_code == unknown_email.status_code == 401
-    assert wrong_password.json() == unknown_email.json()
+    assert apart_from_the_request_id(wrong_password) == apart_from_the_request_id(unknown_email)
     assert wrong_password.json()["error"]["code"] == "invalid_credentials"
 
 
@@ -278,7 +296,9 @@ def test_throttling_does_not_leak_account_existence(client_factory, make_user):
         known.login("exists@zmb.uzh.ch", "wrong")
         unknown.login("absent@zmb.uzh.ch", "wrong")
 
-    assert known.login("exists@zmb.uzh.ch", "wrong").json() == unknown.login("absent@zmb.uzh.ch", "wrong").json()
+    assert apart_from_the_request_id(
+        known.login("exists@zmb.uzh.ch", "wrong")
+    ) == apart_from_the_request_id(unknown.login("absent@zmb.uzh.ch", "wrong"))
 
 
 def test_login_rejects_a_malformed_email(anon):

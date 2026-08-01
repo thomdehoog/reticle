@@ -11,6 +11,7 @@ Licence: MIT
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -18,6 +19,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
+from sqlalchemy import text as sqlalchemy_text
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -26,14 +28,20 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import errors
 from .auth import SAFE_METHODS, get_session_row
-from .db import init_db
+from .db import SessionLocal, init_db
+from .observability import (
+    REQUEST_ID_HEADER,
+    RequestContextMiddleware,
+    configure_logging,
+    request_id,
+)
 from .routers import auth, categories, discovery, export, guides, media, pages, users
 from .security import CSRF_COOKIE, CSRF_HEADER, constant_time_equals
 from .settings import get_settings
 
 CSRF_EXEMPT_PATHS = frozenset({"/api/auth/login"})
 
-PUBLIC_PATHS = frozenset({"/api/health", "/api/auth/login", "/api/config"})
+PUBLIC_PATHS = frozenset({"/api/health", "/api/ready", "/api/auth/login", "/api/config"})
 
 MULTIPART_PREFIX = "multipart/form-data"
 
@@ -114,15 +122,43 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-    """Create any table that does not exist yet.
+    """Bring the schema up to date, then start serving.
 
-    This makes ``uvicorn app.main:app`` work on a fresh checkout instead of
-    failing on the first query. ``create_all`` only adds what is absent — it
-    never alters or drops — so it cannot quietly stand in for a migration when
-    the schema later changes.
+    Running migrations here means a deployment that forgets the migration step
+    does not quietly serve traffic against last release's schema — see
+    ``db.init_db`` for the three states it handles, and for the warning about
+    destructive migrations, which should not run themselves.
+
+    The application is marked ready only after this returns. A readiness probe
+    that goes green while migrations are still running sends traffic to a
+    process that cannot answer it.
     """
+    settings = get_settings()
+    configure_logging(settings.log_level)
+    logging.getLogger("reticle").info(
+        "starting", extra={"database": _redacted(settings.database_url)}
+    )
     init_db()
-    yield
+    application.state.ready = True
+    try:
+        yield
+    finally:
+        application.state.ready = False
+        logging.getLogger("reticle").info("stopped")
+
+
+def _redacted(url: str) -> str:
+    """The database URL with any password removed.
+
+    ``postgresql://reticle:hunter2@db/reticle`` in a startup log is a password
+    in a log, and startup logs are the ones people paste into tickets.
+    """
+    if "@" not in url:
+        return url
+    prefix, _, host = url.rpartition("@")
+    scheme, _, credentials = prefix.partition("://")
+    user = credentials.partition(":")[0]
+    return f"{scheme}://{user}:***@{host}"
 
 
 def create_app() -> FastAPI:
@@ -149,6 +185,10 @@ def create_app() -> FastAPI:
 
     application.add_middleware(SecurityHeadersMiddleware)
     application.add_middleware(CsrfMiddleware)
+    # Outermost of the application's own middleware, so the id exists before
+    # anything else can fail and the timing covers the whole stack rather than
+    # the handler alone.
+    application.add_middleware(RequestContextMiddleware)
     application.add_middleware(RequestSizeLimitMiddleware, max_bytes=settings.max_request_bytes)
     application.add_middleware(
         CORSMiddleware,
@@ -160,25 +200,70 @@ def create_app() -> FastAPI:
 
     @application.exception_handler(errors.ApiError)
     async def handle_api_error(request: Request, exc: errors.ApiError) -> JSONResponse:
-        return JSONResponse(status_code=exc.status_code, content=exc.body())
+        return _failure(exc.status_code, exc.body())
 
     @application.exception_handler(RequestValidationError)
     async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         failure = errors.validation_failed(_describe_validation(exc))
-        return JSONResponse(status_code=failure.status_code, content=failure.body())
+        return _failure(failure.status_code, failure.body())
 
     @application.exception_handler(StarletteHTTPException)
     async def handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         code = STATUS_TO_CODE.get(exc.status_code)
         if code is None:
             failure = errors.ApiError("validation_failed", str(exc.detail))
-            return JSONResponse(status_code=exc.status_code, content=failure.body())
+            return _failure(exc.status_code, failure.body())
         failure = errors.ApiError(code, str(exc.detail))
-        return JSONResponse(status_code=exc.status_code, content=failure.body())
+        return _failure(exc.status_code, failure.body())
+
+    @application.exception_handler(Exception)
+    async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
+        """Anything not otherwise caught.
+
+        Two jobs. It keeps the error contract intact — a caller should not have
+        to parse a stack trace to find out a request failed — and it gives the
+        person reporting the failure a request id to quote, which is what turns
+        "it broke this morning" into one findable log line.
+
+        What it must never do is describe the exception. The message could name
+        a table, echo submitted input, or quote a filesystem path.
+        """
+        logging.getLogger("reticle").exception("unhandled error")
+        return _failure(500, errors.ApiError("internal_error", "Something went wrong.").body())
 
     @application.get("/api/health", tags=["health"])
     async def health() -> dict[str, str]:
+        """Liveness: is this process running?
+
+        Deliberately touches nothing. A liveness probe that checks the database
+        turns a database blip into a restart loop — every instance is killed
+        for a fault none of them can fix by restarting, and the restarts add
+        load to the thing that was already struggling.
+        """
         return {"status": "ok"}
+
+    @application.get("/api/ready", tags=["health"])
+    async def ready() -> JSONResponse:
+        """Readiness: should this process be sent traffic?
+
+        A different question from liveness, and the reason for a second
+        endpoint. This one *does* check the database, because an instance that
+        cannot reach it should be taken out of the load balancer rather than
+        restarted, and it reports not-ready during startup migrations so no
+        request arrives before the schema is current.
+
+        Returns 503 when not ready. The status code is the part orchestrators
+        read; the body is for whoever is looking at it by hand.
+        """
+        if not getattr(application.state, "ready", False):
+            return JSONResponse(status_code=503, content={"status": "starting"})
+        try:
+            with SessionLocal() as session:
+                session.execute(sqlalchemy_text("SELECT 1"))
+        except Exception:
+            logging.getLogger("reticle").exception("readiness check failed")
+            return JSONResponse(status_code=503, content={"status": "database_unavailable"})
+        return JSONResponse(status_code=200, content={"status": "ready"})
 
     @application.get("/api/config", tags=["config"])
     async def configuration() -> dict[str, object]:
@@ -202,6 +287,20 @@ def create_app() -> FastAPI:
         application.include_router(module.router)
 
     return application
+
+
+def _failure(status_code: int, body: dict) -> JSONResponse:
+    """An error response carrying the id of the request that produced it.
+
+    In the body as well as the header, because the header is invisible to
+    somebody reading an error message on screen, and the whole point is that
+    they can quote it in a report.
+    """
+    identifier = request_id.get()
+    enriched = {**body, "requestId": identifier}
+    return JSONResponse(
+        status_code=status_code, content=enriched, headers={REQUEST_ID_HEADER: identifier}
+    )
 
 
 def _describe_validation(exc: RequestValidationError) -> str:
