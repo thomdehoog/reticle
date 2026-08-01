@@ -187,8 +187,21 @@ def _window_start(settings: Settings) -> datetime:
     return utcnow() - timedelta(minutes=settings.login_attempt_window_minutes)
 
 
+PAIR_SEPARATOR = "\x1f"
+"""ASCII unit separator, joining the two halves of a per-email-and-address key.
+
+It has to be a character that cannot occur in either half, or two different
+pairs could collapse onto one key and share a throttle budget. It also has to
+be storable, and that is the part that was wrong: this was ``\\x00``, and
+PostgreSQL text columns cannot hold a NUL byte at all. SQLite accepted it
+silently, so every login worked in development and every login would have
+failed the moment the database moved — found by running the suite against
+PostgreSQL, which is why that job exists.
+"""
+
+
 def _pair_key(email: str, ip_address: str) -> str:
-    return f"{email}\x00{ip_address}"
+    return f"{email}{PAIR_SEPARATOR}{ip_address}"
 
 
 def _failures(db: DbSession, scope: str, key: str, since: datetime) -> int:

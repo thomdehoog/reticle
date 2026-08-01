@@ -75,6 +75,136 @@ jobs:
       - name: Tests with coverage
         run: pytest --cov=app --cov-report=term-missing --cov-fail-under=85
 
+  postgres:
+    name: Backend on PostgreSQL
+    runs-on: ubuntu-latest
+    # SQLite accepts things PostgreSQL rejects. The login throttle joined two
+    # fields with a NUL byte, which SQLite stored happily and PostgreSQL cannot
+    # hold in a text column at all — so every login worked in development and
+    # every login would have failed the day the database moved. A suite that
+    # has only ever run on SQLite is evidence about SQLite.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: reticle
+          POSTGRES_PASSWORD: ci-only-not-a-real-password
+          POSTGRES_DB: reticle_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      RETICLE_TEST_DATABASE_URL: postgresql+psycopg://reticle:ci-only-not-a-real-password@localhost:5432/reticle_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      # Migrations run against the real engine before the suite does, so a
+      # migration that only works on SQLite fails here rather than on a
+      # facility's server mid-deploy.
+      - name: Migrate
+        env:
+          RETICLE_SECRET_KEY: ci-only-secret-not-used-anywhere-real-0000
+          RETICLE_DATABASE_URL: ${{ env.RETICLE_TEST_DATABASE_URL }}
+        run: alembic upgrade head
+
+      - name: Tests
+        run: pytest -q
+
+  restore-rehearsal:
+    name: Restore rehearsal
+    runs-on: ubuntu-latest
+    # A backup nobody has restored is a hypothesis. The suite already proves
+    # the round trip in-process; this proves the *command* an operator would
+    # actually type, through a real archive on a real filesystem, and fails if
+    # anything is missing or a checksum does not match.
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      RETICLE_SECRET_KEY: ci-only-secret-not-used-anywhere-real-0000
+      RETICLE_ADMIN_EMAIL: ci@example.org
+      RETICLE_ADMIN_PASSWORD: ci-only-password-not-real
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - run: pip install -r requirements.txt
+
+      - name: Seed a corpus
+        env:
+          RETICLE_DATABASE_URL: sqlite:///./origin.db
+          RETICLE_MEDIA_ROOT: ./origin_media
+        run: python -m app.seed
+
+      - name: Export it
+        env:
+          RETICLE_DATABASE_URL: sqlite:///./origin.db
+          RETICLE_MEDIA_ROOT: ./origin_media
+        run: python -m app.portability export --archive ./backup.tar.gz
+
+      # Into an empty database, as it would be on a new server. `restore` exits
+      # non-zero if a file is missing or a checksum fails, so a silent partial
+      # restore cannot pass.
+      - name: Restore into an empty database
+        env:
+          RETICLE_DATABASE_URL: sqlite:///./restored.db
+          RETICLE_MEDIA_ROOT: ./restored_media
+        run: python -m app.portability restore --from ./backup.tar.gz
+
+      - name: Compare the two corpora
+        env:
+          RETICLE_DATABASE_URL: sqlite:///./restored.db
+          RETICLE_MEDIA_ROOT: ./restored_media
+        run: |
+          python - <<'PY'
+          import json, subprocess, os, sys
+
+          def export(db, media):
+              environment = {**os.environ, "RETICLE_DATABASE_URL": db, "RETICLE_MEDIA_ROOT": media}
+              out = f"/tmp/{db.split('/')[-1]}.json"
+              subprocess.run(
+                  [sys.executable, "-m", "app.portability", "export", "--out", out],
+                  check=True, env=environment,
+              )
+              return json.load(open(f"{out}/reticle-export.json"))
+
+          origin = export("sqlite:///./origin.db", "./origin_media")
+          restored = export("sqlite:///./restored.db", "./restored_media")
+
+          for section in ("guides", "pages", "categories", "tags", "media"):
+              if origin[section] != restored[section]:
+                  print(f"MISMATCH in {section}", file=sys.stderr)
+                  raise SystemExit(1)
+          print("restore is faithful:", origin["reticleExport"]["counts"])
+          PY
+
+      # A static snapshot needs no software at all to read, so it is the last
+      # line of defence and is worth proving buildable on every run.
+      - name: Build the offline snapshot
+        env:
+          RETICLE_DATABASE_URL: sqlite:///./restored.db
+          RETICLE_MEDIA_ROOT: ./restored_media
+        run: python -m app.portability publish --out ./snapshot
+
   e2e:
     name: Browser smoke test
     runs-on: ubuntu-latest

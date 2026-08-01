@@ -5,3 +5,9 @@
 pytest~=9.1
 pytest-cov~=7.1
 httpx~=0.28
+
+# The PostgreSQL driver, for the CI job that runs the whole suite against a
+# real server. SQLite accepts things PostgreSQL rejects - a NUL byte in a text
+# column was found exactly this way - so a suite that has only run on SQLite is
+# evidence about SQLite.
+psycopg[binary]~=3.2

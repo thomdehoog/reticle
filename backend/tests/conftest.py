@@ -115,12 +115,25 @@ def db_session(media_root) -> Iterator[Session]:
     ``StaticPool`` keeps every connection pointed at the same in-memory
     database; without it each pooled connection would silently get its own
     empty schema and requests would see a different world than the fixtures.
+
+    Setting ``RETICLE_TEST_DATABASE_URL`` runs the whole suite against a real
+    server instead, which is how the PostgreSQL job in CI works. That job is
+    not a formality: SQLite accepts things PostgreSQL rejects — a string into
+    an integer column, an aggregate over a column that is not grouped — so a
+    suite that has only ever run on SQLite is evidence about SQLite. Each test
+    still gets a clean schema, dropped afterwards, so ordering stays
+    irrelevant.
     """
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
+    external = os.environ.get("RETICLE_TEST_DATABASE_URL")
+    if external:
+        engine = create_engine(external, poolclass=StaticPool)
+        Base.metadata.drop_all(engine)
+    else:
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, autoflush=False, future=True)
 
@@ -138,6 +151,8 @@ def db_session(media_root) -> Iterator[Session]:
     finally:
         session.close()
         app.dependency_overrides.clear()
+        if external:
+            Base.metadata.drop_all(engine)
         engine.dispose()
 
 
