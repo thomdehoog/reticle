@@ -89,6 +89,32 @@ def test_the_application_creates_its_schema_on_startup(db_session):
         assert client.get("/api/health").json() == {"status": "ok"}
 
 
+def test_an_enormous_body_is_refused_before_anything_reads_it(anon):
+    """The allocation that matters is the endpoint reading the body in order to
+    validate it, and on the login endpoint that is performed on behalf of a
+    caller who has not authenticated and never will: a 210 MB login attempt was
+    held in memory in full and only then rejected as invalid."""
+    response = anon.raw.post(
+        "/api/auth/login",
+        json={"email": "flood@zmb.uzh.ch", "password": "x" * (3 * 1024 * 1024)},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "payload_too_large"
+    assert "MB" in response.json()["error"]["message"]
+
+
+def test_the_size_limit_does_not_apply_to_a_multipart_upload(author):
+    """Uploads legitimately run to tens of megabytes and ``media`` streams them
+    against its own, larger cap rather than trusting the declared length; the
+    blanket limit must not shadow it."""
+    from .conftest import image_bytes
+
+    response = author.post("/api/media", files={"file": ("x.png", image_bytes(), "image/png")})
+
+    assert response.status_code == 201
+
+
 def test_hardening_headers_are_present_on_every_response(anon):
     headers = anon.get("/api/health").headers
 

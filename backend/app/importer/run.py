@@ -62,14 +62,13 @@ from ..models import (
 )
 from ..schemas import guide_document, page_document
 from ..settings import Settings, get_settings
-from ..slugs import slugify, unique_slug
+from ..slugs import unique_slug
 from .client import DozukiClient, MigrationError
 from .mapping import (
     MappedGuide,
     MappedImage,
     MappedPage,
     MappedVideo,
-    Unmapped,
     map_guide,
     map_page,
 )
@@ -716,7 +715,7 @@ def main(argv: list[str] | None = None) -> int:
     if options.json_report_path is not None:
         options.json_report_path.write_text(report.to_json(), encoding="utf-8")
 
-    if report.unmapped and not options.allow_unmapped:
+    if report.losses and not options.allow_unmapped:
         print(
             "\nStopping: the site uses values this importer does not recognise (listed above).\n"
             "Decide what each one should become, extend app/importer/mapping.py, and run again.\n"

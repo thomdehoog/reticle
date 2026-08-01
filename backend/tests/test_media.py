@@ -167,6 +167,20 @@ def test_an_oversized_body_is_refused_with_payload_too_large(author, monkeypatch
     assert response.json()["error"]["code"] == "payload_too_large"
 
 
+def test_a_hopelessly_oversized_upload_is_refused_from_its_declared_length(author, monkeypatch, media_root):
+    """Streaming the body against the cap is the guarantee; refusing on the
+    declared length first is what stops the process buffering a body it has
+    already decided to reject."""
+    monkeypatch.setenv("RETICLE_MAX_UPLOAD_BYTES", "1024")
+    get_settings.cache_clear()
+
+    response = author.post("/api/media", files={"file": ("huge.png", noisy_png(700, 700), "image/png")})
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "payload_too_large"
+    assert not (media_root.exists() and [p for p in media_root.rglob("*") if p.is_file()])
+
+
 def test_exif_is_stripped_from_what_is_stored(author, db_session, media_root):
     original = jpeg_with_exif()
     assert Image.open(BytesIO(original)).getexif().get(0x010F) == "ZMB-Stellaris"

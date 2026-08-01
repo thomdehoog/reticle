@@ -21,6 +21,8 @@ from dataclasses import asdict, dataclass, field
 
 from .mapping import Unmapped
 
+UNKNOWN_FIELD = "unknown_field"
+
 
 @dataclass
 class GuideTally:
@@ -86,12 +88,30 @@ class MigrationReport:
         return sum(1 for tally in self.guides if not tally.failures)
 
     @property
+    def losses(self) -> list[Unmapped]:
+        """Values the mapping could not read. Each one is content not imported."""
+        return [item for item in self.unmapped if item.kind != UNKNOWN_FIELD]
+
+    @property
+    def questions(self) -> list[Unmapped]:
+        """Fields the source carries and this importer does not read.
+
+        Not losses — nobody asked for them — but the only mechanical way to
+        notice a capability the other system has and Reticle does not.
+        """
+        return [item for item in self.unmapped if item.kind == UNKNOWN_FIELD]
+
+    @property
     def balanced(self) -> bool:
-        return all(tally.balanced for tally in self.guides) and not self.unmapped
+        return all(tally.balanced for tally in self.guides) and not self.losses
 
     def unmapped_summary(self) -> list[tuple[str, str, int]]:
-        counted = Counter((item.kind, item.value) for item in self.unmapped)
+        counted = Counter((item.kind, item.value) for item in self.losses)
         return [(kind, value, count) for (kind, value), count in counted.most_common()]
+
+    def question_summary(self) -> list[tuple[str, int]]:
+        counted = Counter(item.value for item in self.questions)
+        return counted.most_common()
 
     def to_json(self) -> str:
         return json.dumps(
@@ -104,7 +124,8 @@ class MigrationReport:
                 "tagsCreated": self.tags_created,
                 "balanced": self.balanced,
                 "guides": [asdict(tally) for tally in self.guides],
-                "unmapped": [asdict(item) for item in self.unmapped],
+                "unmapped": [asdict(item) for item in self.losses],
+                "unreadFields": [asdict(item) for item in self.questions],
                 "skipped": self.skipped,
             },
             indent=2,
@@ -152,8 +173,15 @@ class MigrationReport:
             lines.append("Every guide reconciled exactly.")
             lines.append("")
 
-        if self.unmapped:
-            lines.append(f"Unmapped values ({len(self.unmapped)} occurrences)")
+        if self.questions:
+            lines.append(f"Fields the source carries that Reticle does not read ({len(self.questions)})")
+            lines.append("Not losses — but this is where a missing feature shows up.")
+            for value, count in self.question_summary():
+                lines.append(f"  {count:>5}  {value}")
+            lines.append("")
+
+        if self.losses:
+            lines.append(f"Unmapped values ({len(self.losses)} occurrences)")
             lines.append("These are things the site has and this importer does not recognise.")
             lines.append("Each one is a decision, not a warning to scroll past.")
             for kind, value, count in self.unmapped_summary():

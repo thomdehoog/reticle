@@ -408,3 +408,18 @@ def test_an_account_that_does_not_exist_stops_the_run_before_anything_is_written
 ):
     with pytest.raises(MigrationError, match="No account for"):
         Importer(db_session, FakeDozuki([]), _options(), get_settings())
+
+
+def test_an_unread_field_is_a_question_and_not_a_loss(db_session, author_account, media_root):
+    """It must not fail the run: the content all arrived, and nobody asked for it."""
+    payload = _guide()
+    payload["quiz"] = {"questions": []}
+    importer = _run(db_session, FakeDozuki([payload]))
+
+    assert importer.report.balanced is True
+    assert [item.value for item in importer.report.questions] == ["quiz"]
+    assert importer.report.losses == []
+
+    text = importer.report.to_text()
+    assert "does not read" in text
+    assert "quiz" in text

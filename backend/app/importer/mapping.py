@@ -99,6 +99,43 @@ colour and nothing pointing at anything.
 
 MAX_BULLET_LEVEL = 2
 
+KNOWN_GUIDE_FIELDS = frozenset(
+    {
+        # Read by the mapping.
+        "guideid", "id", "wikiid", "title", "summary", "category", "namespace",
+        "tags", "difficulty", "time_required", "time", "introduction_raw",
+        "introduction_rendered", "introduction", "conclusion_raw",
+        "conclusion_rendered", "conclusion", "public", "steps",
+        # Present, deliberately not carried across: identifiers and rendering
+        # details of the other system, authorship that becomes a source record,
+        # and counters that start again here.
+        "url", "revisionid", "locale", "langid", "modified_date", "created_date",
+        "published", "author", "username", "userid", "image", "documents",
+        "flags", "type", "guide_type", "prereqs", "prerequisites", "parts",
+        "tools", "patrol_threshold", "featured_guide", "instructables_id",
+        "view_count", "completed", "favorited", "comments", "solutions",
+    }
+)
+"""Every key the corpus is expected to carry.
+
+Anything outside this set is reported as an unknown field. That is not
+pedantry: a field nobody wrote down is exactly how a feature the site has and
+Reticle does not would go unnoticed, because the mapping would simply not look
+at it and every count would still balance. The report turns "did we miss a
+feature?" into a list.
+"""
+
+KNOWN_STEP_FIELDS = frozenset(
+    {
+        "stepid", "orderby", "title", "lines", "bullets", "media",
+        "revisionid", "guideid", "id", "type", "images", "video",
+    }
+)
+
+KNOWN_LINE_FIELDS = frozenset(
+    {"lineid", "id", "text_raw", "text_rendered", "text", "bullet", "color", "level", "notes"}
+)
+
 _TAG_SEPARATORS = re.compile(r"[,;]")
 _NON_SLUG = re.compile(r"[^a-z0-9]+")
 _WHITESPACE = re.compile(r"[ \t\r\f\v]+")
@@ -120,6 +157,21 @@ class Unmapped:
 
     def __str__(self) -> str:  # pragma: no cover - diagnostic only
         return f"{self.kind}={self.value!r} at {self.where}"
+
+
+def unknown_fields(payload: dict[str, Any], known: frozenset[str], where: str) -> list[Unmapped]:
+    """Name the keys nobody accounted for.
+
+    Reported separately from an unmapped *value*: a value the mapping could not
+    read is a loss and stops the run, whereas an unread field is a question —
+    "the site stores this and we do not; should we?" — and the answer belongs to
+    whoever is comparing the two systems, not to this code.
+    """
+    return [
+        Unmapped("unknown_field", key, where)
+        for key in sorted(payload)
+        if key not in known and not key.startswith("_")
+    ]
 
 
 @dataclass
@@ -661,7 +713,7 @@ def map_guide(payload: dict[str, Any]) -> tuple[MappedGuide, list[Unmapped]]:
     """One whole guide, with everything it carries."""
     source_id = str(payload.get("guideid") or payload.get("id") or payload.get("wikiid") or "?")
     where = f"guide {source_id}"
-    problems: list[Unmapped] = []
+    problems: list[Unmapped] = unknown_fields(payload, KNOWN_GUIDE_FIELDS, where)
 
     difficulty, difficulty_problems = map_difficulty(payload.get("difficulty"), where)
     problems.extend(difficulty_problems)
@@ -712,13 +764,14 @@ def map_guide(payload: dict[str, Any]) -> tuple[MappedGuide, list[Unmapped]]:
 
 
 def map_step(payload: dict[str, Any], where: str) -> tuple[MappedStep, list[Unmapped]]:
-    problems: list[Unmapped] = []
+    problems: list[Unmapped] = unknown_fields(payload, KNOWN_STEP_FIELDS, where)
 
     bullets: list[MappedBullet] = []
     for line in payload.get("lines") or payload.get("bullets") or []:
         if not isinstance(line, dict):
             problems.append(Unmapped("line", repr(line)[:120], where))
             continue
+        problems.extend(unknown_fields(line, KNOWN_LINE_FIELDS, where))
         bullet, line_problems = map_bullet(line, where)
         problems.extend(line_problems)
         if bullet is not None:

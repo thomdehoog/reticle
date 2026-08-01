@@ -467,3 +467,39 @@ def test_the_guide_list_block_is_the_embed_the_reader_renders():
     assert guide_list_block(["confocal", "startup"], "Start-up") == (
         "```guidelist\ntags: confocal, startup\nheading: Start-up\n```"
     )
+
+
+# --- discovering what nobody wrote down -----------------------------------
+
+
+def test_a_field_the_importer_does_not_read_is_reported_as_a_question():
+    """This is the only mechanical way to notice a feature the site has.
+
+    A field nobody accounted for is simply not looked at, every count still
+    balances, and the capability behind it is discovered years later by somebody
+    wondering where it went.
+    """
+    payload = _guide_payload()
+    payload["quiz"] = {"questions": []}
+    _, problems = map_guide(payload)
+
+    assert [item.value for item in problems if item.kind == "unknown_field"] == ["quiz"]
+
+
+def test_fields_that_are_deliberately_not_carried_across_are_not_reported():
+    """Otherwise the list is noise and stops being read."""
+    payload = _guide_payload()
+    payload.update({"url": "https://example.test/Guide/1234", "revisionid": 9, "view_count": 6745})
+    _, problems = map_guide(payload)
+
+    assert [item for item in problems if item.kind == "unknown_field"] == []
+
+
+def test_an_unknown_field_on_a_step_or_a_bullet_is_reported_too():
+    payload = _guide_payload()
+    payload["steps"][0]["gadget"] = True
+    payload["steps"][0]["lines"][0]["annotation_ref"] = 12
+    _, problems = map_guide(payload)
+
+    reported = {item.value for item in problems if item.kind == "unknown_field"}
+    assert reported == {"gadget", "annotation_ref"}

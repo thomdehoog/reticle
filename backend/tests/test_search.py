@@ -19,7 +19,7 @@ from sqlalchemy import select
 
 from app.models import Guide, Page, User
 
-from .conftest import create_guide, create_page, document_from, page_document_from
+from .conftest import bullet, create_guide, create_page, document_from, page_document_from, step
 
 
 def publish_guide_with(client, category_id: str, title: str, **fields) -> dict:
@@ -81,14 +81,60 @@ def test_a_page_hit_carries_the_page_summary_projection(author):
     }
 
 
-def test_a_guide_matches_on_its_title_summary_and_introduction(author, category):
+def test_a_guide_matches_on_all_of_its_front_matter(author, category):
     publish_guide_with(author, category.id, "Objective Care")
     publish_guide_with(author, category.id, "Second Guide", summary="Handling the cryostat safely.")
     publish_guide_with(author, category.id, "Third Guide", introduction="Read the xylene sheet first.")
+    publish_guide_with(author, category.id, "Fourth Guide", conclusion="Log any drift in the booking system.")
 
     assert titles(author.get("/api/search", params={"q": "objective"}).json()) == ["Objective Care"]
     assert titles(author.get("/api/search", params={"q": "cryostat"}).json()) == ["Second Guide"]
     assert titles(author.get("/api/search", params={"q": "xylene"}).json()) == ["Third Guide"]
+    assert titles(author.get("/api/search", params={"q": "drift"}).json()) == ["Fourth Guide"]
+
+
+def test_a_guide_matches_on_the_text_inside_its_steps(author, category):
+    """A reader searching for "immersion oil" wants the step that says it, and
+    at ZMB that phrase is usually in a bullet rather than in the front matter.
+    A search that covered only titles and summaries would answer "nothing found"
+    about a procedure that explains it in detail."""
+    publish_guide_with(
+        author,
+        category.id,
+        "Mounting",
+        steps=[step("Add the immersion medium", bullets=[bullet("One drop of oil, no more.")])],
+    )
+    publish_guide_with(author, category.id, "Unrelated Guide")
+
+    assert titles(author.get("/api/search", params={"q": "immersion medium"}).json()) == ["Mounting"]
+    assert titles(author.get("/api/search", params={"q": "one drop"}).json()) == ["Mounting"]
+
+
+def test_a_title_match_outranks_a_mention_buried_in_a_step(author, category):
+    """Otherwise the ordering is "most recently edited", which puts the guide
+    that merely mentions the term above the one named after it."""
+    publish_guide_with(
+        author,
+        category.id,
+        "Passing Mention",
+        steps=[step("Setup", bullets=[bullet("Check the cryostat before starting.")])],
+    )
+    publish_guide_with(author, category.id, "Cryostat Maintenance")
+
+    assert titles(author.get("/api/search", params={"q": "cryostat"}).json()) == [
+        "Cryostat Maintenance",
+        "Passing Mention",
+    ]
+
+
+def test_a_page_whose_title_matches_comes_before_one_whose_body_does(author):
+    publish_page_with(author, "Buffers", body="Keep the cryostat at minus twenty.")
+    publish_page_with(author, "Cryostat Notes")
+
+    assert titles(author.get("/api/search", params={"q": "cryostat"}).json()) == [
+        "Cryostat Notes",
+        "Buffers",
+    ]
 
 
 def test_a_page_matches_on_its_title_summary_and_body(author):
