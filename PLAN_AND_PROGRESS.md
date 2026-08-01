@@ -157,7 +157,7 @@ Decisions worth not re-litigating:
   is its own first step image; a section carries one an administrator sets; and
   anything with no picture yet gets a figure drawn from its name rather than a
   blank, so a section stays recognisable before the migration has run.
-- **The section is listed beside what you are read**, scoped to that section and
+- **The section is listed beside what you are reading**, scoped to that section and
   never to the institute.
 - **The importer never guesses.** Anything it does not recognise stops the run
   and appears in the report. Counts come from the raw payload rather than from
