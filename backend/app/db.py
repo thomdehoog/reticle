@@ -82,12 +82,40 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, future=True)
 
 @event.listens_for(Engine, "connect")
 def _configure_sqlite(dbapi_connection: Any, connection_record: Any) -> None:
-    """Foreign keys are off by default in SQLite, which would quietly turn the
-    cascade rules in ``models`` into decoration."""
-    if dbapi_connection.__class__.__module__.startswith("sqlite3"):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+    """The three settings that decide whether SQLite behaves like a database.
+
+    All of them are per-connection or persistent defaults that SQLite gets wrong
+    for a server, and all three have to be set here because there is nowhere
+    else that every connection passes through.
+
+    **Foreign keys are off by default**, which would quietly turn every
+    ``ForeignKey`` and every ``ondelete="CASCADE"`` in ``models`` into
+    decoration: orphaned steps would accumulate under deleted guides and nothing
+    would say so.
+
+    **The default journal blocks readers against the writer.** In the rollback
+    journal a write takes the whole database, so an autosave — which the editor
+    performs every few seconds while somebody types — stalls every colleague
+    reading a guide at that moment. Write-ahead logging lets them proceed
+    concurrently, which is the difference between a system that feels responsive
+    at a bench and one that stutters whenever anybody is writing.
+
+    **Synchronous stays FULL**, rather than the NORMAL usually paired with WAL.
+    NORMAL trades a small window of durability on power loss for speed, and the
+    speed is worth nothing here: this is a few writes a minute, and the thing
+    being written is a safety procedure somebody is part-way through revising.
+
+    ⚠️ WAL does not work on a network filesystem. If the database is ever moved
+    onto an SMB or NFS share, this has to change and the move is a bad idea for
+    other reasons too.
+    """
+    if not dbapi_connection.__class__.__module__.startswith("sqlite3"):
+        return
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=FULL")
+    cursor.close()
 
 
 def get_db() -> Iterator[Session]:
