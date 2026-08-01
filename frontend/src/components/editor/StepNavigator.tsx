@@ -103,6 +103,12 @@ export function StepNavigator({ steps, stepsContainer, onReorder }: StepNavigato
 
     cards.forEach((card) => observer.observe(card))
     return () => observer.disconnect()
+    // `order` stands in for `ids`, which it is the join of. Listing `ids`
+    // instead would tear down and rebuild the observer on every render, since
+    // `steps.map` returns a new array each time; `order` changes exactly when
+    // the identifiers do. The closure can therefore only ever read an `ids`
+    // whose contents match the one the effect was scheduled for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order, stepsContainer])
 
   /**

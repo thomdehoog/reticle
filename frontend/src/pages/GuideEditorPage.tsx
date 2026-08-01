@@ -59,7 +59,13 @@ export function GuideEditorPage() {
   const dirtyRef = useRef(false)
   const stepsRef = useRef<HTMLDivElement>(null)
 
+  // Seeding the editable copy from what the server returned. This is the
+  // legitimate case the `set-state-in-effect` rule carves out - state
+  // synchronised from outside React - and it cannot be derived during render,
+  // because from the first keystroke the local copy is the newer of the two and
+  // recomputing it would discard what the author just typed.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (loaded) setGuide(loaded)
   }, [loaded])
 

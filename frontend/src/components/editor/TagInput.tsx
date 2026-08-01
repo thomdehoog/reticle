@@ -54,6 +54,9 @@ export function slugifyTag(value: string): string {
 
   return translated
     .normalize('NFKD')
+    // Dropping every non-ASCII code point after decomposition is the point,
+    // control characters included: a tag slug goes into a URL.
+    // eslint-disable-next-line no-control-regex
     .replace(/[^\x00-\x7F]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')

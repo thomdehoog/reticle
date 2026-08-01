@@ -117,7 +117,10 @@ export class ApiClient {
         credentials: 'same-origin',
         body: isForm ? (body as FormData) : body === undefined ? undefined : JSON.stringify(body),
       })
-    } catch (cause) {
+    } catch {
+      // The binding is dropped on purpose. fetch rejects with a bare TypeError
+      // whose message varies by browser and says nothing a user could act on;
+      // the sentence below is the whole of what is worth telling them.
       throw new ApiError(
         'network_error',
         'Could not reach the Reticle server. Check your connection and try again.',

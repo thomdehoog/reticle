@@ -37,6 +37,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # Catches what the type checker cannot see. An effect that reads a value
+      # it never declared is perfectly well typed and renders last request's
+      # data; the react-hooks rules are the reason this step exists.
+      - name: Lint
+        run: npm run lint
+
       - name: Unit tests
         run: npm test
 
