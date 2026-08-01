@@ -1,16 +1,21 @@
-import { Link } from 'react-router-dom'
-
 import { useApi, useAuth } from '../auth/AuthContext'
-import { GuideRow } from '../components/GuideRow'
+import { CategoryTile, GuideCard, TileGrid } from '../components/BrowseCards'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
 import { browsableCategories, buildCategoryTree } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
 /**
- * The landing page: the category tree, plus an author's own unfinished work.
+ * The front door: the sections, as pictures.
  *
- * Surfacing drafts here is deliberate — a half-written guide that nobody can
- * see from the front page is a half-written guide that never gets finished.
+ * Somebody arriving here is looking for an instrument or a procedure they
+ * already have in mind, and they recognise it faster than they can read a list
+ * of titles — so this is a wall of tiles rather than a table of contents, and
+ * the words on each one are held to the name and a count. The description of a
+ * section belongs on the section, where somebody has decided to read.
+ *
+ * Surfacing an author's drafts here is deliberate: a half-written guide that
+ * nobody can see from the front page is a half-written guide that never gets
+ * finished.
  */
 export function HomePage() {
   const api = useApi()
@@ -78,32 +83,28 @@ export function HomePage() {
       {roots.length === 0 ? (
         <EmptyState>No categories yet.</EmptyState>
       ) : (
-        <div className="grid">
-          {roots.map((category) => {
-            const count = countIncludingChildren(category.id)
-            return (
-              <Link key={category.id} to={`/c/${category.slug}`} className="category-card">
-                <span className="category-card__name">{category.name}</span>
-                {category.description && (
-                  <span className="category-card__desc">{category.description}</span>
-                )}
-                <span className="category-card__count">
-                  {count} {count === 1 ? 'guide' : 'guides'}
-                </span>
-              </Link>
-            )
-          })}
-        </div>
+        <TileGrid>
+          {roots.map((category) => (
+            <CategoryTile
+              key={category.id}
+              category={category}
+              guideCount={countIncludingChildren(category.id)}
+              childCount={
+                browsableCategories(data.categories).filter((c) => c.parentId === category.id).length
+              }
+            />
+          ))}
+        </TileGrid>
       )}
 
       {can('author') && myDrafts.length > 0 && (
-        <section style={{ marginTop: '2.5rem' }}>
-          <h2 style={{ marginBottom: '0.75rem' }}>Your unpublished guides</h2>
-          <div className="card">
+        <section className="section">
+          <h2 className="section__title">Your unpublished guides</h2>
+          <TileGrid>
             {myDrafts.map((guide) => (
-              <GuideRow key={guide.id} guide={guide} to={`/g/${guide.id}/edit`} />
+              <GuideCard key={guide.id} guide={guide} to={`/g/${guide.id}/edit`} />
             ))}
-          </div>
+          </TileGrid>
         </section>
       )}
     </>

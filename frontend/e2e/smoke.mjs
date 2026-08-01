@@ -80,8 +80,8 @@ for (const viewport of VIEWPORTS) {
   await page.getByLabel('Password').fill(PASSWORD)
   await signIn.click()
 
-  await page.waitForSelector('.category-card', { timeout: 15000 })
-  const categories = await page.locator('.category-card').count()
+  await page.waitForSelector('.tile', { timeout: 15000 })
+  const categories = await page.locator('.tile').count()
   record(`[${viewport.name}] home lists categories`, categories > 0, `${categories} cards`)
   await page.screenshot({ path: join(SHOTS, `${viewport.name}-2-home.png`), fullPage: true })
 
@@ -106,24 +106,24 @@ for (const viewport of VIEWPORTS) {
   )
 
   await page
-    .locator('.category-card')
-    .filter({ has: page.locator('.category-card__name', { hasText: /^Light Microscopy$/ }) })
+    .locator('.tile')
+    .filter({ has: page.locator('.tile__name', { hasText: /^Light Microscopy$/ }) })
     .first()
     .click()
   /* Three waits look right here and are not.
      "networkidle" fires immediately, because a client-side route change has
      nothing in flight at the moment of the click. Waiting for the spinner to
      detach can resolve before the spinner has been rendered at all. And
-     ".guide-row, .empty-state" is satisfied by the empty state a guide-list
+     ".tile--guide, .empty-state" is satisfied by the empty state a guide-list
      embedded in the landing page shows while it is still fetching, which is
      not the category's own list.
      Waiting for the response that carries the list is the thing that actually
      means the data is here. */
   await listing
-  await page.waitForSelector('.guide-row, .empty-state')
+  await page.waitForSelector('.tile--guide, .empty-state')
   await page.screenshot({ path: join(SHOTS, `${viewport.name}-3-category.png`), fullPage: true })
 
-  const guideRow = page.locator('.guide-row').first()
+  const guideRow = page.locator('.tile--guide').first()
   if (await guideRow.count()) {
     await guideRow.click()
     await page.waitForSelector('.step')

@@ -24,7 +24,7 @@ import remarkGfm from 'remark-gfm'
 
 import { useApi } from '../auth/AuthContext'
 import { useAsync } from '../hooks/useAsync'
-import { GuideRow } from './GuideRow'
+import { GuideCard, TileGrid } from './BrowseCards'
 import { EmptyState, ErrorAlert } from './ui'
 
 /** The fence language that marks a guide-list block. */
@@ -99,11 +99,11 @@ function GuideListEmbed({ source }: { source: string }) {
         </EmptyState>
       )}
       {guides.length > 0 && (
-        <div className="card">
+        <TileGrid>
           {guides.map((guide) => (
-            <GuideRow key={guide.id} guide={guide} />
+            <GuideCard key={guide.id} guide={guide} />
           ))}
-        </div>
+        </TileGrid>
       )}
     </section>
   )
@@ -150,9 +150,9 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
   return <img src={src} alt={alt ?? ''} loading="lazy" />
 }
 
-export function MarkdownBody({ body }: { body: string }) {
+export function MarkdownBody({ body, wide = false }: { body: string; wide?: boolean }) {
   return (
-    <div className="markdown">
+    <div className={`markdown${wide ? ' markdown--wide' : ''}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

@@ -1,7 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 
 import { useApi } from '../auth/AuthContext'
-import { GuideRow } from '../components/GuideRow'
+import { GuideCard, TileGrid } from '../components/BrowseCards'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
 import { useAsync } from '../hooks/useAsync'
 
@@ -51,11 +51,11 @@ export function TagPage() {
           Nothing carries the tag “{tag}”. <Link to="/t">See which tags are in use.</Link>
         </EmptyState>
       ) : (
-        <div className="card">
+        <TileGrid>
           {guides.map((guide) => (
-            <GuideRow key={guide.id} guide={guide} />
+            <GuideCard key={guide.id} guide={guide} />
           ))}
-        </div>
+        </TileGrid>
       )}
     </>
   )

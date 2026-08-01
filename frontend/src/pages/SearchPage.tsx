@@ -1,27 +1,11 @@
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 
 import { useApi } from '../auth/AuthContext'
-import { GuideRow } from '../components/GuideRow'
-import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
-import type { PageSummary } from '../domain/types'
+import { GuideCard, TileGrid, WikiCard } from '../components/BrowseCards'
+import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
 import { useAsync } from '../hooks/useAsync'
 
 /** A wiki result. Labelled, because "guide" and "page" behave differently. */
-function PageRow({ page }: { page: PageSummary }) {
-  return (
-    <Link className="guide-row" to={`/w/${page.slug}`}>
-      <div className="guide-row__main">
-        <div className="guide-row__title">{page.title}</div>
-        {page.summary && <div className="guide-row__summary">{page.summary}</div>}
-        <div className="guide-row__meta">
-          <span className="result-kind">Wiki page</span>
-          {page.isLanding && <span>Category landing page</span>}
-        </div>
-      </div>
-      {page.status !== 'published' && <StatusBadge status={page.status} />}
-    </Link>
-  )
-}
 
 /**
  * Search spans both content types.
@@ -70,11 +54,11 @@ export function SearchPage() {
           <h2 style={{ marginBottom: '0.75rem' }}>
             Guides <span className="result-count">{guides.length}</span>
           </h2>
-          <div className="card">
+          <TileGrid>
             {guides.map((guide) => (
-              <GuideRow key={guide.id} guide={guide} />
+              <GuideCard key={guide.id} guide={guide} />
             ))}
-          </div>
+          </TileGrid>
         </section>
       )}
 
@@ -85,7 +69,7 @@ export function SearchPage() {
           </h2>
           <div className="card">
             {pages.map((page) => (
-              <PageRow key={page.id} page={page} />
+              <WikiCard key={page.id} page={page} />
             ))}
           </div>
         </section>

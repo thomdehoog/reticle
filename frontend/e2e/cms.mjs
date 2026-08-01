@@ -85,7 +85,7 @@ await page.goto(BASE, { waitUntil: 'networkidle' })
 await page.getByLabel('Email').fill(EMAIL)
 await page.getByLabel('Password').fill(PASSWORD)
 await page.getByRole('button', { name: 'Sign in' }).click()
-await page.waitForSelector('.category-card', { timeout: 15000 })
+await page.waitForSelector('.tile', { timeout: 15000 })
 consoleErrors.length = 0
 record('sign in', true)
 
@@ -205,8 +205,8 @@ for (const tag of TAGS) {
 
 /* A tag is only useful if it actually gathers the guide elsewhere. */
 await page.getByRole('link', { name: TAGS[0] }).click()
-await page.waitForSelector('.guide-row, .empty-state')
-const gathered = await page.locator('.guide-row', { hasText: TITLE }).count()
+await page.waitForSelector('.tile--guide, .empty-state')
+const gathered = await page.locator('.tile--guide', { hasText: TITLE }).count()
 record('tag listing gathers the guide', gathered > 0)
 
 /* And a reader arriving cold must see the published version. */

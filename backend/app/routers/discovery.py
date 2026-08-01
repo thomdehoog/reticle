@@ -21,6 +21,7 @@ from sqlalchemy import case, func, or_, select
 
 from ..auth import AnyUser, DbDep
 from ..models import Bullet, Guide, GuideTag, Page, Step, Tag
+from .guides import thumbnail_subquery
 from ..schemas import (
     GuideHitOut,
     PageHitOut,
@@ -106,7 +107,7 @@ def search(
         .exists()
     )
 
-    guides = select(Guide, step_count.label("step_count")).where(
+    guides = select(Guide, step_count.label("step_count"), thumbnail_subquery().label("thumb")).where(
         or_(
             Guide.title.ilike(pattern, escape="\\"),
             Guide.summary.ilike(pattern, escape="\\"),
@@ -143,7 +144,8 @@ def search(
     ).limit(SEARCH_LIMIT)
 
     hits: list[SearchHitOut] = [
-        GuideHitOut(guide=guide_summary_out(guide, count)) for guide, count in db.execute(guides)
+        GuideHitOut(guide=guide_summary_out(guide, count, thumbnail))
+        for guide, count, thumbnail in db.execute(guides)
     ]
     hits.extend(PageHitOut(page=page_summary_out(page)) for page in db.scalars(pages))
     return hits

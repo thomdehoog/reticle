@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { useApi, useAuth } from '../auth/AuthContext'
-import { GuideRow } from '../components/GuideRow'
+import { CategoryTile, GuideCard, TileGrid, WikiCard } from '../components/BrowseCards'
 import { IconEdit, IconPlus } from '../components/icons'
 import { MarkdownBody } from '../components/MarkdownBody'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
@@ -31,13 +31,14 @@ export function CategoryPage() {
     async () => {
       const categories = await api.listCategories()
       const category = categories.find((candidate) => candidate.slug === slug) ?? null
-      if (!category) return { categories, category, guides: [], landing: null }
+      if (!category) return { categories, category, guides: [], landing: null, pages: [] }
 
-      const [guides, landing] = await Promise.all([
+      const [guides, landing, pages] = await Promise.all([
         api.listGuides({ categoryId: category.id }),
         api.getCategoryLandingPage(category.id),
+        api.listPages({ categoryId: category.id }),
       ])
-      return { categories, category, guides, landing }
+      return { categories, category, guides, landing, pages }
     },
     [api, slug],
   )
@@ -46,7 +47,8 @@ export function CategoryPage() {
   if (error) return <ErrorAlert error={error} />
   if (!data?.category) return <EmptyState>That category does not exist.</EmptyState>
 
-  const { category, categories, guides, landing } = data
+  const { category, categories, guides, landing, pages } = data
+  const articles = pages.filter((page) => !page.isLanding)
   const children = browsableCategories(categories)
     .filter((candidate) => candidate.parentId === category.id)
     .sort((a, b) => a.orderIndex - b.orderIndex)
@@ -115,33 +117,53 @@ export function CategoryPage() {
 
       <ErrorAlert error={createError} />
 
-      {landing && <MarkdownBody body={landing.body} />}
+      {landing && <MarkdownBody body={landing.body} wide />}
 
       {children.length > 0 && (
-        <div className="grid" style={{ marginBottom: '2rem' }}>
-          {children.map((child) => (
-            <Link key={child.id} to={`/c/${child.slug}`} className="category-card">
-              <span className="category-card__name">{child.name}</span>
-              {child.description && <span className="category-card__desc">{child.description}</span>}
-            </Link>
-          ))}
-        </div>
+        <section className="section">
+          <h2 className="section__title">Sections</h2>
+          <TileGrid>
+            {children.map((child) => (
+              <CategoryTile
+                key={child.id}
+                category={child}
+                guideCount={guides.filter((guide) => guide.categoryId === child.id).length}
+              />
+            ))}
+          </TileGrid>
+        </section>
       )}
 
-      {/* With a landing page in front of it, the full list is a reference rather
-          than the navigation, so it is labelled and does not claim the page. */}
-      {landing && guides.length > 0 && (
-        <h2 style={{ margin: '2rem 0 0.75rem' }}>Everything in {category.name}</h2>
+      {/* Wiki pages other than the landing one: at ZMB these are the written
+          material a section carries beside its procedures, and they are reached
+          from here rather than only from search. */}
+      {articles.length > 0 && (
+        <section className="section">
+          <h2 className="section__title">Wiki pages</h2>
+          <TileGrid>
+            {articles.map((page) => (
+              <WikiCard key={page.id} page={page} />
+            ))}
+          </TileGrid>
+        </section>
       )}
 
       {guides.length === 0 ? (
-        !landing && <EmptyState>No guides in this category yet.</EmptyState>
+        !landing && <EmptyState>No guides in this section yet.</EmptyState>
       ) : (
-        <div className="card category-guides">
-          {guides.map((guide) => (
-            <GuideRow key={guide.id} guide={guide} />
-          ))}
-        </div>
+        <section className="section category-guides">
+          {/* With a landing page in front of it, the full list is a reference
+              rather than the navigation, so it says so and does not claim the
+              page. */}
+          <h2 className="section__title">
+            {landing ? `Everything in ${category.name}` : 'Guides'}
+          </h2>
+          <TileGrid>
+            {guides.map((guide) => (
+              <GuideCard key={guide.id} guide={guide} />
+            ))}
+          </TileGrid>
+        </section>
       )}
     </>
   )

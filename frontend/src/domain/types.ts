@@ -184,6 +184,8 @@ export interface GuideSummary {
   stepCount: number
   author: UserRef
   viewCount: number
+  /** The guide's first step image: what its card shows. */
+  thumbnailUrl: string | null
   updatedAt: string
   publishedAt: string | null
 }
@@ -227,6 +229,7 @@ export interface PageSummary {
   categoryId: string | null
   isLanding: boolean
   status: ContentStatus
+  heroImageUrl: string | null
   updatedAt: string
   publishedAt: string | null
 }
@@ -244,6 +247,9 @@ export interface Category {
    * than by browsing, and are hidden from the category tree.
    */
   isHidden: boolean
+  /** The picture the section is browsed by. */
+  heroMediaId: string | null
+  imageUrl: string | null
 }
 
 export interface User {

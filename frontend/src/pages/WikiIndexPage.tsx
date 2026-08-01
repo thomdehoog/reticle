@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom'
 
 import { useApi, useAuth } from '../auth/AuthContext'
-import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
+import { TileGrid, WikiCard } from '../components/BrowseCards'
+import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
 import type { PageSummary } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 import { useCategories } from '../hooks/useCategories'
@@ -51,21 +52,11 @@ export function WikiIndexPage() {
           {can('author') && ' Use “New page” above to write the first one.'}
         </EmptyState>
       ) : (
-        <div className="card">
+        <TileGrid>
           {pages.map((page) => (
-            <Link key={page.id} className="guide-row" to={`/w/${page.slug}`}>
-              <div className="guide-row__main">
-                <div className="guide-row__title">{page.title}</div>
-                {page.summary && <div className="guide-row__summary">{page.summary}</div>}
-                <div className="guide-row__meta">
-                  {categoryName(page) && <span>{categoryName(page)}</span>}
-                  {page.isLanding && <span>Category landing page</span>}
-                </div>
-              </div>
-              {page.status !== 'published' && <StatusBadge status={page.status} />}
-            </Link>
+            <WikiCard key={page.id} page={page} context={categoryName(page)} />
           ))}
-        </div>
+        </TileGrid>
       )}
     </>
   )

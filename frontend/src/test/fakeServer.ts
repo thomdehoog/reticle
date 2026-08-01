@@ -145,6 +145,8 @@ export function categoryFixture(overrides: Partial<Category> = {}): Category {
     parentId: null,
     orderIndex: 2,
     isHidden: false,
+    heroMediaId: null,
+    imageUrl: null,
     ...overrides,
   }
 }
@@ -204,6 +206,11 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       stepCount: guide.steps.length,
       author: guide.author,
       viewCount: guide.viewCount,
+      // The server takes this from the first step that carries an image, which
+      // is what a browse card shows.
+      thumbnailUrl:
+        guide.steps.flatMap((step) => step.media).find((item) => item.kind === 'image')?.url ??
+        null,
       updatedAt: guide.updatedAt,
       publishedAt: guide.publishedAt,
     }
@@ -218,6 +225,7 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       categoryId: page.categoryId,
       isLanding: page.isLanding,
       status: page.status,
+      heroImageUrl: page.heroMediaId ? `/api/media/${page.heroMediaId}` : null,
       updatedAt: page.updatedAt,
       publishedAt: page.publishedAt,
     }

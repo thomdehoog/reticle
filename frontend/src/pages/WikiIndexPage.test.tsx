@@ -57,7 +57,7 @@ describe('WikiIndexPage', () => {
     })
     renderIndex(server)
 
-    expect(await screen.findByText('Category landing page')).toBeInTheDocument()
+    expect(await screen.findByText('Section front page')).toBeInTheDocument()
   })
 
   it('says where to start when there is nothing yet', async () => {

@@ -120,6 +120,14 @@ class CategoryOut(Wire):
     parent_id: str | None
     order_index: int
     is_hidden: bool
+    hero_media_id: str | None
+    image_url: str | None
+    """What the browse screens are built from.
+
+    Navigation here is meant to be looked at rather than read: somebody heading
+    for the confocal recognises the instrument long before they finish reading
+    its name. A section with no picture yet falls back to a drawn placeholder on
+    the client, never to a broken image."""
 
 
 class AnnotationOut(Wire):
@@ -206,6 +214,8 @@ class GuideSummaryOut(Wire):
     step_count: int
     author: UserRefOut
     view_count: int
+    thumbnail_url: str | None
+    """The guide's first step image, which is what a card shows."""
     updated_at: Instant
     published_at: Instant | None
 
@@ -238,6 +248,7 @@ class PageSummaryOut(Wire):
     category_id: str | None
     is_landing: bool
     status: ContentStatus
+    hero_image_url: str | None
     updated_at: Instant
     published_at: Instant | None
 
@@ -273,6 +284,7 @@ class CategoryCreateIn(Wire):
     description: str = Field(default="", max_length=2000)
     parent_id: str | None = None
     is_hidden: bool = False
+    hero_media_id: str | None = None
 
 
 class CategoryPatchIn(Wire):
@@ -281,6 +293,7 @@ class CategoryPatchIn(Wire):
     parent_id: str | None = None
     order_index: int | None = Field(default=None, ge=0)
     is_hidden: bool | None = None
+    hero_media_id: str | None = None
 
 
 class GuideCreateIn(Wire):
@@ -488,6 +501,8 @@ def category_out(category: models.Category) -> CategoryOut:
         parent_id=category.parent_id,
         order_index=category.order_index,
         is_hidden=category.is_hidden,
+        hero_media_id=category.hero_media_id,
+        image_url=media_url(category.hero_media_id) if category.hero_media_id else None,
     )
 
 
@@ -517,7 +532,9 @@ def guide_out(guide: models.Guide) -> GuideOut:
     )
 
 
-def guide_summary_out(guide: models.Guide, step_count: int) -> GuideSummaryOut:
+def guide_summary_out(
+    guide: models.Guide, step_count: int, thumbnail_media_id: str | None = None
+) -> GuideSummaryOut:
     return GuideSummaryOut(
         id=guide.id,
         slug=guide.slug,
@@ -532,6 +549,7 @@ def guide_summary_out(guide: models.Guide, step_count: int) -> GuideSummaryOut:
         step_count=step_count,
         author=user_ref_out(guide.author),
         view_count=guide.view_count,
+        thumbnail_url=media_url(thumbnail_media_id) if thumbnail_media_id else None,
         updated_at=guide.updated_at,
         published_at=guide.published_at,
     )
@@ -568,6 +586,7 @@ def page_summary_out(page: models.Page) -> PageSummaryOut:
         category_id=page.category_id,
         is_landing=page.is_landing,
         status=page.status,
+        hero_image_url=media_url(page.hero_media_id) if page.hero_media_id else None,
         updated_at=page.updated_at,
         published_at=page.published_at,
     )

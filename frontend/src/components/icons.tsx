@@ -202,6 +202,20 @@ export function IconPlay(props: IconProps) {
   )
 }
 
+/** Stacked rules with a leading dot: a procedure as a list of steps. */
+export function IconSteps(props: IconProps) {
+  return (
+    <svg {...svgProps(props)}>
+      <circle cx="4.5" cy="6" r="1.5" fill="currentColor" stroke="none" />
+      <path d="M9 6h11" />
+      <circle cx="4.5" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <path d="M9 12h11" />
+      <circle cx="4.5" cy="18" r="1.5" fill="currentColor" stroke="none" />
+      <path d="M9 18h7" />
+    </svg>
+  )
+}
+
 export function IconBook(props: IconProps) {
   return (
     <svg {...svgProps(props)}>

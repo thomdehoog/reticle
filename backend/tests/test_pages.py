@@ -63,7 +63,7 @@ def test_page_summary_projection_matches_the_domain_model(author, category):
 
     assert set(entry) == {
         "id", "slug", "title", "summary", "categoryId", "isLanding", "status",
-        "updatedAt", "publishedAt",
+        "heroImageUrl", "updatedAt", "publishedAt",
     }
 
 

@@ -153,7 +153,8 @@ def test_summary_projection_matches_the_domain_model(author, category):
     assert set(entry) == {
         "id", "slug", "title", "summary", "categoryId", "tags", "difficulty",
         "timeRequiredMinMinutes", "timeRequiredMaxMinutes", "status",
-        "stepCount", "author", "viewCount", "updatedAt", "publishedAt",
+        "stepCount", "author", "viewCount", "thumbnailUrl", "updatedAt",
+        "publishedAt",
     }
     assert entry["stepCount"] == 2
 

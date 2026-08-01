@@ -18,6 +18,8 @@ def test_any_authenticated_role_can_list_categories(viewer, category):
             "parentId": None,
             "orderIndex": 0,
             "isHidden": False,
+            "heroMediaId": None,
+            "imageUrl": None,
         }
     ]
 

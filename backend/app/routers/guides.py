@@ -20,7 +20,18 @@ from .. import audit, errors
 from ..auth import AdminUser, AnyUser, AuthorUser, DbDep, client_address
 from ..db import utcnow
 from ..documents import apply_document, next_updated_at, record_contribution
-from ..models import Bullet, Category, Guide, GuideRevision, GuideTag, Step, Tag, User
+from ..models import (
+    Bullet,
+    Category,
+    Guide,
+    GuideRevision,
+    GuideTag,
+    Media,
+    Step,
+    StepMedia,
+    Tag,
+    User,
+)
 from ..schemas import (
     GuideCreateIn,
     GuideDocumentIn,
@@ -83,6 +94,28 @@ def apply_tag_filter(statement, tags: list[str]):
     return statement
 
 
+def thumbnail_subquery():
+    """The first image of the first step that has one.
+
+    Browsing is meant to be visual — somebody heading for the confocal
+    recognises the instrument before they finish reading its name — so a guide
+    card needs a picture, and the honest one is the picture the guide opens
+    with. Computed as a correlated subquery rather than by loading each guide's
+    steps, because a listing of the whole corpus would otherwise pull every step
+    and every media row in the institute to show forty cards.
+    """
+    return (
+        select(StepMedia.media_id)
+        .join(Step, Step.id == StepMedia.step_id)
+        .join(Media, Media.id == StepMedia.media_id)
+        .where(Step.guide_id == Guide.id, Media.kind == "image")
+        .order_by(Step.order_index, StepMedia.order_index)
+        .limit(1)
+        .correlate(Guide)
+        .scalar_subquery()
+    )
+
+
 def _slug_taken(db: DbSession, slug: str) -> bool:
     return db.scalar(select(func.count()).select_from(Guide).where(Guide.slug == slug)) > 0
 
@@ -121,7 +154,7 @@ def list_guides(
     step_count = (
         select(func.count(Step.id)).where(Step.guide_id == Guide.id).correlate(Guide).scalar_subquery()
     )
-    statement = select(Guide, step_count.label("step_count"))
+    statement = select(Guide, step_count.label("step_count"), thumbnail_subquery().label("thumb"))
 
     if user.role == "viewer":
         statement = statement.where(Guide.status == READER_STATUS)
@@ -143,7 +176,10 @@ def list_guides(
         )
 
     statement = statement.order_by(Guide.updated_at.desc(), Guide.id.desc())
-    return [guide_summary_out(guide, count) for guide, count in db.execute(statement)]
+    return [
+        guide_summary_out(guide, count, thumbnail)
+        for guide, count, thumbnail in db.execute(statement)
+    ]
 
 
 @router.post("", response_model=GuideOut, status_code=status.HTTP_201_CREATED)

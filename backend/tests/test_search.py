@@ -64,7 +64,7 @@ def test_a_guide_hit_carries_the_summary_projection(author, category):
     assert set(hit["guide"]) == {
         "id", "slug", "title", "summary", "categoryId", "tags", "difficulty",
         "timeRequiredMinMinutes", "timeRequiredMaxMinutes", "status",
-        "stepCount", "author", "viewCount", "updatedAt", "publishedAt",
+        "stepCount", "author", "viewCount", "thumbnailUrl", "updatedAt", "publishedAt",
     }
 
 
@@ -77,7 +77,7 @@ def test_a_page_hit_carries_the_page_summary_projection(author):
     assert hit["kind"] == "page"
     assert set(hit["page"]) == {
         "id", "slug", "title", "summary", "categoryId", "isLanding", "status",
-        "updatedAt", "publishedAt",
+        "heroImageUrl", "updatedAt", "publishedAt",
     }
 
 
