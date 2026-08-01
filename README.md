@@ -13,12 +13,21 @@ everyone aligns to.
 
 ## What it does
 
+- **Tags are the navigation.** A guide sits in one category and carries many
+  tags; wiki pages embed tag-filtered guide lists. That is how one instrument
+  guide appears under every heading it is relevant to, and it is what the live
+  corpus actually does — guides live in hidden holding categories and surface
+  through tags.
 - **Categories → guides → steps.** A guide has a title, summary, difficulty, a
-  time estimate, an introduction, ordered steps and a conclusion, and it can
-  declare prerequisite guides.
-- **Steps** carry up to three images and a list of annotated bullets. Bullets
-  have a colour and an optional flag — note, caution, warning or reminder — and
-  can be indented two levels.
+  time *range*, an introduction, ordered steps and a conclusion.
+- **Steps** carry up to four images, an optional video, and a list of annotated
+  bullets. Bullets have one of eight colours and an optional flag — note,
+  caution or reminder — and can be indented two levels.
+- **Annotations** are shapes drawn over a step image in the colour of the bullet
+  they belong to. They are stored as fractions of the image rather than burned
+  into it, so the original stays intact and they scale with the picture.
+- **Wiki pages**, including category landing pages, written in Markdown with
+  guide lists embedded by tag.
 - **Authoring in the browser.** Anyone with the author role writes guides
   directly in the app: add, delete and reorder steps by drag or keyboard, drop
   screenshots straight onto a step, autosave while you type, publish when ready.
@@ -87,11 +96,23 @@ Backend tests run under pytest — see `backend/README.md`.
 
 ## Migrating existing content
 
-ZMB's existing guides are exported through the vendor's official API using ZMB's
-own admin credentials, never by scraping. Read `NOTICE.md` before running the
-importer, and note the one time-sensitive point: **export before the subscription
-lapses**, because the API goes away with it and the contract contains no
-obligation to hand the data back afterwards.
+`backend/app/importer/` reads the vendor's official API and writes the corpus
+into Reticle — guides, steps, bullets, tags, wiki pages, every image at full
+resolution, and the annotation shapes drawn on them. It refuses to guess: any
+value it does not recognise stops the run and appears in the report.
+
+```powershell
+python -m app.importer.run --base-url https://zmb.dozuki.com --dry-run --report dry-run.txt
+```
+
+The public catalogue needs no credentials; a token is only required to include
+private guides. `docs/MIGRATION.md` has the full field-by-field mapping, the
+reconciliation report format, and the checklist for verifying the result against
+the live site.
+
+Read `NOTICE.md` before running it, and note the one time-sensitive point:
+**export before the subscription lapses**, because the API goes away with it and
+the contract contains no obligation to hand the data back afterwards.
 
 ## Licence and provenance
 
