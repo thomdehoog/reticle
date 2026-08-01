@@ -35,6 +35,7 @@ from .observability import (
     configure_logging,
     request_id,
 )
+from .ratelimit import RateLimitMiddleware
 from .routers import auth, categories, discovery, export, guides, media, pages, users
 from .security import CSRF_COOKIE, CSRF_HEADER, constant_time_equals
 from .settings import get_settings
@@ -189,6 +190,9 @@ def create_app() -> FastAPI:
     # anything else can fail and the timing covers the whole stack rather than
     # the handler alone.
     application.add_middleware(RequestContextMiddleware)
+    # Inside RequestContextMiddleware so a rejection still gets an id and a log
+    # line - a 429 nobody can correlate is indistinguishable from an outage.
+    application.add_middleware(RateLimitMiddleware, settings=settings)
     application.add_middleware(RequestSizeLimitMiddleware, max_bytes=settings.max_request_bytes)
     application.add_middleware(
         CORSMiddleware,

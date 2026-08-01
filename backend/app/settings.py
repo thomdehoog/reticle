@@ -74,6 +74,16 @@ class Settings(BaseSettings):
 
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
+    # A ceiling on everything that is not a login. Set where a person cannot
+    # reach it and a runaway script can: an author saving every few seconds, a
+    # reader opening thirty guides and an importer pushing a corpus all have to
+    # pass untouched, because a limit that blocks real work gets switched off.
+    # Per process and per minute - see app/ratelimit.py.
+    rate_limit_enabled: bool = True
+    rate_limit_reads_per_minute: int = 600
+    rate_limit_writes_per_minute: int = 240
+    rate_limit_uploads_per_minute: int = 60
+
     login_max_attempts_per_email_and_ip: int = 5
     login_max_attempts_per_email: int = 50
     login_max_attempts_per_ip: int = 20

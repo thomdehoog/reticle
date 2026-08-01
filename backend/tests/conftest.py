@@ -30,6 +30,12 @@ os.environ["RETICLE_COOKIE_SECURE"] = "false"
 os.environ["RETICLE_ARGON2_TIME_COST"] = "1"
 os.environ["RETICLE_ARGON2_MEMORY_COST_KIB"] = "8"
 os.environ["RETICLE_ARGON2_PARALLELISM"] = "1"
+# The rate limiter is off for the suite at large and exercised deliberately in
+# test_ratelimit.py. Leaving it on would make every other test share one
+# per-process window keyed by client address, so adding tests would eventually
+# start failing unrelated ones - the worst kind of flake, because the failure
+# appears in whatever ran last rather than in what caused it.
+os.environ["RETICLE_RATE_LIMIT_ENABLED"] = "false"
 
 import pytest
 from fastapi.testclient import TestClient
