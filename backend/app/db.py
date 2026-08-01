@@ -108,6 +108,9 @@ def _configure_sqlite(dbapi_connection: Any, connection_record: Any) -> None:
     ⚠️ WAL does not work on a network filesystem. If the database is ever moved
     onto an SMB or NFS share, this has to change and the move is a bad idea for
     other reasons too.
+
+    The fourth thing here is not a pragma but belongs with them: SQLite's
+    built-in ``lower()`` only folds A–Z. See ``_unicode_lower``.
     """
     if not dbapi_connection.__class__.__module__.startswith("sqlite3"):
         return
@@ -116,6 +119,30 @@ def _configure_sqlite(dbapi_connection: Any, connection_record: Any) -> None:
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA synchronous=FULL")
     cursor.close()
+    dbapi_connection.create_function("lower", 1, _unicode_lower, deterministic=True)
+
+
+def _unicode_lower(value: Any) -> Any:
+    """Replace SQLite's ``lower()``, which stops at Z.
+
+    SQLite folds ASCII and leaves every other letter alone — ``lower('PRÄP')``
+    is ``'prÄp'`` — because full Unicode folding would drag ICU into a library
+    that fits on a microcontroller. Reasonable for SQLite; wrong here.
+
+    It matters because SQLAlchemy renders ``ilike`` on SQLite as
+    ``lower(a) LIKE lower(b)``, and every search in the application is an
+    ``ilike``. Against a German corpus that means searching *Präparation*,
+    *Färbung* or *Auflösung* in the case they appear in a title silently
+    returns nothing, and "no results" is indistinguishable from "not written
+    yet" — the reader goes and asks somebody instead.
+
+    Overriding the built-in is supported and applies to every use of ``lower``
+    on the connection. Python's ``str.lower`` is Unicode-aware, so the fix is
+    the whole implementation. On PostgreSQL none of this exists: ``ILIKE`` is
+    a real operator that folds by collation, and this function is never
+    registered.
+    """
+    return value.lower() if isinstance(value, str) else value
 
 
 def get_db() -> Iterator[Session]:

@@ -373,3 +373,50 @@ def test_a_bullet_inside_a_draft_is_not_searchable_by_a_viewer(author, viewer, c
 
     assert viewer.get("/api/search?q=spare key").json() == []
     assert titles(author.get("/api/search?q=spare key").json()) == ["Unfinished Procedure"]
+
+
+# --- searching a corpus that is not written in English ---------------------
+
+
+def test_a_german_title_is_found_in_the_case_the_reader_types(author, category):
+    """SQLite's ``lower()`` folds A–Z and stops, so before this was fixed the
+    query below matched nothing: ``lower('Präparation')`` is ``'präparation'``
+    but ``lower('PRÄPARATION')`` is ``'PRÄPARATION'``.
+
+    Half of ZMB's corpus is German. A search that answers "nothing found" about
+    a procedure that exists is worse than one that is slow, because the reader
+    cannot tell it from "nobody has written this yet" and goes to ask a person.
+    """
+    publish_guide_with(author, category.id, "Präparation der Probe")
+
+    for typed in ("Präparation", "präparation", "PRÄPARATION", "präp"):
+        assert titles(author.get("/api/search", params={"q": typed}).json()) == [
+            "Präparation der Probe"
+        ], f"searching {typed!r} found nothing"
+
+
+def test_folding_reaches_the_body_text_too(author, category):
+    """The title is matched by one clause; steps and bullets by another."""
+    publish_guide_with(
+        author,
+        category.id,
+        "Sample Handling",
+        steps=[step("Vorbereitung", bullets=[bullet("Objektträger säubern.")])],
+    )
+
+    assert titles(author.get("/api/search", params={"q": "VORBEREITUNG"}).json()) == [
+        "Sample Handling"
+    ]
+    assert titles(author.get("/api/search", params={"q": "OBJEKTTRÄGER"}).json()) == [
+        "Sample Handling"
+    ]
+
+
+def test_ascii_search_is_unchanged_by_the_override(author, category):
+    """The override replaces a built-in used by every ``ilike`` in the
+    application, so the ordinary case is worth pinning alongside it."""
+    publish_guide_with(author, category.id, "Immersion Oil Guide")
+
+    assert titles(author.get("/api/search", params={"q": "IMMERSION"}).json()) == [
+        "Immersion Oil Guide"
+    ]
