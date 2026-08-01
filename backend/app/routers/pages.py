@@ -52,13 +52,6 @@ def slug_taken(db: DbSession, slug: str) -> bool:
     return db.scalar(select(func.count()).select_from(Page).where(Page.slug == slug)) > 0
 
 
-def visible_pages(user: User):
-    statement = select(Page)
-    if user.role == "viewer":
-        return statement.where(Page.status == READER_STATUS)
-    return statement.where(Page.status != "archived")
-
-
 def _load_for(db: DbSession, user: User, key: str) -> Page:
     page = db.scalars(select(Page).where(or_(Page.id == key, Page.slug == key))).one_or_none()
     if page is None:

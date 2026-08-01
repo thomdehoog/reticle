@@ -174,8 +174,17 @@ export class ReticleApi {
     return this.http.post<Page>(`/pages/${id}/unpublish`)
   }
 
+  /** Archives rather than deletes, despite the verb; the server keeps the rows. */
+  archivePage(id: string): Promise<void> {
+    return this.http.delete<void>(`/pages/${id}`)
+  }
+
   listPageRevisions(id: string): Promise<RevisionSummary[]> {
     return this.http.get<RevisionSummary[]>(`/pages/${id}/revisions`)
+  }
+
+  getPageRevision(id: string, version: number): Promise<Page> {
+    return this.http.get<Page>(`/pages/${id}/revisions/${version}`)
   }
 
   /** Every tag in use, with counts, for the tag picker and guide-list embeds. */

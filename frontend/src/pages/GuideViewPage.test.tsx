@@ -2,7 +2,7 @@ import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { Route, Routes } from 'react-router-dom'
 
-import { createFakeServer, guideFixture } from '../test/fakeServer'
+import { createFakeServer, guideFixture, imageFixture } from '../test/fakeServer'
 import { renderWithApp } from '../test/harness'
 import { GuideViewPage } from './GuideViewPage'
 
@@ -27,6 +27,7 @@ describe('GuideViewPage', () => {
               title: 'Mount the sample',
               bullets: [{ id: 'b1', text: 'Place it on the stage.', color: 'black', icon: null, level: 0 }],
               media: [],
+              video: null,
             },
             {
               id: 's2',
@@ -34,6 +35,7 @@ describe('GuideViewPage', () => {
               title: 'Find focus',
               bullets: [{ id: 'b2', text: 'Use the 10x first.', color: 'black', icon: null, level: 0 }],
               media: [],
+              video: null,
             },
           ],
         }),
@@ -83,6 +85,7 @@ describe('GuideViewPage', () => {
                 },
               ],
               media: [],
+              video: null,
             },
           ],
         }),
@@ -103,7 +106,7 @@ describe('GuideViewPage', () => {
     expect(bullet).toHaveClass('bullet--color-red')
   })
 
-  it('renders every image attached to a step', async () => {
+  it('shows one image large and offers the rest as thumbnails', async () => {
     const server = createFakeServer({
       guides: [
         guideFixture({
@@ -114,23 +117,10 @@ describe('GuideViewPage', () => {
               title: 'Route to the building',
               bullets: [{ id: 'b1', text: 'Walk to Lengghalde 5.', color: 'black', icon: null, level: 0 }],
               media: [
-                {
-                  id: 'm1',
-                  url: '/api/media/m1',
-                  alt: 'Entrance',
-                  width: 800,
-                  height: 600,
-                  annotations: [],
-                },
-                {
-                  id: 'm2',
-                  url: '/api/media/m2',
-                  alt: 'Reception',
-                  width: 800,
-                  height: 600,
-                  annotations: [],
-                },
+                imageFixture({ id: 'm1', url: '/api/media/m1', alt: 'Entrance' }),
+                imageFixture({ id: 'm2', url: '/api/media/m2', alt: 'Reception' }),
               ],
+              video: null,
             },
           ],
         }),
@@ -138,8 +128,11 @@ describe('GuideViewPage', () => {
     })
     renderGuide(server)
 
+    /* The first image is the one being read; the second is reachable from the
+       strip rather than competing with it for width. */
     expect(await screen.findByAltText('Entrance')).toBeInTheDocument()
-    expect(screen.getByAltText('Reception')).toBeInTheDocument()
+    expect(screen.queryByAltText('Reception')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show image 2: Reception' })).toBeInTheDocument()
   })
 
   it('links each tag to the listing that gathers guides across categories', async () => {

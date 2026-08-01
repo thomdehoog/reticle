@@ -3,10 +3,14 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
 import { useApi } from '../auth/AuthContext'
+import { BulletList } from '../components/BulletList'
+import { LifecycleActions } from '../components/editor/LifecycleActions'
+import { RevisionHistory } from '../components/editor/RevisionHistory'
 import { StepEditor } from '../components/editor/StepEditor'
 import { StepNavigator } from '../components/editor/StepNavigator'
 import { TagInput } from '../components/editor/TagInput'
-import { IconPlus } from '../components/icons'
+import { IconHistory, IconPlus } from '../components/icons'
+import { StepGallery } from '../components/StepGallery'
 import { AutoTextarea, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
 import {
   DIFFICULTY_LABELS,
@@ -50,6 +54,7 @@ export function GuideEditorPage() {
   const [uploadingStepId, setUploadingStepId] = useState<string | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [publishing, setPublishing] = useState(false)
+  const [showingHistory, setShowingHistory] = useState(false)
 
   const dirtyRef = useRef(false)
   const stepsRef = useRef<HTMLDivElement>(null)
@@ -109,16 +114,30 @@ export function GuideEditorPage() {
     return () => window.removeEventListener('beforeunload', warn)
   }, [])
 
+  /**
+   * The server decides from the bytes whether an upload is a picture or a clip,
+   * so the answer comes back on `kind` rather than being guessed from the file
+   * name here. A clip takes the step's single video slot; a second one replaces
+   * the first, which is the only sensible reading of dropping one onto a step
+   * that already has one.
+   */
   async function onUpload(stepId: string, files: File[]) {
     setUploadingStepId(stepId)
     setSaveError(null)
     try {
       const uploaded = await Promise.all(files.map((file) => api.uploadMedia(file)))
+      const images = uploaded.filter((item) => item.kind === 'image')
+      const clips = uploaded.filter((item) => item.kind === 'video')
+
       mutate((current) => ({
         ...current,
         steps: current.steps.map((step) =>
           step.id === stepId
-            ? { ...step, media: [...step.media, ...uploaded].slice(0, MAX_MEDIA_PER_STEP) }
+            ? {
+                ...step,
+                media: [...step.media, ...images].slice(0, MAX_MEDIA_PER_STEP),
+                video: clips.length > 0 ? clips[clips.length - 1] : step.video,
+              }
             : step,
         ),
       }))
@@ -127,6 +146,23 @@ export function GuideEditorPage() {
     } finally {
       setUploadingStepId(null)
     }
+  }
+
+  async function onUnpublish() {
+    if (!guide) return
+    const updated = await api.unpublishGuide(guide.id)
+    dirtyRef.current = false
+    setGuide(updated)
+    setSaveState('saved')
+  }
+
+  async function onArchive() {
+    if (!guide) return
+    await api.archiveGuide(guide.id)
+    dirtyRef.current = false
+    /* Home rather than back to the guide: the guide is gone from every listing
+       the editor could return to, and its own URL now 404s. */
+    navigate('/')
   }
 
   async function onPublish() {
@@ -180,6 +216,16 @@ export function GuideEditorPage() {
               View
             </Link>
           )}
+          <button className="button" type="button" onClick={() => setShowingHistory(true)}>
+            <IconHistory />
+            History
+          </button>
+          <LifecycleActions
+            kind="guide"
+            status={guide.status}
+            onUnpublish={onUnpublish}
+            onArchive={onArchive}
+          />
           <button
             className="button button--primary"
             type="button"
@@ -190,6 +236,32 @@ export function GuideEditorPage() {
           </button>
         </div>
       </div>
+
+      {showingHistory && (
+        <RevisionHistory
+          title="Published versions"
+          list={() => api.listGuideRevisions(guide.id)}
+          load={(version) => api.getGuideRevision(guide.id, version)}
+          render={(snapshot) => (
+            <>
+              <h3>{snapshot.title}</h3>
+              {snapshot.introduction && <p>{snapshot.introduction}</p>}
+              {snapshot.steps.map((step, index) => (
+                <div className="revisions__step" key={step.id}>
+                  <h3>
+                    Step {index + 1}
+                    {step.title ? `: ${step.title}` : ''}
+                  </h3>
+                  <StepGallery step={step} />
+                  <BulletList bullets={step.bullets} />
+                </div>
+              ))}
+              {snapshot.conclusion && <p>{snapshot.conclusion}</p>}
+            </>
+          )}
+          onClose={() => setShowingHistory(false)}
+        />
+      )}
 
       {conflicted ? (
         <div className="alert alert--warning" role="alert">

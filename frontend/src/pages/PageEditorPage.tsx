@@ -3,7 +3,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
 import { useApi } from '../auth/AuthContext'
+import { LifecycleActions } from '../components/editor/LifecycleActions'
+import { RevisionHistory } from '../components/editor/RevisionHistory'
 import { TagInput } from '../components/editor/TagInput'
+import { IconHistory } from '../components/icons'
 import { MarkdownBody } from '../components/MarkdownBody'
 import { AutoTextarea, ErrorAlert, Modal, Spinner, StatusBadge } from '../components/ui'
 import type { Page } from '../domain/types'
@@ -47,6 +50,9 @@ export function PageEditorPage() {
   const [saveError, setSaveError] = useState<unknown>(null)
   const [publishing, setPublishing] = useState(false)
   const [insertingList, setInsertingList] = useState(false)
+  const [showingHistory, setShowingHistory] = useState(false)
+  const [uploadingHero, setUploadingHero] = useState(false)
+  const heroInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (loaded) setPage(loaded)
@@ -123,6 +129,38 @@ export function PageEditorPage() {
     })
   }
 
+  /**
+   * The hero is stored as an id, not as a copy of the image, so the picture
+   * stays one uploaded file that annotations and steps could also reference.
+   */
+  async function onPickHero(file: File) {
+    setUploadingHero(true)
+    setSaveError(null)
+    try {
+      const uploaded = await api.uploadMedia(file)
+      mutate((current) => ({ ...current, heroMediaId: uploaded.id }))
+    } catch (cause) {
+      setSaveError(cause)
+    } finally {
+      setUploadingHero(false)
+    }
+  }
+
+  async function onUnpublish() {
+    if (!page) return
+    const updated = await api.unpublishPage(page.id)
+    dirtyRef.current = false
+    setPage(updated)
+    setSaveState('saved')
+  }
+
+  async function onArchive() {
+    if (!page) return
+    await api.archivePage(page.id)
+    dirtyRef.current = false
+    navigate('/')
+  }
+
   async function onPublish() {
     if (!page) return
     if (page.title.trim() === '') {
@@ -174,6 +212,16 @@ export function PageEditorPage() {
               View
             </Link>
           )}
+          <button className="button" type="button" onClick={() => setShowingHistory(true)}>
+            <IconHistory />
+            History
+          </button>
+          <LifecycleActions
+            kind="page"
+            status={page.status}
+            onUnpublish={onUnpublish}
+            onArchive={onArchive}
+          />
           <button
             className="button button--primary"
             type="button"
@@ -184,6 +232,21 @@ export function PageEditorPage() {
           </button>
         </div>
       </div>
+
+      {showingHistory && (
+        <RevisionHistory
+          title="Published versions"
+          list={() => api.listPageRevisions(page.id)}
+          load={(version) => api.getPageRevision(page.id, version)}
+          render={(snapshot) => (
+            <>
+              <h3>{snapshot.title}</h3>
+              <MarkdownBody body={snapshot.body} />
+            </>
+          )}
+          onClose={() => setShowingHistory(false)}
+        />
+      )}
 
       {conflicted ? (
         <div className="alert alert--warning" role="alert">
@@ -305,6 +368,56 @@ export function PageEditorPage() {
                 The landing page is what people see when they open the category, instead of a bare
                 list of guides.
               </span>
+
+              <div className="field" style={{ marginTop: '1rem', marginBottom: 0 }}>
+                <span className="field__label">Hero image</span>
+                {page.heroMediaId ? (
+                  <div className="hero-picker">
+                    <img src={`/api/media/${page.heroMediaId}`} alt="" />
+                    <div className="hero-picker__actions">
+                      <button
+                        className="button button--sm"
+                        type="button"
+                        onClick={() => heroInputRef.current?.click()}
+                      >
+                        Replace
+                      </button>
+                      <button
+                        className="button button--sm button--danger"
+                        type="button"
+                        onClick={() => mutate((current) => ({ ...current, heroMediaId: null }))}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    className="button button--sm"
+                    type="button"
+                    disabled={uploadingHero}
+                    onClick={() => heroInputRef.current?.click()}
+                  >
+                    {uploadingHero ? 'Uploading…' : 'Choose an image'}
+                  </button>
+                )}
+                <input
+                  ref={heroInputRef}
+                  type="file"
+                  aria-label="Hero image"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  hidden
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    event.target.value = ''
+                    if (file) void onPickHero(file)
+                  }}
+                />
+                <span className="field__hint">
+                  Shown above the page. One picture of the instrument or the room is worth more here
+                  than a paragraph describing which door to use.
+                </span>
+              </div>
             </div>
           </div>
         </aside>
@@ -333,10 +446,13 @@ function GuideListDialog({
 }) {
   const [tags, setTags] = useState<string[]>([])
   const [heading, setHeading] = useState('')
+  const [limit, setLimit] = useState('')
 
   function build(): string {
     const lines = ['```guidelist', `tags: ${tags.join(', ')}`]
     if (heading.trim() !== '') lines.push(`heading: ${heading.trim()}`)
+    const capped = Number.parseInt(limit, 10)
+    if (Number.isFinite(capped) && capped > 0) lines.push(`limit: ${capped}`)
     lines.push('```')
     return lines.join('\n')
   }
@@ -364,6 +480,25 @@ function GuideListDialog({
           placeholder="e.g. Confocal systems"
           onChange={(event) => setHeading(event.target.value)}
         />
+      </div>
+
+      <div className="field">
+        <label className="field__label" htmlFor="guidelist-limit">
+          Show at most (optional)
+        </label>
+        <input
+          id="guidelist-limit"
+          className="input"
+          type="number"
+          min={1}
+          value={limit}
+          placeholder="every matching guide"
+          onChange={(event) => setLimit(event.target.value)}
+        />
+        <span className="field__hint">
+          For a &ldquo;recently added&rdquo; block on a busy page. Leave it empty and the list keeps
+          showing everything that carries the tags.
+        </span>
       </div>
 
       <div className="page-actions">

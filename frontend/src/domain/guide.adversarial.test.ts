@@ -20,13 +20,27 @@ import {
   renumberSteps,
   validateForPublish,
 } from './guide'
-import type { Guide, Step } from './types'
+import type { Guide, Media, Step } from './types'
 
 /** Crockford base32, 26 characters — what `ULID.from_str` will parse. */
 const ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/
 
+function media(id: string): Media {
+  return {
+    id,
+    url: `/api/media/${id}`,
+    kind: 'image',
+    alt: '',
+    width: 1,
+    height: 1,
+    durationSeconds: null,
+    posterUrl: null,
+    annotations: [],
+  }
+}
+
 function step(overrides: Partial<Step> = {}): Step {
-  return { id: 's1', orderIndex: 0, title: '', bullets: [], media: [], ...overrides }
+  return { id: 's1', orderIndex: 0, title: '', bullets: [], media: [], video: null, ...overrides }
 }
 
 function guide(overrides: Partial<Guide> = {}): Guide {
@@ -182,26 +196,20 @@ describe('validateForPublish — what it lets through', () => {
   it('accepts a step that is only an image, with no words at all', () => {
     const withImage = step({
       bullets: [createBullet({ text: '' })],
-      media: [{ id: 'm1', url: '/api/media/m1', alt: '', width: 1, height: 1, annotations: [] }],
+      media: [media('m1')],
     })
     expect(validateForPublish(guide({ steps: [withImage] }))).toEqual([])
   })
 
   /**
-   * DEFECT (moderate): publish-time validation checks title, category and step
-   * emptiness — src/domain/guide.ts:158-188 — but not the limits the server
-   * enforces, so `Publish` can only discover them by failing. A title over 240
-   * characters (backend/app/schemas.py:339), more than 50 tags
-   * (MAX_TAGS_PER_GUIDE), or a minimum longer than the maximum
-   * (`_assert_sane_time_range`, backend/app/documents.py:107-112) all pass the
-   * client check and are then refused by the save that publishing performs
-   * first — with a server sentence in a page-level red alert rather than a
-   * message against the field that is wrong.
+   * Publishing performs a save first, so a document over one of the server's
+   * limits comes back as a single page-level sentence that names none of them.
+   * Checking here is what lets the editor point at the field.
    */
-  it.fails('catches the limits the server will refuse, before asking it', () => {
+  it('catches the limits the server will refuse, before asking it', () => {
     const overlong = guide({
       title: 'x'.repeat(300),
-      tags: Array.from({ length: 60 }, (_, i) => `tag-${i}`),
+      tags: Array.from({ length: 41 }, (_, i) => `tag-${i}`),
       timeRequiredMinMinutes: 90,
       timeRequiredMaxMinutes: 30,
     })

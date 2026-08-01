@@ -1,8 +1,8 @@
 import { Link, useParams } from 'react-router-dom'
 
 import { useApi, useAuth } from '../auth/AuthContext'
-import { AnnotatedImage } from '../components/AnnotationOverlay'
 import { BulletList } from '../components/BulletList'
+import { StepGallery } from '../components/StepGallery'
 import { IconEdit, IconPrint } from '../components/icons'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
 import { DIFFICULTY_LABELS, formatDurationRange } from '../domain/guide'
@@ -10,6 +10,11 @@ import type { Step } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 
 function StepBlock({ step, number }: { step: Step; number: number }) {
+  /* Text-only steps are common — a shutdown sequence is often four sentences —
+     and giving them the two-column layout leaves the instructions squeezed into
+     half the width beside nothing at all. */
+  const hasMedia = step.media.length > 0 || step.video !== null
+
   return (
     <section className="step">
       <span className="step__number" aria-hidden="true">
@@ -19,19 +24,8 @@ function StepBlock({ step, number }: { step: Step; number: number }) {
         <span className="visually-hidden">Step {number}: </span>
         {step.title || `Step ${number}`}
       </h2>
-      <div className="step__body">
-        {step.media.length > 0 && (
-          <div className={`step__media${step.media.length === 1 ? ' step__media--single' : ''}`}>
-            {step.media.map((image) => (
-              <AnnotatedImage
-                key={image.id}
-                src={image.url}
-                alt={image.alt}
-                annotations={image.annotations}
-              />
-            ))}
-          </div>
-        )}
+      <div className={`step__body${hasMedia ? '' : ' step__body--text-only'}`}>
+        <StepGallery step={step} />
         <BulletList bullets={step.bullets} />
       </div>
     </section>

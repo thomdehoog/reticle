@@ -15,7 +15,6 @@ def test_author_creates_a_draft_with_sane_defaults(author, category):
     assert body["status"] == "draft"
     assert body["version"] == 0
     assert body["slug"] == "aligning-the-confocal"
-    assert body["steps"] == []
     assert body["tags"] == []
     assert body["summary"] == ""
     assert body["introduction"] == ""
@@ -30,6 +29,27 @@ def test_author_creates_a_draft_with_sane_defaults(author, category):
     assert set(body["author"]) == {"id", "displayName"}
     assert body["contributors"] == [body["author"]]
     assert body["createdAt"].endswith("Z")
+
+
+def test_a_new_draft_opens_with_one_empty_step_ready_to_type_into(author, category):
+    """The button says "create and start writing", so there is something to write in.
+
+    An editor whose only control is "Add step" makes an author perform one piece
+    of ceremony before the first word of every guide they will ever write.
+    """
+    body = create_guide(author, category.id)
+
+    assert len(body["steps"]) == 1
+    step_one = body["steps"][0]
+    assert step_one["orderIndex"] == 0
+    assert step_one["title"] == ""
+    assert step_one["media"] == [] and step_one["video"] is None
+    # One empty bullet, matching what the editor's own "add step" produces.
+    assert len(step_one["bullets"]) == 1
+    assert step_one["bullets"][0]["text"] == ""
+    assert step_one["bullets"][0]["color"] == "black"
+    assert step_one["bullets"][0]["icon"] is None
+    assert step_one["bullets"][0]["level"] == 0
 
 
 def test_guide_response_matches_the_domain_model_exactly(author, category):

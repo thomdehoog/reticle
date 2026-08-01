@@ -23,7 +23,17 @@ function threeSteps(): Step[] {
 }
 
 function media(id: string): Media {
-  return { id, url: `/api/media/${id}`, alt: '', width: 800, height: 600, annotations: [] }
+  return {
+    id,
+    url: `/api/media/${id}`,
+    kind: 'image',
+    alt: '',
+    width: 800,
+    height: 600,
+    durationSeconds: null,
+    posterUrl: null,
+    annotations: [],
+  }
 }
 
 function guideFixture(overrides: Partial<Guide> = {}): Guide {
@@ -133,10 +143,19 @@ describe('removeStep', () => {
 })
 
 describe('canAcceptMedia', () => {
-  it('allows up to three images and no more', () => {
+  it('allows up to four images and no more', () => {
     expect(canAcceptMedia(createStep({ media: [] }))).toBe(true)
-    expect(canAcceptMedia(createStep({ media: [media('a'), media('b')] }))).toBe(true)
-    expect(canAcceptMedia(createStep({ media: [media('a'), media('b'), media('c')] }))).toBe(false)
+    expect(canAcceptMedia(createStep({ media: [media('a'), media('b'), media('c')] }))).toBe(true)
+    expect(
+      canAcceptMedia(createStep({ media: [media('a'), media('b'), media('c'), media('d')] })),
+    ).toBe(false)
+  })
+
+  /* A clip does not compete for an image slot: the step holds one video and its
+     stills, and counting them together would cost a step its fourth picture. */
+  it('ignores a step video when counting image slots', () => {
+    const step = createStep({ media: [media('a')], video: media('v') })
+    expect(canAcceptMedia(step)).toBe(true)
   })
 })
 
@@ -210,11 +229,22 @@ describe('validateForPublish', () => {
     expect(validateForPublish(guideFixture({ steps }))).toEqual([])
   })
 
-  it('rejects a step carrying more than three images', () => {
+  it('rejects a step carrying more than four images', () => {
     const steps = guideFixture().steps
-    steps[0] = { ...steps[0], media: [media('a'), media('b'), media('c'), media('d')] }
+    steps[0] = { ...steps[0], media: [media('a'), media('b'), media('c'), media('d'), media('e')] }
     const issues = validateForPublish(guideFixture({ steps }))
     expect(issues).toHaveLength(1)
-    expect(issues[0].message).toBe('Step 1 has 4 images; the maximum is 3.')
+    expect(issues[0].message).toBe('Step 1 has 5 images; the maximum is 4.')
+  })
+
+  it('accepts a step that is only a video, with no text and no stills', () => {
+    const steps = guideFixture().steps
+    steps[0] = {
+      ...steps[0],
+      bullets: [{ ...steps[0].bullets[0], text: '' }],
+      media: [],
+      video: media('v1'),
+    }
+    expect(validateForPublish(guideFixture({ steps }))).toEqual([])
   })
 })

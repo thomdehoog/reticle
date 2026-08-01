@@ -3,7 +3,7 @@ import { useState, type FormEvent } from 'react'
 import { useApi, useAuth } from '../auth/AuthContext'
 import { IconPlus } from '../components/icons'
 import { ErrorAlert, Modal, Spinner } from '../components/ui'
-import type { Role } from '../domain/types'
+import type { Role, User } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 
 const ROLE_LABELS: Record<Role, string> = {
@@ -118,6 +118,74 @@ function NewUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
   )
 }
 
+/**
+ * Renaming somebody, in place.
+ *
+ * People at a facility change name — after a marriage, or because the account
+ * was created from an email address and reads as "t.dehoog" on every guide they
+ * have ever written. Without this the only fix was a second account, which
+ * splits their authorship in two.
+ */
+function NameCell({ person, onRenamed }: { person: User; onRenamed: () => void }) {
+  const api = useApi()
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(person.displayName)
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    const displayName = value.trim()
+    if (displayName === '' || displayName === person.displayName) {
+      setEditing(false)
+      setValue(person.displayName)
+      return
+    }
+    setSaving(true)
+    try {
+      await api.updateUser(person.id, { displayName })
+      onRenamed()
+      setEditing(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        className="button button--ghost button--sm"
+        type="button"
+        aria-label={`Rename ${person.displayName}`}
+        onClick={() => setEditing(true)}
+      >
+        {person.displayName}
+      </button>
+    )
+  }
+
+  return (
+    <div className="field-pair">
+      <input
+        className="input"
+        aria-label={`Name for ${person.email}`}
+        value={value}
+        disabled={saving}
+        autoFocus
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') void save()
+          if (event.key === 'Escape') {
+            setValue(person.displayName)
+            setEditing(false)
+          }
+        }}
+      />
+      <button className="button button--sm" type="button" disabled={saving} onClick={() => void save()}>
+        Save
+      </button>
+    </div>
+  )
+}
+
 export function UsersPage() {
   const api = useApi()
   const { user: currentUser } = useAuth()
@@ -125,10 +193,10 @@ export function UsersPage() {
   const [adding, setAdding] = useState(false)
   const [changeError, setChangeError] = useState<unknown>(null)
 
-  async function changeRole(id: string, role: Role) {
+  async function change(id: string, changes: { role?: Role; isActive?: boolean }) {
     setChangeError(null)
     try {
-      await api.updateUser(id, { role })
+      await api.updateUser(id, changes)
       reload()
     } catch (cause) {
       setChangeError(cause)
@@ -162,17 +230,22 @@ export function UsersPage() {
               <th>Name</th>
               <th>Email</th>
               <th>Role</th>
+              <th>Added</th>
+              <th>Access</th>
             </tr>
           </thead>
           <tbody>
             {(data ?? []).map((person) => (
-              <tr key={person.id}>
-                <td>{person.displayName}</td>
+              <tr key={person.id} className={person.isActive ? undefined : 'user-row--inactive'}>
+                <td>
+                  <NameCell person={person} onRenamed={reload} />
+                </td>
                 <td>{person.email}</td>
                 <td>
                   <select
                     className="select"
                     style={{ maxWidth: '9rem' }}
+                    aria-label={`Role for ${person.displayName}`}
                     value={person.role}
                     disabled={person.id === currentUser?.id}
                     title={
@@ -180,12 +253,30 @@ export function UsersPage() {
                         ? 'You cannot change your own role — ask another admin.'
                         : undefined
                     }
-                    onChange={(event) => void changeRole(person.id, event.target.value as Role)}
+                    onChange={(event) => void change(person.id, { role: event.target.value as Role })}
                   >
                     <option value="viewer">Viewer</option>
                     <option value="author">Author</option>
                     <option value="admin">Admin</option>
                   </select>
+                </td>
+                <td>{new Date(person.createdAt).toLocaleDateString()}</td>
+                <td>
+                  {/* Deactivating rather than deleting: their name stays on the
+                      guides they wrote, and the audit trail stays readable. */}
+                  <button
+                    className={`button button--sm${person.isActive ? '' : ' button--primary'}`}
+                    type="button"
+                    disabled={person.id === currentUser?.id}
+                    title={
+                      person.id === currentUser?.id
+                        ? 'You cannot switch off your own account.'
+                        : undefined
+                    }
+                    onClick={() => void change(person.id, { isActive: !person.isActive })}
+                  >
+                    {person.isActive ? 'Deactivate' : 'Reactivate'}
+                  </button>
                 </td>
               </tr>
             ))}

@@ -17,7 +17,7 @@
  * holding categories and surface wherever a page asks for their tag.
  */
 
-import { useMemo } from 'react'
+import { Children, isValidElement, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Link } from 'react-router-dom'
 import remarkGfm from 'remark-gfm'
@@ -26,6 +26,9 @@ import { useApi } from '../auth/AuthContext'
 import { useAsync } from '../hooks/useAsync'
 import { GuideRow } from './GuideRow'
 import { EmptyState, ErrorAlert } from './ui'
+
+/** The fence language that marks a guide-list block. */
+const GUIDE_LIST_LANGUAGE = 'language-guidelist'
 
 export interface GuideListSpec {
   tags: string[]
@@ -85,8 +88,15 @@ function GuideListEmbed({ source }: { source: string }) {
       {spec.heading && <h3 className="guidelist__heading">{spec.heading}</h3>}
       <ErrorAlert error={error} />
       {loading && <p className="save-state">Loading guides…</p>}
+      {/* Not "no published guides": for an author this listing includes their
+          own drafts, and the block requires *all* of the tags rather than any
+          of them, which is the usual reason an embed comes back empty. */}
       {!loading && !error && guides.length === 0 && (
-        <EmptyState>No published guides tagged “{spec.tags.join('”, “')}” yet.</EmptyState>
+        <EmptyState>
+          {spec.tags.length === 1
+            ? `No guides are tagged “${spec.tags[0]}” yet.`
+            : `No guides carry all of “${spec.tags.join('”, “')}” yet.`}
+        </EmptyState>
       )}
       {guides.length > 0 && (
         <div className="card">
@@ -99,16 +109,45 @@ function GuideListEmbed({ source }: { source: string }) {
   )
 }
 
-/** Keeps in-app links inside the router so a click does not reload the page. */
+/**
+ * Keeps in-app links inside the router so a click does not reload the page.
+ *
+ * "Starts with a slash" is not the same test as "is one of ours".
+ * `//evil.example.com/login` starts with a slash and is an entirely different
+ * host: treated as an internal route it would render as a plain link, without
+ * `target="_blank"` or `rel="noopener"`, and a reader who middle-clicked it
+ * would leave the institute's site for somebody else's login form that the
+ * author believed was an internal path.
+ */
+function isInternalPath(href: string): boolean {
+  return href.startsWith('/') && !href.startsWith('//')
+}
+
 function MarkdownLink({ href, children }: { href?: string; children?: React.ReactNode }) {
-  if (href && href.startsWith('/')) {
+  if (href && isInternalPath(href)) {
     return <Link to={href}>{children}</Link>
   }
+  /**
+   * react-markdown neutralises a URL it rejects — `javascript:` and friends —
+   * by rewriting it to the empty string, and `<a href="">` links to the current
+   * page. A reader who clicked the hostile link would reload the wiki page and
+   * lose their place, which looks like a bug in Reticle rather than like the
+   * refusal it is. Rendering the text without a link says the truth: there is
+   * nowhere to go.
+   */
+  if (!href) return <>{children}</>
+
   return (
     <a href={href} target="_blank" rel="noreferrer noopener">
       {children}
     </a>
   )
+}
+
+/** Same rule for images: an empty source re-requests the whole page. */
+function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
+  if (!src) return null
+  return <img src={src} alt={alt ?? ''} loading="lazy" />
 }
 
 export function MarkdownBody({ body }: { body: string }) {
@@ -118,8 +157,25 @@ export function MarkdownBody({ body }: { body: string }) {
         remarkPlugins={[remarkGfm]}
         components={{
           a: MarkdownLink,
+          img: MarkdownImage,
+          /**
+           * A guide list has to escape the code block it is written inside.
+           *
+           * Markdown gives a fenced block as `<pre><code>`, and replacing only
+           * the `code` leaves the embed inside the `pre` — so the guide rows
+           * inherited the monospace font and the grey gutter of a code sample,
+           * and the most prominent thing on every category page looked like
+           * something that had failed to render.
+           */
+          pre({ children }) {
+            const first = Children.toArray(children)[0]
+            if (isValidElement<{ className?: string }>(first)) {
+              if (first.props.className === GUIDE_LIST_LANGUAGE) return <>{first}</>
+            }
+            return <pre>{children}</pre>
+          },
           code({ className, children, ...rest }) {
-            if (className === 'language-guidelist') {
+            if (className === GUIDE_LIST_LANGUAGE) {
               return <GuideListEmbed source={String(children)} />
             }
             return (

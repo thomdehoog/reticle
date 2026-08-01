@@ -145,14 +145,20 @@ export function StepEditor({
 
       <MediaSlots
         media={step.media}
+        video={step.video}
         uploading={uploading}
         onAdd={onUpload}
         onRemove={removeMedia}
+        onRemoveVideo={() => onChange({ ...step, video: null })}
         onUpdate={(updated) =>
-          onChange({
-            ...step,
-            media: step.media.map((image) => (image.id === updated.id ? updated : image)),
-          })
+          onChange(
+            updated.id === step.video?.id
+              ? { ...step, video: updated }
+              : {
+                  ...step,
+                  media: step.media.map((image) => (image.id === updated.id ? updated : image)),
+                },
+          )
         }
       />
 

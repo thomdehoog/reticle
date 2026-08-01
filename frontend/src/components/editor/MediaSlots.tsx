@@ -2,25 +2,45 @@ import { useRef, useState, type DragEvent } from 'react'
 
 import { MAX_MEDIA_PER_STEP, type Media } from '../../domain/types'
 import { AnnotatedImage } from '../AnnotationOverlay'
+import { formatClipLength } from '../StepGallery'
 import { IconClose, IconImage, IconPalette } from '../icons'
 import { AnnotationEditor } from './AnnotationEditor'
 
 interface MediaSlotsProps {
   media: Media[]
+  video: Media | null
   uploading: boolean
   onAdd: (files: File[]) => void
   onRemove: (mediaId: string) => void
+  onRemoveVideo: () => void
   onUpdate: (media: Media) => void
 }
 
+const ACCEPTED_TYPES = 'image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm'
+
 /**
- * The three image slots for a step.
+ * The media slots for a step.
  *
  * Accepts a drop anywhere on the strip as well as a click, because dragging a
  * screenshot straight from the desktop is how people actually add images, and
  * the file picker is the fallback rather than the main path.
+ *
+ * Each image carries its own alt field. It was previously impossible to set one
+ * at all, which meant every step image in the system was announced as nothing:
+ * a screen-reader user working through a procedure heard the bullets and was
+ * told there was an unlabelled graphic where the annotated screenshot is. The
+ * text saves with the document like any other edit, so there is no second
+ * "save the alt text" step to forget.
  */
-export function MediaSlots({ media, uploading, onAdd, onRemove, onUpdate }: MediaSlotsProps) {
+export function MediaSlots({
+  media,
+  video,
+  uploading,
+  onAdd,
+  onRemove,
+  onRemoveVideo,
+  onUpdate,
+}: MediaSlotsProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
   const [annotating, setAnnotating] = useState<string | null>(null)
@@ -30,10 +50,11 @@ export function MediaSlots({ media, uploading, onAdd, onRemove, onUpdate }: Medi
 
   function acceptFiles(files: FileList | null) {
     if (!files) return
-    const images = Array.from(files)
-      .filter((file) => file.type.startsWith('image/'))
-      .slice(0, remaining)
-    if (images.length > 0) onAdd(images)
+    const images = Array.from(files).filter((file) => file.type.startsWith('image/')).slice(0, remaining)
+    /* One clip per step, so only the first is taken however many were dropped. */
+    const clips = Array.from(files).filter((file) => file.type.startsWith('video/')).slice(0, 1)
+    const accepted = [...images, ...clips]
+    if (accepted.length > 0) onAdd(accepted)
   }
 
   function onDrop(event: DragEvent) {
@@ -53,7 +74,7 @@ export function MediaSlots({ media, uploading, onAdd, onRemove, onUpdate }: Medi
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
       >
-        {media.map((image) => (
+        {media.map((image, index) => (
           <div className="media-slot" key={image.id}>
             <AnnotatedImage src={image.url} alt={image.alt} annotations={image.annotations} />
             <button
@@ -76,8 +97,39 @@ export function MediaSlots({ media, uploading, onAdd, onRemove, onUpdate }: Medi
             {image.annotations.length > 0 && (
               <span className="media-slot__badge">{image.annotations.length}</span>
             )}
+            <input
+              className="input media-slot__alt"
+              value={image.alt}
+              aria-label={`Description of image ${index + 1}`}
+              placeholder="Describe this image"
+              onChange={(event) => onUpdate({ ...image, alt: event.target.value })}
+            />
           </div>
         ))}
+
+        {video && (
+          <div className="media-slot media-slot--video">
+            <video src={video.url} poster={video.posterUrl ?? undefined} preload="metadata" muted />
+            <button
+              type="button"
+              className="media-slot__action media-slot__remove"
+              aria-label="Remove video"
+              onClick={onRemoveVideo}
+            >
+              <IconClose size={12} />
+            </button>
+            <span className="media-slot__badge">
+              {video.durationSeconds === null ? 'Video' : formatClipLength(video.durationSeconds)}
+            </span>
+            <input
+              className="input media-slot__alt"
+              value={video.alt}
+              aria-label="Description of the video"
+              placeholder="Describe this video"
+              onChange={(event) => onUpdate({ ...video, alt: event.target.value })}
+            />
+          </div>
+        )}
 
         {remaining > 0 && (
           <button
@@ -101,7 +153,7 @@ export function MediaSlots({ media, uploading, onAdd, onRemove, onUpdate }: Medi
         <input
           ref={inputRef}
           type="file"
-          accept="image/png,image/jpeg,image/webp,image/gif"
+          accept={ACCEPTED_TYPES}
           multiple
           hidden
           onChange={(event) => {

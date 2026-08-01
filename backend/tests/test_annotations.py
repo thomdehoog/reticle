@@ -174,6 +174,7 @@ def test_a_colour_outside_the_bullet_palette_is_rejected(author, category, color
 
 
 def test_a_shape_may_overhang_the_edge_of_the_image_slightly(author, category):
+    """Aiming at a control hard against the border of a screenshot overshoots."""
     created = create_guide(author, category.id)
     image = upload_media(author)
 
@@ -181,10 +182,62 @@ def test_a_shape_may_overhang_the_edge_of_the_image_slightly(author, category):
         author,
         created,
         image,
-        annotation(x=-0.05, y=1.02, width=0.2, height=-0.1),
+        annotation(x=-0.04, y=0.9, width=0.2, height=0.14),
     ).json()
 
-    assert (stored(body)[0]["x"], stored(body)[0]["y"]) == (-0.05, 1.02)
+    assert (stored(body)[0]["x"], stored(body)[0]["y"]) == (-0.04, 0.9)
+
+
+def test_an_arrow_may_point_left_and_up(author, category):
+    """The head is the whole point of an arrow, so its extents carry a sign.
+
+    An author pointing at something on the left of a screenshot drags leftwards.
+    Refusing a negative extent would make that guide unsaveable from then on —
+    every autosave rejected, with the editor able to say only "could not save".
+    """
+    created = create_guide(author, category.id)
+    image = upload_media(author)
+
+    response = save_annotations(
+        author,
+        created,
+        image,
+        annotation(shape="arrow", x=0.8, y=0.8, width=-0.5, height=-0.5),
+    )
+
+    assert response.status_code == 200, response.text
+    saved = stored(response.json())[0]
+    assert (saved["width"], saved["height"]) == (-0.5, -0.5)
+
+
+@pytest.mark.parametrize("shape", ["rectangle", "ellipse"])
+def test_a_box_with_a_negative_extent_is_refused(author, category, shape):
+    """Only an arrow has a direction; a box is stored from its top-left corner.
+
+    The client normalises a drag before sending it, so a negative extent here is
+    a client that has drifted from the shared geometry — and a rectangle with a
+    negative width draws as nothing at all.
+    """
+    created = create_guide(author, category.id)
+    image = upload_media(author)
+
+    response = save_annotations(
+        author, created, image, annotation(shape=shape, x=0.5, y=0.5, width=-0.2, height=0.2)
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+
+
+def test_a_shape_that_would_sit_off_the_image_is_refused(author, category):
+    created = create_guide(author, category.id)
+    image = upload_media(author)
+
+    response = save_annotations(
+        author, created, image, annotation(x=0.9, y=0.9, width=0.5, height=0.5)
+    )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.parametrize(

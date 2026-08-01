@@ -25,13 +25,17 @@ function annotation(overrides: Partial<Annotation> = {}): Annotation {
 
 /**
  * What the server will accept, transcribed from `AnnotationIn` in
- * backend/app/schemas.py:293-305 — every one of x, y, width and height is
- * `float = Field(ge=0.0, le=1.0)`. Anything outside this is a 422 on save.
+ * backend/app/schemas.py: coordinates within a small tolerance of the image,
+ * a signed extent only for an arrow, and both ends on the picture.
  */
+const EDGE_TOLERANCE = 0.05
+
 function serverAccepts(a: Annotation): boolean {
-  return [a.x, a.y, a.width, a.height].every(
-    (value) => Number.isFinite(value) && value >= 0 && value <= 1,
-  )
+  const inRange = (value: number) =>
+    Number.isFinite(value) && value >= -EDGE_TOLERANCE && value <= 1 + EDGE_TOLERANCE
+  if (![a.x, a.y, a.x + a.width, a.y + a.height].every(inRange)) return false
+  if (a.shape !== 'arrow' && (a.width < 0 || a.height < 0)) return false
+  return true
 }
 
 const HOSTILE_DRAGS: Partial<Annotation>[] = [
@@ -69,19 +73,12 @@ describe('normaliseAnnotation — hostile coordinates', () => {
   })
 
   /**
-   * DEFECT (low, defensive only): `clampFraction` sends every non-finite value
-   * to 0 — src/domain/annotation.ts:17-20 — so it lands on the *near* edge even
-   * when it is being used to clamp the far corner. For a rectangle whose far
-   * corner is non-finite, `right` becomes 0 while `left` stays where the drag
-   * began, and the stored width comes out negative: a rectangle with a negative
-   * extent, which the function's own contract says cannot happen and which the
-   * server rejects (`ge=0.0`).
-   *
-   * No pointer can report an infinite coordinate, so this is not reachable from
-   * the drawing surface today; it is the guard that is meant to make hostile
-   * input harmless failing to do so.
+   * Clamping a non-finite far corner on its own sends it to 0 — the *near*
+   * edge — so a rectangle whose far corner is not a number came out with a
+   * negative width, which its own contract says cannot happen. It collapses
+   * onto the start instead, and `isMeaningfulDrag` then discards it.
    */
-  it.fails('does not invert a rectangle when a corner is non-finite', () => {
+  it('does not invert a rectangle when a corner is non-finite', () => {
     const stored = normaliseAnnotation(
       annotation({ x: 0.5, y: 0.5, width: Number.POSITIVE_INFINITY, height: 0.1 }),
     )
@@ -96,49 +93,39 @@ describe('normaliseAnnotation — hostile coordinates', () => {
   })
 
   /**
-   * DEFECT (high): an arrow is stored with signed extents so it keeps its
-   * direction — src/domain/annotation.ts:40-51, and the shipped test at
-   * src/domain/annotation.test.ts asserts `stored.width` is negative for an
-   * arrow dragged up and to the left. The server refuses exactly that:
-   * `AnnotationIn.width`/`height` are `Field(ge=0.0, le=1.0)` in
-   * backend/app/schemas.py:302-304.
-   *
-   * So an author who draws an arrow pointing left or up — the natural gesture
-   * for pointing at a control on the left of a screenshot — makes the whole
-   * guide unsaveable: every autosave from then on is rejected with
-   * `validation_failed`, and the editor shows only "Could not save".
-   *
-   * The two sides have to agree on one representation. Either the wire format
-   * carries a signed vector (or explicit start/end points), or the client stores
-   * the head separately from the box.
+   * An arrow keeps its direction, and the wire format carries that sign — the
+   * two sides agree on one representation. The natural gesture for pointing at
+   * a control on the left of a screenshot is a leftwards drag, and a contract
+   * that refused it would make the guide unsaveable from then on.
    */
-  it.fails('stores an arrow in a form the server will accept', () => {
+  it('stores an arrow in a form the server will accept', () => {
     const leftwards = annotation({ shape: 'arrow', x: 0.8, y: 0.8, width: -0.5, height: -0.5 })
     const stored = normaliseAnnotation(leftwards)
 
-    // Direction is preserved, which is the intent...
     expect(stored.width).toBeLessThan(0)
-    // ...but the server will not take it.
+    expect(serverAccepts(stored)).toBe(true)
+  })
+
+  it('stores a box the server will accept however it was dragged', () => {
+    const upAndLeft = annotation({ shape: 'rectangle', x: 0.8, y: 0.8, width: -0.5, height: -0.5 })
+    const stored = normaliseAnnotation(upAndLeft)
+
+    expect(stored.width).toBeGreaterThan(0)
     expect(serverAccepts(stored)).toBe(true)
   })
 
   /**
-   * DEFECT (low): `isMeaningfulDrag` is asked about the raw drag, before
-   * normalisation clamps it — src/components/editor/AnnotationEditor.tsx:101-102.
-   * A drag that happens entirely outside the image (possible once the pointer is
-   * captured, and off-by-a-scroll coordinates make it likelier still) passes the
-   * "big enough to keep" test and then collapses to nothing when clamped.
-   *
-   * The result is an invisible zero-size shape that is stored, counted in the
-   * slot badge, and cannot be clicked to select — so it cannot be deleted from
-   * the drawing surface either.
+   * The editor asks this question after normalising, not before. A drag that
+   * happened entirely outside the picture is big enough to keep while it is
+   * still raw and collapses to nothing once clamped, and what got stored was an
+   * invisible zero-size shape that counted towards the badge and could not be
+   * clicked — so it could not be deleted from the drawing surface either.
    */
-  it.fails('never commits a shape that clamping has collapsed to nothing', () => {
+  it('collapses a drag that happened off the image, so the editor discards it', () => {
     const offImage = annotation({ x: -0.5, y: -0.5, width: 0.2, height: 0.2 })
 
-    expect(isMeaningfulDrag(offImage)).toBe(true) // the editor decides to keep it
     const stored = normaliseAnnotation(offImage)
-    expect(isMeaningfulDrag(stored)).toBe(true) // but there is nothing left
+    expect(isMeaningfulDrag(stored)).toBe(false)
   })
 })
 

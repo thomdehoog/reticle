@@ -104,6 +104,26 @@ Unmapped values (7 occurrences)
 The fix is to extend the tables in `app/importer/mapping.py` and run again — not
 to pass `--allow-unmapped` and move on.
 
+### Where a missing feature will show up
+
+The report has a second list, and for the parity sweep it is the more
+interesting one:
+
+```
+Fields the source carries that Reticle does not read (12)
+Not losses — but this is where a missing feature shows up.
+      9  quiz
+      3  required_tools
+```
+
+These do not fail the run: nothing was lost, because nobody asked for those
+fields. They are the only *mechanical* way to discover a capability the live
+site has and Reticle does not — a field nobody looks at cannot go missing from
+a count, so without this list an unknown feature would be invisible.
+
+**Read this list before starting the screen-by-screen comparison.** It tells you
+where to look.
+
 ## The mapping, field by field
 
 ### Bullets

@@ -20,7 +20,7 @@ from .. import audit, errors
 from ..auth import AdminUser, AnyUser, AuthorUser, DbDep, client_address
 from ..db import utcnow
 from ..documents import apply_document, next_updated_at, record_contribution
-from ..models import Category, Guide, GuideRevision, GuideTag, Step, Tag, User
+from ..models import Bullet, Category, Guide, GuideRevision, GuideTag, Step, Tag, User
 from ..schemas import (
     GuideCreateIn,
     GuideDocumentIn,
@@ -163,6 +163,17 @@ def create_guide(payload: GuideCreateIn, request: Request, db: DbDep, user: Auth
     )
     db.add(guide)
     db.flush()
+
+    # A new guide starts with one empty step holding one empty bullet — the same
+    # shape the editor's own "add step" produces. The button that lands the
+    # author here says "create and start writing", and an editor whose only
+    # controls are "add step" and then "add bullet" makes them perform two
+    # pieces of ceremony before the first word of every guide they ever write.
+    first_step = Step(guide_id=guide.id, order_index=0, title="")
+    db.add(first_step)
+    db.flush()
+    db.add(Bullet(step_id=first_step.id, order_index=0, text="", color="black", level=0))
+
     record_contribution(db, guide, user)
     audit.record(
         db,

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import html
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -279,13 +280,25 @@ def strip_markup(source: str | None) -> str:
     return _BLANK_LINES.sub("\n\n", text).strip()
 
 
+TAG_TRANSLITERATIONS = str.maketrans({"ß": "ss", "æ": "ae", "œ": "oe", "ø": "o", "đ": "d", "ł": "l"})
+
+MAX_TAG_LENGTH = 120
+
+
 def slugify_tag(value: str) -> str:
     """The same rule the tag input applies in the browser.
 
     It has to be the same rule, or a tag typed by an author and the same tag
     arriving from the migration become two tags that look identical on screen.
+
+    Accents transliterate rather than vanish, which matters most here: half of
+    ZMB's vocabulary is German, and folding "Präparation" to "pr-paration"
+    produces something nobody can read, guess, or match against the tag an
+    author types tomorrow.
     """
-    return _NON_SLUG.sub("-", value.strip().lower()).strip("-")[:120]
+    lowered = value.strip().lower().translate(TAG_TRANSLITERATIONS)
+    ascii_only = unicodedata.normalize("NFKD", lowered).encode("ascii", "ignore").decode("ascii")
+    return _NON_SLUG.sub("-", ascii_only).strip("-")[:MAX_TAG_LENGTH].rstrip("-")
 
 
 # ---------------------------------------------------------------------------

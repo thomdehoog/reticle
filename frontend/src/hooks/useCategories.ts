@@ -33,6 +33,26 @@ export function buildCategoryTree(categories: Category[]): CategoryNode[] {
   return roots
 }
 
+/**
+ * The categories a reader may browse through.
+ *
+ * Holding categories are hidden from the tree on purpose: they exist to own
+ * guides that are reached by tag, and listing them turns the front page into a
+ * list of filing-cabinet drawers rather than of subjects. They are not secret —
+ * their URL works, their guides are published, and search finds them — so this
+ * filters the browse surfaces only.
+ */
+export function browsableCategories(categories: Category[]): Category[] {
+  return categories.filter((category) => !category.isHidden)
+}
+
+/**
+ * Every category, hidden ones included.
+ *
+ * This is what the admin screen and the editors need: an author moving a guide
+ * into a holding category has to be able to pick it, and an administrator who
+ * cannot see a hidden category cannot un-hide it.
+ */
 export function useCategories() {
   const api = useApi()
   return useAsync(() => api.listCategories(), [api])

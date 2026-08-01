@@ -10,20 +10,16 @@
  * original upload is never modified — annotations stay editable for ever.
  */
 
-import type { Annotation, BulletColor } from '../domain/types'
+import { BULLET_COLOR_HEX } from '../domain/palette'
+import type { Annotation } from '../domain/types'
 import { useElementSize } from '../hooks/useElementSize'
 
-/** Matches the bullet palette, so a shape reads as belonging to its bullet. */
-export const ANNOTATION_COLORS: Record<BulletColor, string> = {
-  black: '#1f2328',
-  red: '#d1242f',
-  orange: '#bc4c00',
-  yellow: '#9a6700',
-  green: '#1a7f37',
-  light_blue: '#0e7490',
-  blue: '#0969da',
-  violet: '#8250df',
-}
+/**
+ * The shapes are drawn in the bullet palette itself, not in a lookalike of it.
+ * A shape whose red is one shade off the red dot beside it stops reading as the
+ * same instruction and starts reading as a second one.
+ */
+export const ANNOTATION_COLORS = BULLET_COLOR_HEX
 
 const STROKE_WIDTH = 3
 

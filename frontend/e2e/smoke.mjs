@@ -43,7 +43,20 @@ function record(step, ok, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${step}${detail ? ' — ' + detail : ''}`)
 }
 
-const browser = await chromium.launch()
+/**
+ * Launch a browser, honouring a pre-installed one.
+ *
+ * A machine that already has Chromium — a CI image, or a ZMB workstation where
+ * AppLocker makes downloading an executable a whole conversation — sets
+ * RETICLE_E2E_BROWSER to its path. Playwright otherwise insists on the exact
+ * build it shipped with, which is a download nobody can perform there.
+ */
+function launchBrowser() {
+  const executablePath = process.env.RETICLE_E2E_BROWSER
+  return chromium.launch(executablePath ? { executablePath } : {})
+}
+
+const browser = await launchBrowser()
 
 for (const viewport of VIEWPORTS) {
   const context = await browser.newContext({
@@ -85,11 +98,28 @@ for (const viewport of VIEWPORTS) {
    * described as "Preparing samples for light microscopy", so a substring match
    * against the whole card opens the wrong category.
    */
+  /* Armed before the click, not after: a response that arrives while the
+     listener is still being attached is a response nobody was waiting for. */
+  const listing = page.waitForResponse(
+    (response) => response.url().includes('/api/guides?categoryId='),
+    { timeout: 15000 },
+  )
+
   await page
     .locator('.category-card')
     .filter({ has: page.locator('.category-card__name', { hasText: /^Light Microscopy$/ }) })
     .first()
     .click()
+  /* Three waits look right here and are not.
+     "networkidle" fires immediately, because a client-side route change has
+     nothing in flight at the moment of the click. Waiting for the spinner to
+     detach can resolve before the spinner has been rendered at all. And
+     ".guide-row, .empty-state" is satisfied by the empty state a guide-list
+     embedded in the landing page shows while it is still fetching, which is
+     not the category's own list.
+     Waiting for the response that carries the list is the thing that actually
+     means the data is here. */
+  await listing
   await page.waitForSelector('.guide-row, .empty-state')
   await page.screenshot({ path: join(SHOTS, `${viewport.name}-3-category.png`), fullPage: true })
 

@@ -93,6 +93,7 @@ describe('GuideEditorPage', () => {
               title: 'Mount the sample',
               bullets: [{ id: 'b1', text: 'Place it on the stage.', color: 'black', icon: null, level: 0 }],
               media: [],
+              video: null,
             },
             {
               id: 's2',
@@ -100,6 +101,7 @@ describe('GuideEditorPage', () => {
               title: '',
               bullets: [{ id: 'b2', text: '', color: 'black', icon: null, level: 0 }],
               media: [],
+              video: null,
             },
           ],
         }),

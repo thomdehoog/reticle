@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, PlainSerializer
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, PlainSerializer, model_validator
 from pydantic.alias_generators import to_camel
 
 from . import models
@@ -42,6 +42,17 @@ what one request can be used for: a single ``PUT`` carrying 2000 steps of 20
 bullets wrote forty thousand rows and held the only SQLite writer for nearly
 five seconds, which is a denial of service that any author account can perform
 by accident as easily as on purpose.
+"""
+
+EDGE_TOLERANCE = 0.05
+"""How far past the edge of its image a shape may sit.
+
+Not zero, because an author aiming at a control against the border of a
+screenshot legitimately drags a little past it, and because an imported
+annotation carries whatever geometry the other system recorded. Not unbounded,
+because a shape whose coordinates put it somewhere else entirely is either a
+client that has drifted from the geometry in ``domain/annotation.ts`` or an
+attempt to lay an overlay across the page.
 """
 
 TAG_SLUG_PATTERN = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
@@ -286,13 +297,35 @@ class BulletIn(Document):
 
 
 class AnnotationIn(Document):
+    """One shape drawn over a step image, as fractions of that image.
+
+    An arrow carries a **signed** vector, because which end has the head is the
+    entire point of drawing one: an author pointing at a control on the left of
+    a screenshot drags leftwards, and a rule that extents must be positive would
+    make that guide unsaveable — every autosave from then on refused, with the
+    editor able to say only "could not save".
+
+    A rectangle or an ellipse has no direction, so it is stored from its top-left
+    corner with non-negative extents; a negative one there is a client that has
+    drifted from the geometry in ``domain/annotation.ts``.
+    """
+
     id: str | None = None
     shape: AnnotationShape = "rectangle"
     color: BulletColor = "red"
-    x: float = Field(default=0.0, ge=-1.0, le=2.0)
-    y: float = Field(default=0.0, ge=-1.0, le=2.0)
-    width: float = Field(default=0.0, ge=-2.0, le=2.0)
-    height: float = Field(default=0.0, ge=-2.0, le=2.0)
+    x: float = Field(default=0.0, ge=-EDGE_TOLERANCE, le=1.0 + EDGE_TOLERANCE)
+    y: float = Field(default=0.0, ge=-EDGE_TOLERANCE, le=1.0 + EDGE_TOLERANCE)
+    width: float = Field(default=0.0, ge=-1.0 - EDGE_TOLERANCE, le=1.0 + EDGE_TOLERANCE)
+    height: float = Field(default=0.0, ge=-1.0 - EDGE_TOLERANCE, le=1.0 + EDGE_TOLERANCE)
+
+    @model_validator(mode="after")
+    def _is_a_shape_the_reader_can_be_shown(self) -> "AnnotationIn":
+        if self.shape != "arrow" and (self.width < 0 or self.height < 0):
+            raise ValueError("only an arrow may have a negative extent")
+        lower, upper = -EDGE_TOLERANCE, 1.0 + EDGE_TOLERANCE
+        if not lower <= self.x + self.width <= upper or not lower <= self.y + self.height <= upper:
+            raise ValueError("an annotation has to stay on the image it belongs to")
+        return self
 
 
 class MediaRefIn(Document):

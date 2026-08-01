@@ -73,7 +73,9 @@ def test_empty_markup_is_empty_rather_than_none():
         ("Stellaris 8", "stellaris-8"),
         ("  LAS X  ", "las-x"),
         ("Live-cell", "live-cell"),
-        ("Präparation", "pr-paration"),
+        ("Präparation", "praparation"),
+        ("Messgröße", "messgrosse"),
+        ("Ångström", "angstrom"),
     ],
 )
 def test_tag_slugs_follow_the_same_rule_the_browser_uses(value, expected):

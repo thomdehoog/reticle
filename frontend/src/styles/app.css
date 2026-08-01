@@ -290,6 +290,27 @@ a:hover {
   background: var(--brand-100);
 }
 
+/* The index is a wall of chips, so they get room to breathe and a target big
+   enough to hit on a phone. */
+.tag-row--index {
+  gap: 0.5rem;
+}
+
+.tag--counted {
+  padding: 0.3rem 0.35rem 0.3rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+.tag__count {
+  padding: 0.05rem 0.4rem;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-900);
+  background: #fff;
+  border: 1px solid var(--brand-100);
+  border-radius: 999px;
+}
+
 /* 24px is the WCAG 2.2 floor for a target, and this one deletes something.
    Negative margin keeps the chip its original size. */
 .tag__remove {
@@ -596,6 +617,35 @@ a:hover {
   color: #a9c0e8;
   padding-left: 0.6rem;
   border-left: 1px solid #2c4f8f;
+}
+
+.app__nav {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.app__nav-link {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.9rem;
+  font-weight: 550;
+  color: #c7d6ee;
+  border-radius: var(--radius);
+}
+
+.app__nav-link:hover {
+  color: #fff;
+  background: var(--brand-800);
+  text-decoration: none;
+}
+
+/* The current section is marked by weight and a rule beneath, not by colour
+   alone — the header is one hue and a slightly lighter blue on dark blue is not
+   a distinction anybody can act on. */
+.app__nav-link.active {
+  color: #fff;
+  font-weight: 650;
+  box-shadow: inset 0 -2px 0 #8fb6f5;
 }
 
 .app__spacer {
@@ -987,19 +1037,30 @@ a:hover {
   font-weight: 650;
 }
 
+/**
+ * Picture on the left, instructions on the right — the arrangement a step is
+ * read in. The two columns are close to equal, tilted towards the image,
+ * because a screenshot of an acquisition dialog stops being readable long
+ * before a line of text does.
+ */
 .step__body {
   grid-column: 2;
   margin-top: 0.5rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 0.5rem 1.4rem;
+  align-items: start;
+}
+
+.step__body--text-only {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .step__media {
-  display: grid;
-  gap: 0.6rem;
-  margin-bottom: 0.9rem;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  min-width: 0;
 }
 
-.step__media .annotated {
+.step__stage .annotated {
   background: var(--surface-sunken);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1010,18 +1071,99 @@ a:hover {
  * `contain`, never `cover`. Cropping a step photo can cut out the very knob the
  * bullet is describing — and because the annotation overlay is sized to the
  * element box while a cropped picture is not, `cover` also lands every drawn
- * shape in the wrong place on any step with more than one image.
+ * shape in the wrong place.
  */
-.step__media img {
+.step__stage img {
   width: 100%;
-  height: 100%;
-  max-height: 340px;
+  max-height: 460px;
   object-fit: contain;
 }
 
-.step__media--single img {
-  object-fit: contain;
+.step__video {
+  display: block;
+  width: 100%;
   max-height: 460px;
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.step__thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+/**
+ * A thumbnail is a button, not a picture with a click handler: swapping the
+ * large image is an action, and someone tabbing through a guide at a bench with
+ * one hand on the stage needs to reach it without a mouse.
+ */
+.step__thumb {
+  position: relative;
+  width: 5.5rem;
+  height: 4rem;
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.step__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.step__thumb:hover {
+  border-color: var(--border-strong);
+}
+
+.step__thumb:focus-visible {
+  outline: 2px solid var(--brand-600);
+  outline-offset: 2px;
+}
+
+/* The current thumbnail is marked with a ring and a raised border rather than
+   by opacity alone: dimming the others is invisible on a bench-side screen at
+   an angle, and tells a screen reader nothing. `aria-pressed` carries it. */
+.step__thumb--current {
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 2px var(--brand-100);
+}
+
+.step__thumb-video,
+.step__thumb-blank {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.step__thumb-blank {
+  background: linear-gradient(135deg, var(--border-strong), var(--surface-sunken));
+}
+
+.step__thumb-play {
+  position: absolute;
+  right: 0.25rem;
+  bottom: 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.3rem;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  background: rgb(0 0 0 / 0.68);
+  border-radius: 4px;
+}
+
+.step__thumb-length {
+  line-height: 1;
 }
 
 /* -------------------------------------------------------------- annotation */
@@ -1442,12 +1584,20 @@ a:hover {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+  align-items: flex-start;
   margin-bottom: 0.75rem;
 }
 
+/* The slot is the thumbnail plus its description field, so the box is only as
+   tall as the picture and the column keeps them associated. */
 .media-slot {
   position: relative;
   width: 110px;
+}
+
+.media-slot .annotated,
+.media-slot > video {
+  width: 100%;
   height: 82px;
   border-radius: var(--radius);
   overflow: hidden;
@@ -1455,12 +1605,24 @@ a:hover {
   background: var(--surface-sunken);
 }
 
-.media-slot .annotated,
-.media-slot img {
+.media-slot .annotated img,
+.media-slot > video {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+/* Alt text is small and optional-looking on purpose: it must be reachable
+   without competing with the instruction the author came here to write. */
+.media-slot__alt {
+  margin-top: 0.25rem;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.72rem;
+}
+
+.media-slot--video > video {
+  background: #000;
 }
 
 /* Two 20px targets 4px apart, one of which deletes an image with no undo, is
@@ -1614,6 +1776,113 @@ a:hover {
   color: var(--ink-500);
 }
 
+/* A table of admin controls is the one place a row can outgrow a narrow window,
+   and the fix is to scroll the table rather than the whole page sideways. */
+.card:has(> .table) {
+  overflow-x: auto;
+}
+
+/* A switched-off account is greyed but still fully legible: it is often read to
+   answer "who wrote this and are they still here". */
+.user-row--inactive td {
+  color: var(--ink-500);
+  background: var(--surface-sunken);
+}
+
+.category-admin__desc {
+  margin-top: 0.15rem;
+  font-size: 0.82rem;
+  color: var(--ink-500);
+}
+
+.category-admin__order {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.page-hero {
+  display: block;
+  width: 100%;
+  max-height: 300px;
+  object-fit: cover;
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.hero-picker img {
+  display: block;
+  width: 100%;
+  max-height: 120px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.hero-picker__actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+/* --------------------------------------------------------------- revisions */
+
+.revisions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.revisions__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  margin-bottom: 0.4rem;
+}
+
+.revisions__item:hover {
+  border-color: var(--brand-600);
+  background: var(--brand-050);
+}
+
+.revisions__version {
+  font-weight: 600;
+}
+
+.revisions__meta {
+  font-size: 0.82rem;
+  color: var(--ink-500);
+}
+
+/* A snapshot is somebody else's document being read inside a dialog, so it is
+   boxed and scrolls on its own rather than stretching the dialog off-screen. */
+.revisions__preview {
+  max-height: 55vh;
+  overflow-y: auto;
+  padding: 0.9rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.revisions__step {
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.revisions__step h3 {
+  margin-bottom: 0.3rem;
+}
+
 /* ------------------------------------------------------------------- modal */
 
 .modal-backdrop {
@@ -1707,12 +1976,25 @@ a:hover {
     border-top: 1px solid #bbb;
   }
 
-  .step__media {
-    grid-template-columns: repeat(auto-fit, minmax(45mm, 1fr));
+  /* Paper has no thumbnails to click and no clip to play, so the sheet carries
+     the large picture alone and a line saying a video exists. */
+  .step__thumbs,
+  .step__video {
+    display: none !important;
   }
 
-  .step__media img {
-    max-height: 55mm;
+  .step__body {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.4rem 6mm;
+  }
+
+  .step__stage img {
+    max-height: 70mm;
+  }
+
+  .step__video-note {
+    font-size: 9pt;
+    color: #333;
   }
 
   .guide__meta {
@@ -1781,6 +2063,15 @@ a:hover {
     flex: 1 1 100%;
   }
 
+  /* The section links move onto their own line rather than being dropped: on a
+     phone the wiki and the tag index are the only ways to reach anything that
+     is not a guide. */
+  .app__nav {
+    order: 11;
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+
   .app__user span:not(.avatar) {
     display: none;
   }
@@ -1825,13 +2116,18 @@ a:hover {
     font-size: 1rem;
   }
 
+  /* On a phone the picture, its thumbnails and the instructions stack in
+     reading order rather than fighting over a 360px-wide row. */
   .step__body {
     grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr);
     margin-top: 0.75rem;
+    gap: 0.9rem;
   }
 
-  .step__media {
-    grid-template-columns: 1fr;
+  .step__thumb {
+    width: 4.5rem;
+    height: 3.4rem;
   }
 
   .guide__meta {
@@ -1897,6 +2193,11 @@ a:hover {
   .media-slot,
   .media-dropzone {
     width: 88px;
+  }
+
+  .media-dropzone,
+  .media-slot .annotated,
+  .media-slot > video {
     height: 66px;
   }
 

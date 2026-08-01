@@ -16,18 +16,10 @@ import {
   IconReminder,
   IconTrash,
 } from '../icons'
-import type { Bullet, BulletColor, BulletIcon } from '../../domain/types'
+import type { Bullet, BulletIcon } from '../../domain/types'
+import { BULLET_COLOR_ORDER } from '../../domain/palette'
 
-const COLORS: BulletColor[] = [
-  'black',
-  'red',
-  'orange',
-  'yellow',
-  'green',
-  'light_blue',
-  'blue',
-  'violet',
-]
+const COLORS = BULLET_COLOR_ORDER
 
 const ICON_CHOICES: {
   value: BulletIcon | null

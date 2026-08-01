@@ -58,7 +58,20 @@ function record(step, ok, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${step}${detail ? ' — ' + detail : ''}`)
 }
 
-const browser = await chromium.launch()
+/**
+ * Launch a browser, honouring a pre-installed one.
+ *
+ * A machine that already has Chromium — a CI image, or a ZMB workstation where
+ * AppLocker makes downloading an executable a whole conversation — sets
+ * RETICLE_E2E_BROWSER to its path. Playwright otherwise insists on the exact
+ * build it shipped with, which is a download nobody can perform there.
+ */
+function launchBrowser() {
+  const executablePath = process.env.RETICLE_E2E_BROWSER
+  return chromium.launch(executablePath ? { executablePath } : {})
+}
+
+const browser = await launchBrowser()
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
 const page = await context.newPage()
 
@@ -171,9 +184,14 @@ for (const [index, spec] of STEPS.entries()) {
 
   for (const bullet of spec.bullets.filter((entry) => entry.icon)) {
     const label = bullet.icon.charAt(0).toUpperCase() + bullet.icon.slice(1)
-    const flagged = await block.locator('.bullet--flagged', { hasText: bullet.text }).count()
-    const announced = await block.getByText(`${label}:`).count()
-    record(`step ${index + 1} ${bullet.icon} flag`, flagged > 0 && announced > 0)
+    const item = block.locator('.bullet--flagged', { hasText: bullet.text })
+    /* The kind, not just "flagged": a caution rendered as a note is the failure
+       that matters in a building with lasers and cryogens, and both carry the
+       same marker class. The word is asserted too, because an icon on its own
+       disappears in a greyscale photocopy taped to an instrument. */
+    const kinded = await item.locator(`xpath=self::*[contains(@class,"bullet--kind-${bullet.icon}")]`).count()
+    const announced = await item.locator('.bullet__flag-label', { hasText: label }).count()
+    record(`step ${index + 1} ${bullet.icon} flag`, kinded > 0 && announced > 0)
   }
 }
 

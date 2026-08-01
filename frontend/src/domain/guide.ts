@@ -53,6 +53,7 @@ export function createStep(overrides: Partial<Step> = {}): Step {
     title: '',
     bullets: [createBullet()],
     media: [],
+    video: null,
     ...overrides,
   }
 }
@@ -158,11 +159,45 @@ export interface ValidationIssue {
  * an author must be able to save a half-written guide and come back tomorrow —
  * so these rules are applied when publishing, not when saving.
  */
+/** The server's ceilings, mirrored so the editor can name the offending field. */
+export const MAX_TITLE_LENGTH = 240
+export const MAX_TAGS_PER_GUIDE = 40
+
 export function validateForPublish(guide: Guide): ValidationIssue[] {
   const issues: ValidationIssue[] = []
 
   if (guide.title.trim() === '') {
     issues.push({ field: 'title', message: 'A guide needs a title before it can be published.' })
+  }
+
+  /**
+   * The limits below are the server's, mirrored here so that publishing can
+   * point at the field that is wrong. Left to the server they surface as one
+   * page-level red sentence produced by the save that publishing performs
+   * first — which tells an author that something is too long without telling
+   * them what.
+   */
+  if (guide.title.length > MAX_TITLE_LENGTH) {
+    issues.push({
+      field: 'title',
+      message: `A title can be at most ${MAX_TITLE_LENGTH} characters; this one is ${guide.title.length}.`,
+    })
+  }
+  if (guide.tags.length > MAX_TAGS_PER_GUIDE) {
+    issues.push({
+      field: 'tags',
+      message: `A guide can carry at most ${MAX_TAGS_PER_GUIDE} tags; this one has ${guide.tags.length}.`,
+    })
+  }
+  if (
+    guide.timeRequiredMinMinutes !== null &&
+    guide.timeRequiredMaxMinutes !== null &&
+    guide.timeRequiredMinMinutes > guide.timeRequiredMaxMinutes
+  ) {
+    issues.push({
+      field: 'timeRequiredMinMinutes',
+      message: 'The shortest time cannot be longer than the longest time.',
+    })
   }
   if (guide.categoryId.trim() === '') {
     issues.push({ field: 'categoryId', message: 'Choose a category so people can find this guide.' })
@@ -173,7 +208,9 @@ export function validateForPublish(guide: Guide): ValidationIssue[] {
 
   guide.steps.forEach((step, index) => {
     const hasText = step.bullets.some((bullet) => bullet.text.trim() !== '')
-    if (!hasText && step.media.length === 0) {
+    /* A step that is nothing but a clip of the movement is a real step: several
+       ZMB procedures say "do it like this" and show it, with no text at all. */
+    if (!hasText && step.media.length === 0 && step.video === null) {
       issues.push({
         field: `steps.${index}`,
         message: `Step ${index + 1} is empty — add an instruction or an image, or remove it.`,

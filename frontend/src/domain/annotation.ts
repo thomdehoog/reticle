@@ -37,30 +37,46 @@ function round(value: number): number {
  * arrow keeps its direction, because which end carries the head is the whole
  * point of it.
  */
+/**
+ * Where a drag ended, held inside the image.
+ *
+ * A far corner that is not a finite number collapses onto the start rather than
+ * being clamped on its own. Clamping it alone sends it to 0 — the *near* edge —
+ * which for a corner that was meant to be to the right of the start produces a
+ * shape with a negative extent: a rectangle that the contract says cannot exist.
+ * Collapsing to a zero-size shape instead leaves something `isMeaningfulDrag`
+ * then discards, which is the outcome the guard was there to produce.
+ */
+function clampEnd(start: number, delta: number): number {
+  const end = start + delta
+  return Number.isFinite(end) ? clampFraction(end) : clampFraction(start)
+}
+
 export function normaliseAnnotation(annotation: Annotation): Annotation {
+  const startX = clampFraction(annotation.x)
+  const startY = clampFraction(annotation.y)
+  const endX = clampEnd(annotation.x, annotation.width)
+  const endY = clampEnd(annotation.y, annotation.height)
+
   if (annotation.shape === 'arrow') {
-    const startX = clampFraction(annotation.x)
-    const startY = clampFraction(annotation.y)
     return {
       ...annotation,
       x: round(startX),
       y: round(startY),
-      width: round(clampFraction(annotation.x + annotation.width) - startX),
-      height: round(clampFraction(annotation.y + annotation.height) - startY),
+      width: round(endX - startX),
+      height: round(endY - startY),
     }
   }
 
-  const left = clampFraction(Math.min(annotation.x, annotation.x + annotation.width))
-  const top = clampFraction(Math.min(annotation.y, annotation.y + annotation.height))
-  const right = clampFraction(Math.max(annotation.x, annotation.x + annotation.width))
-  const bottom = clampFraction(Math.max(annotation.y, annotation.y + annotation.height))
+  const left = Math.min(startX, endX)
+  const top = Math.min(startY, endY)
 
   return {
     ...annotation,
     x: round(left),
     y: round(top),
-    width: round(right - left),
-    height: round(bottom - top),
+    width: round(Math.max(startX, endX) - left),
+    height: round(Math.max(startY, endY) - top),
   }
 }
 

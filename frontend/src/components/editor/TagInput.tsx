@@ -14,13 +14,51 @@ import { useApi } from '../../auth/AuthContext'
 import { useAsync } from '../../hooks/useAsync'
 import { IconClose } from '../icons'
 
-/** Matches the server's slug rule, so what you see is what gets stored. */
+/** The longest tag the server stores. */
+export const MAX_TAG_LENGTH = 120
+
+/** As many tags as one guide may carry, matching the server's ceiling. */
+export const MAX_TAGS_PER_GUIDE = 40
+
+/**
+ * Transliterations that a fold to ASCII cannot make on its own.
+ *
+ * NFKD splits an umlaut into a letter and a combining accent, so dropping
+ * non-ASCII afterwards leaves the letter. It does nothing for ß, æ or ø, which
+ * are letters in their own right rather than accented ones.
+ */
+const TRANSLITERATIONS: Record<string, string> = {
+  ß: 'ss',
+  æ: 'ae',
+  œ: 'oe',
+  ø: 'o',
+  đ: 'd',
+  ł: 'l',
+}
+
+/**
+ * Matches the server's slug rule, so what you see is what gets stored.
+ *
+ * The transliteration is the whole point at a Zurich facility. Deleting every
+ * character outside `[a-z0-9]` turns "Präparation" into "pr-paration" and
+ * "Messgröße" into "messgr-e" — unreadable, unguessable, and *different* from
+ * what the same word becomes anywhere else in the system. One concept would
+ * then have two tags and a guide would not appear where its author put it,
+ * which is precisely the failure tags exist to prevent.
+ */
 export function slugifyTag(value: string): string {
-  return value
+  const translated = value
     .trim()
     .toLowerCase()
+    .replace(/[ßæœøđł]/g, (character) => TRANSLITERATIONS[character] ?? character)
+
+  return translated
+    .normalize('NFKD')
+    .replace(/[^\x00-\x7F]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
+    .slice(0, MAX_TAG_LENGTH)
+    .replace(/-+$/, '')
 }
 
 interface TagInputProps {
@@ -32,6 +70,7 @@ export function TagInput({ tags, onChange }: TagInputProps) {
   const api = useApi()
   const inputRef = useRef<HTMLInputElement>(null)
   const [draft, setDraft] = useState('')
+  const [refusal, setRefusal] = useState<string | null>(null)
 
   const { data: known } = useAsync(() => api.listTags(), [api])
 
@@ -44,13 +83,42 @@ export function TagInput({ tags, onChange }: TagInputProps) {
   }, [draft, known, tags])
 
   function add(value: string) {
-    const slug = slugifyTag(value)
-    if (slug === '' || tags.includes(slug)) {
+    if (value.trim() === '') {
       setDraft('')
+      setRefusal(null)
       return
     }
+
+    const slug = slugifyTag(value)
+
+    /**
+     * Silence is the wrong answer here. A tag written in a script that has no
+     * ASCII form — 顕微鏡, or an emoji — slugifies to nothing, and clearing the
+     * field made the author's typing vanish with no chip and no explanation.
+     * The text stays put so it can be corrected, and says why.
+     */
+    if (slug === '') {
+      setRefusal('A tag needs at least one Latin letter or digit.')
+      return
+    }
+
+    if (tags.includes(slug)) {
+      setDraft('')
+      setRefusal(null)
+      return
+    }
+
+    /* The server refuses a guide carrying more than this, and it refuses the
+       whole document — so the 41st chip would not simply fail to stick, it
+       would turn every autosave from then on into "could not save". */
+    if (tags.length >= MAX_TAGS_PER_GUIDE) {
+      setRefusal(`A guide can carry at most ${MAX_TAGS_PER_GUIDE} tags.`)
+      return
+    }
+
     onChange([...tags, slug])
     setDraft('')
+    setRefusal(null)
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -87,11 +155,20 @@ export function TagInput({ tags, onChange }: TagInputProps) {
           value={draft}
           placeholder={tags.length === 0 ? 'e.g. stellaris, confocal' : 'Add a tag…'}
           aria-label="Add a tag"
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            setDraft(event.target.value)
+            setRefusal(null)
+          }}
           onKeyDown={onKeyDown}
           onBlur={() => add(draft)}
         />
       </div>
+
+      {refusal && (
+        <p className="field__error" role="alert">
+          {refusal}
+        </p>
+      )}
 
       {suggestions.length > 0 && (
         <ul className="tag-input__suggestions">

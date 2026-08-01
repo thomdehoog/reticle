@@ -13,20 +13,12 @@ import { AnnotationShape, ANNOTATION_COLORS } from '../AnnotationOverlay'
 import { isMeaningfulDrag, normaliseAnnotation } from '../../domain/annotation'
 import { newId } from '../../domain/guide'
 import type { Annotation, BulletColor, Media } from '../../domain/types'
+import { BULLET_COLOR_ORDER } from '../../domain/palette'
 import { useElementSize } from '../../hooks/useElementSize'
 import { IconTrash } from '../icons'
 import { Modal } from '../ui'
 
-const COLORS: BulletColor[] = [
-  'black',
-  'red',
-  'orange',
-  'yellow',
-  'green',
-  'light_blue',
-  'blue',
-  'violet',
-]
+const COLORS = BULLET_COLOR_ORDER
 
 const SHAPES: { value: Annotation['shape']; label: string }[] = [
   { value: 'rectangle', label: 'Rectangle' },
@@ -98,9 +90,16 @@ export function AnnotationEditor({ media, onChange, onClose }: AnnotationEditorP
   function onPointerUp() {
     if (!drawing) return
 
-    if (isMeaningfulDrag(drawing)) {
-      onChange({ ...media, annotations: [...annotations, normaliseAnnotation(drawing)] })
-      setSelectedId(drawing.id)
+    /* Judged after normalisation, not before. A drag that happened largely
+       outside the picture — easy enough once the pointer is captured — is big
+       enough to keep while it is still raw, and collapses to nothing once it is
+       clamped to the image. What got stored was an invisible zero-size shape
+       that counted towards the annotation badge and could not be clicked, so it
+       could not be deleted from the drawing surface either. */
+    const shape = normaliseAnnotation(drawing)
+    if (isMeaningfulDrag(shape)) {
+      onChange({ ...media, annotations: [...annotations, shape] })
+      setSelectedId(shape.id)
     }
     setDrawing(null)
   }

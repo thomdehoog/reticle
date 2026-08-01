@@ -192,6 +192,53 @@ export function IconPrint(props: IconProps) {
   )
 }
 
+/** A clip: the frame of a still, with the play triangle sitting inside it. */
+export function IconPlay(props: IconProps) {
+  return (
+    <svg {...svgProps(props)}>
+      <rect x="3" y="4.5" width="18" height="15" rx="2" />
+      <path d="M10.2 9.1 15 12l-4.8 2.9V9.1Z" fill="currentColor" />
+    </svg>
+  )
+}
+
+export function IconBook(props: IconProps) {
+  return (
+    <svg {...svgProps(props)}>
+      <path d="M4 4.6h5.4A2.6 2.6 0 0 1 12 7.2v12a2.2 2.2 0 0 0-2.2-2.2H4V4.6Z" />
+      <path d="M20 4.6h-5.4A2.6 2.6 0 0 0 12 7.2v12a2.2 2.2 0 0 1 2.2-2.2H20V4.6Z" />
+    </svg>
+  )
+}
+
+export function IconTag(props: IconProps) {
+  return (
+    <svg {...svgProps(props)}>
+      <path d="M11.4 3.4H20v8.6l-8.4 8.4a1.6 1.6 0 0 1-2.3 0L3 14.1a1.6 1.6 0 0 1 0-2.3l8.4-8.4Z" />
+      <circle cx="16.2" cy="7.8" r="1.5" />
+    </svg>
+  )
+}
+
+export function IconFolders(props: IconProps) {
+  return (
+    <svg {...svgProps(props)}>
+      <path d="M3 8.2V5.6h5l1.6 2.2H15v9.4H3V8.2Z" />
+      <path d="M7 19.4h14V10h-3" />
+    </svg>
+  )
+}
+
+export function IconHistory(props: IconProps) {
+  return (
+    <svg {...svgProps(props)}>
+      <path d="M3.6 12a8.4 8.4 0 1 0 2.5-6" />
+      <path d="M3.4 3.6V8h4.4" />
+      <path d="M12 7.6V12l3 1.8" />
+    </svg>
+  )
+}
+
 export function IconEdit(props: IconProps) {
   return (
     <svg {...svgProps(props)}>

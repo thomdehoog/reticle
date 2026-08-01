@@ -75,18 +75,36 @@ export interface Annotation {
   height: number
 }
 
+/**
+ * A file attached to a step: a still image, or a short clip.
+ *
+ * Video is one type rather than a parallel one because everything around a
+ * picture — upload, ownership, deletion, the reader's media strip — applies
+ * identically to a clip of somebody seating a filter cube. Only three fields
+ * differ, and they are null on an image rather than absent, so no consumer has
+ * to narrow the type before it can read them.
+ */
 export interface Media {
   id: string
   /** Server-relative path, e.g. /api/media/<id>. Never a data URI once saved. */
   url: string
+  kind: 'image' | 'video'
   alt: string
   width: number | null
   height: number | null
+  /** Video only. null on an image, and on a clip whose duration is unknown. */
+  durationSeconds: number | null
+  /** A still frame to show before the clip is fetched; null when there is none. */
+  posterUrl: string | null
   annotations: Annotation[]
 }
 
-/** A step carries at most three images; a fourth means it is really two steps. */
-export const MAX_MEDIA_PER_STEP = 3
+/**
+ * A step carries at most four images: three is the common case in ZMB's corpus,
+ * and the fourth exists because a handful of instrument steps genuinely use it.
+ * The reader shows one large image with the rest as thumbnails beside the text.
+ */
+export const MAX_MEDIA_PER_STEP = 4
 
 export interface Step {
   id: string
@@ -95,6 +113,12 @@ export interface Step {
   title: string
   bullets: Bullet[]
   media: Media[]
+  /**
+   * At most one clip per step, held apart from `media` rather than mixed into
+   * it: a step demonstrating a movement needs one video and its stills, and a
+   * list that could hold four videos would invite a step nobody can watch.
+   */
+  video: Media | null
 }
 
 export interface UserRef {

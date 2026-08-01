@@ -1,9 +1,10 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
 
 import { useAuth } from '../auth/AuthContext'
 import { IconPlus, ReticleMark } from './icons'
 import { NewGuideDialog } from './NewGuideDialog'
+import { NewPageDialog } from './NewPageDialog'
 
 function initials(displayName: string): string {
   const parts = displayName.trim().split(/\s+/).filter(Boolean)
@@ -13,11 +14,20 @@ function initials(displayName: string): string {
   return (first + last).toUpperCase()
 }
 
+/**
+ * The frame every screen sits in.
+ *
+ * Navigation and actions are kept apart on purpose: the left group is places
+ * you can go, the right group is things you can make. Tags and the wiki are in
+ * the left group because at ZMB they are the two indexes people navigate by,
+ * and neither was reachable without already being on a guide that linked to it.
+ */
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout, can } = useAuth()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
-  const [creating, setCreating] = useState(false)
+  const [creatingGuide, setCreatingGuide] = useState(false)
+  const [creatingPage, setCreatingPage] = useState(false)
 
   function onSearch(event: FormEvent) {
     event.preventDefault()
@@ -33,6 +43,25 @@ export function AppShell({ children }: { children: ReactNode }) {
           Reticle
           <span className="app__brand-sub">ZMB</span>
         </Link>
+
+        <nav className="app__nav" aria-label="Sections">
+          <NavLink className="app__nav-link" to="/w">
+            Wiki
+          </NavLink>
+          <NavLink className="app__nav-link" to="/t">
+            Tags
+          </NavLink>
+          {can('admin') && (
+            <>
+              <NavLink className="app__nav-link" to="/categories">
+                Categories
+              </NavLink>
+              <NavLink className="app__nav-link" to="/users">
+                People
+              </NavLink>
+            </>
+          )}
+        </nav>
 
         <form className="searchbar" role="search" onSubmit={onSearch}>
           <label className="visually-hidden" htmlFor="global-search">
@@ -50,16 +79,20 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="app__spacer" />
 
         {can('author') && (
-          <button className="button button--primary" type="button" onClick={() => setCreating(true)}>
-            <IconPlus />
-            New guide
-          </button>
-        )}
-
-        {can('admin') && (
-          <Link className="button" to="/users">
-            People
-          </Link>
+          <>
+            <button
+              className="button button--primary"
+              type="button"
+              onClick={() => setCreatingGuide(true)}
+            >
+              <IconPlus />
+              New guide
+            </button>
+            <button className="button" type="button" onClick={() => setCreatingPage(true)}>
+              <IconPlus />
+              New page
+            </button>
+          </>
         )}
 
         <Link className="app__user" to="/account" title="Your account">
@@ -76,7 +109,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <main className="app__main">{children}</main>
 
-      {creating && <NewGuideDialog onClose={() => setCreating(false)} />}
+      {creatingGuide && <NewGuideDialog onClose={() => setCreatingGuide(false)} />}
+      {creatingPage && <NewPageDialog onClose={() => setCreatingPage(false)} />}
     </div>
   )
 }

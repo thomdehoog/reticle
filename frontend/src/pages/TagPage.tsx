@@ -31,7 +31,7 @@ export function TagPage() {
       <nav className="breadcrumb">
         <Link to="/">Guides</Link>
         <span className="breadcrumb__sep">/</span>
-        <span>Tagged</span>
+        <Link to="/t">Tags</Link>
       </nav>
 
       <div className="page-header">
@@ -43,8 +43,13 @@ export function TagPage() {
         </div>
       </div>
 
+      {/* The listing is not restricted to published guides — an author sees
+          their drafts here — so the empty state must not claim it was, or an
+          author who has just tagged a draft is told it does not exist. */}
       {guides.length === 0 ? (
-        <EmptyState>No published guides are tagged “{tag}”.</EmptyState>
+        <EmptyState>
+          Nothing carries the tag “{tag}”. <Link to="/t">See which tags are in use.</Link>
+        </EmptyState>
       ) : (
         <div className="card">
           {guides.map((guide) => (

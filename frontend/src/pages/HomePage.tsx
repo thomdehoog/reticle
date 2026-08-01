@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useApi, useAuth } from '../auth/AuthContext'
 import { GuideRow } from '../components/GuideRow'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
-import { buildCategoryTree } from '../hooks/useCategories'
+import { browsableCategories, buildCategoryTree } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
 /**
@@ -15,38 +15,54 @@ import { useAsync } from '../hooks/useAsync'
 export function HomePage() {
   const api = useApi()
   const { user, can } = useAuth()
+  const authorId = can('author') ? (user?.id ?? null) : null
 
+  /**
+   * Two narrow listings rather than one broad one. This screen used to pull
+   * every guide in the institute — drafts, other people's in-review work, the
+   * lot — to derive a count per card and to find the reader's own drafts. A
+   * viewer therefore downloaded the entire editorial pipeline to be shown eight
+   * numbers. The counts now come from published guides only, which is what the
+   * cards claim to count, and the drafts query is scoped to one author and only
+   * runs for someone who can write.
+   */
   const { data, error, loading } = useAsync(
     async () => {
-      const [categories, guides] = await Promise.all([api.listCategories(), api.listGuides()])
-      return { categories, guides }
+      const [categories, published, mine] = await Promise.all([
+        api.listCategories(),
+        api.listGuides({ status: 'published' }),
+        authorId === null ? Promise.resolve([]) : api.listGuides({ authorId }),
+      ])
+      return { categories, published, mine }
     },
-    [api],
+    [api, authorId],
   )
 
   if (loading) return <Spinner />
   if (error) return <ErrorAlert error={error} />
   if (!data) return null
 
-  const roots = buildCategoryTree(data.categories)
+  const roots = buildCategoryTree(browsableCategories(data.categories))
 
   const publishedPerCategory = new Map<string, number>()
-  for (const guide of data.guides) {
-    if (guide.status !== 'published') continue
+  for (const guide of data.published) {
     publishedPerCategory.set(guide.categoryId, (publishedPerCategory.get(guide.categoryId) ?? 0) + 1)
   }
 
+  /**
+   * A parent card counts what is underneath it, hidden children included: those
+   * guides really are reachable from here through the page's own links, and a
+   * "0 guides" card over a category full of them reads as a broken section.
+   */
   const countIncludingChildren = (categoryId: string): number => {
-    const node = data.categories.filter((c) => c.parentId === categoryId)
+    const children = data.categories.filter((c) => c.parentId === categoryId)
     return (
       (publishedPerCategory.get(categoryId) ?? 0) +
-      node.reduce((total, child) => total + countIncludingChildren(child.id), 0)
+      children.reduce((total, child) => total + countIncludingChildren(child.id), 0)
     )
   }
 
-  const myDrafts = data.guides.filter(
-    (guide) => guide.status !== 'published' && guide.author.id === user?.id,
-  )
+  const myDrafts = data.mine.filter((guide) => guide.status !== 'published')
 
   return (
     <>
