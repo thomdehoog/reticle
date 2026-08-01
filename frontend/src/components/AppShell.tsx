@@ -23,7 +23,7 @@ function initials(displayName: string): string {
  * and neither was reachable without already being on a guide that linked to it.
  */
 export function AppShell({ children }: { children: ReactNode }) {
-  const { user, logout, can } = useAuth()
+  const { user, logout, can, organisation } = useAuth()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [creatingGuide, setCreatingGuide] = useState(false)
@@ -41,7 +41,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Link to="/" className="app__brand">
           <ReticleMark />
           Reticle
-          <span className="app__brand-sub">ZMB</span>
+          {organisation && <span className="app__brand-sub">{organisation.shortName}</span>}
         </Link>
 
         <nav className="app__nav" aria-label="Sections">

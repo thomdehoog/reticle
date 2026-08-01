@@ -134,3 +134,25 @@ def test_video_uploads_have_their_own_ceiling(tmp_path):
 
     assert settings.max_video_bytes == 50 * 1024 * 1024
     assert settings.max_upload_bytes == 20 * 1024 * 1024
+
+
+def test_the_organisation_is_configuration_rather_than_source(anon, monkeypatch):
+    """One Reticle per facility: they differ only in whose name is on them.
+
+    A facility should not have to fork the software to put its own name in the
+    header, and the login screen has to say which instance it is before anybody
+    has signed in.
+    """
+    response = anon.get("/api/config")
+
+    assert response.status_code == 200
+    organisation = response.json()["organisation"]
+    assert set(organisation) == {"name", "shortName", "url"}
+    assert organisation["shortName"]
+
+
+def test_the_config_endpoint_reveals_nothing_but_the_name(anon):
+    """It is reachable without a session, so it must carry nothing else."""
+    body = anon.get("/api/config").json()
+
+    assert set(body) == {"organisation"}

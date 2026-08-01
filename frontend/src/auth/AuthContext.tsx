@@ -18,12 +18,14 @@ import {
 
 import { ApiClient } from '../api/client'
 import { ReticleApi } from '../api/reticle'
-import type { Role, User } from '../domain/types'
+import type { Organisation, Role, User } from '../domain/types'
 
 type SessionStatus = 'checking' | 'authenticated' | 'anonymous'
 
 interface AuthContextValue {
   status: SessionStatus
+  /** Whose instance this is, once it has said. */
+  organisation: Organisation | null
   user: User | null
   api: ReticleApi
   login: (email: string, password: string) => Promise<void>
@@ -49,6 +51,10 @@ interface AuthProviderProps {
 export function AuthProvider({ children, fetchImpl }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null)
   const [status, setStatus] = useState<SessionStatus>('checking')
+  /* Asked for before anyone signs in: the login screen has to say which
+     facility it belongs to, and one Reticle per facility is the intended
+     shape. Null until it answers, so nothing renders somebody else's name. */
+  const [organisation, setOrganisation] = useState<Organisation | null>(null)
 
   const api = useMemo(() => {
     const http = new ApiClient({
@@ -60,6 +66,25 @@ export function AuthProvider({ children, fetchImpl }: AuthProviderProps) {
     })
     return new ReticleApi(http)
   }, [fetchImpl])
+
+  useEffect(() => {
+    let cancelled = false
+    /* Deliberately not blocking the session check: whose instance this is and
+       who you are are independent questions, and a slow answer to one must not
+       hold up the other. */
+    api
+      .configuration()
+      .then((config) => {
+        if (!cancelled) setOrganisation(config.organisation)
+      })
+      .catch(() => {
+        /* An instance that cannot say its own name still works; the header
+           falls back to the product name rather than showing an error. */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [api])
 
   useEffect(() => {
     let cancelled = false
@@ -108,8 +133,8 @@ export function AuthProvider({ children, fetchImpl }: AuthProviderProps) {
   )
 
   const value = useMemo(
-    () => ({ status, user, api, login, logout, can }),
-    [status, user, api, login, logout, can],
+    () => ({ status, user, organisation, api, login, logout, can }),
+    [status, user, organisation, api, login, logout, can],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

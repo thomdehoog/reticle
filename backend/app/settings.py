@@ -80,6 +80,18 @@ class Settings(BaseSettings):
     argon2_memory_cost_kib: int = 65536
     argon2_parallelism: int = 4
 
+    organisation_name: str = "Center for Microscopy and Image Analysis"
+    organisation_short_name: str = "ZMB"
+    organisation_url: str | None = None
+    """Whose instance this is.
+
+    Configuration rather than source, because one Reticle per facility is the
+    intended shape: each runs its own process, its own database and its own
+    media store, and the only thing that differs is whose name is on it. A
+    facility should not have to fork the software to put its own name in the
+    header.
+    """
+
     admin_email: str = "admin@zmb.uzh.ch"
     admin_password: str | None = None
 

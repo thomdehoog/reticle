@@ -265,3 +265,20 @@ export interface User {
 export type SearchResult =
   | { kind: 'guide'; guide: GuideSummary }
   | { kind: 'page'; page: PageSummary }
+
+/**
+ * Who is running this instance.
+ *
+ * Configuration rather than a constant in the source: Reticle is the software
+ * and a facility is a deployment, so another imaging centre runs its own with
+ * its own name on it rather than forking this one.
+ */
+export interface Organisation {
+  name: string
+  shortName: string
+  url: string | null
+}
+
+export interface AppConfig {
+  organisation: Organisation
+}

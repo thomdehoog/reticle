@@ -194,12 +194,30 @@ def test_the_authentication_sweep_can_actually_see_an_unguarded_route():
         app.router.routes[:] = original
 
 
-def test_the_public_allow_list_is_still_only_the_probe_and_the_login():
+def test_the_public_allow_list_holds_only_what_has_been_argued_for():
     """The sweep measures against this set, so widening it is how a hole gets
-    declared safe rather than fixed."""
+    declared safe rather than fixed.
+
+    Three entries, each with a reason that has to survive being read aloud.
+    The probe reveals liveness. The login endpoint cannot require a session it
+    exists to create. And ``/api/config`` carries the name of the facility
+    running the instance, which the login screen has to show before anybody has
+    signed in and which the hostname pointing at the server already gives away.
+
+    Anything else appearing here is a hole somebody decided not to fix.
+    """
     from app.main import PUBLIC_PATHS
 
-    assert set(PUBLIC_PATHS) == {"/api/health", "/api/auth/login"}
+    assert set(PUBLIC_PATHS) == {"/api/health", "/api/auth/login", "/api/config"}
+
+
+def test_the_public_config_endpoint_carries_nothing_but_the_name(anon):
+    """It is the one unauthenticated endpoint that returns content, so what it
+    returns is the whole of its risk."""
+    body = anon.get("/api/config").json()
+
+    assert set(body) == {"organisation"}
+    assert set(body["organisation"]) == {"name", "shortName", "url"}
 
 
 def test_every_readable_endpoint_on_the_new_surface_refuses_an_anonymous_caller(anon):

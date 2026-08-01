@@ -6,6 +6,7 @@
  */
 
 import type {
+  AppConfig,
   Category,
   ContentStatus,
   Guide,
@@ -57,6 +58,15 @@ function queryString(params: Record<string, string | undefined>): string {
 
 export class ReticleApi {
   constructor(private readonly http: ApiClient) {}
+
+  /**
+   * Whose instance this is. Fetched before anyone signs in, because the login
+   * screen has to say which facility it belongs to — one Reticle per facility
+   * is the intended shape, and they differ only in whose name is on them.
+   */
+  configuration(): Promise<AppConfig> {
+    return this.http.get<AppConfig>('/config')
+  }
 
   login(email: string, password: string): Promise<User> {
     return this.http.post<User>('/auth/login', { email, password })

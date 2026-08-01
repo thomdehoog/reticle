@@ -11,7 +11,7 @@ import { useAsync } from '../hooks/useAsync'
 export function PageViewPage() {
   const { slug = '' } = useParams()
   const api = useApi()
-  const { can } = useAuth()
+  const { can, organisation } = useAuth()
 
   const { data, error, loading } = useAsync(
     async () => {
@@ -65,7 +65,7 @@ export function PageViewPage() {
       {/* A printed wiki page is as capable of being followed off a noticeboard
           two years later as a printed guide, so it carries the same provenance. */}
       <div className="print-only">
-        Reticle · ZMB, University of Zurich — {page.title}
+        {organisation ? `${organisation.name} — ` : ''}{page.title}
         {page.publishedAt &&
           ` · version ${page.version}, published ${new Date(page.publishedAt).toLocaleDateString()}`}
         {` · printed ${new Date().toLocaleDateString()}`}

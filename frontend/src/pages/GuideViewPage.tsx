@@ -36,7 +36,7 @@ function StepBlock({ step, number }: { step: Step; number: number }) {
 export function GuideViewPage() {
   const { slug = '' } = useParams()
   const api = useApi()
-  const { can } = useAuth()
+  const { can, organisation } = useAuth()
 
   const { data, error, loading } = useAsync(
     async () => {
@@ -90,7 +90,7 @@ export function GuideViewPage() {
       {/* Only ever seen on paper: a printout with no provenance is how somebody
           ends up following a superseded procedure taped to an instrument. */}
       <div className="print-only">
-        Reticle · ZMB, University of Zurich — {guide.title}
+        {organisation ? `${organisation.name} — ` : ''}{guide.title}
         {guide.publishedAt &&
           ` · version ${guide.version}, published ${new Date(guide.publishedAt).toLocaleDateString()}`}
         {` · printed ${new Date().toLocaleDateString()}`}

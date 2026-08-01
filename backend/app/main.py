@@ -33,7 +33,7 @@ from .settings import get_settings
 
 CSRF_EXEMPT_PATHS = frozenset({"/api/auth/login"})
 
-PUBLIC_PATHS = frozenset({"/api/health", "/api/auth/login"})
+PUBLIC_PATHS = frozenset({"/api/health", "/api/auth/login", "/api/config"})
 
 MULTIPART_PREFIX = "multipart/form-data"
 
@@ -140,7 +140,7 @@ def create_app() -> FastAPI:
     application = FastAPI(
         title="Reticle",
         version="1.0.0",
-        description="Step-by-step guides for the Center for Microscopy and Image Analysis, University of Zurich.",
+        description="Step-by-step guides and standard operating procedures.",
         lifespan=lifespan,
         docs_url="/docs" if settings.debug else None,
         redoc_url="/redoc" if settings.debug else None,
@@ -179,6 +179,24 @@ def create_app() -> FastAPI:
     @application.get("/api/health", tags=["health"])
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @application.get("/api/config", tags=["config"])
+    async def configuration() -> dict[str, object]:
+        """Whose instance this is — needed before anyone has signed in.
+
+        Reachable without a session because the login screen has to say which
+        facility it belongs to, and because it discloses nothing: the name of
+        the institute running a server is already in the hostname pointing at
+        it. Everything else here stays behind the login.
+        """
+        current = get_settings()
+        return {
+            "organisation": {
+                "name": current.organisation_name,
+                "shortName": current.organisation_short_name,
+                "url": current.organisation_url,
+            }
+        }
 
     for module in (auth, categories, discovery, export, guides, media, pages, users):
         application.include_router(module.router)

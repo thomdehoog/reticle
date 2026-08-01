@@ -3,6 +3,7 @@
     python -m app.portability export --out ./reticle-export
     python -m app.portability export --archive ./reticle-export.tar.gz
     python -m app.portability restore --from ./reticle-export.tar.gz
+    python -m app.portability publish --out ./site
 
 A command rather than only an endpoint, for two reasons. An export is the thing
 somebody wants when the application will not start, and an HTTP call needs it to
@@ -37,6 +38,13 @@ def build_parser() -> argparse.ArgumentParser:
     destination.add_argument("--out", type=Path, help="Write a directory: JSON plus a media folder.")
     destination.add_argument("--archive", type=Path, help="Write a single .tar.gz.")
 
+    site = commands.add_parser(
+        "publish",
+        help="Render the published corpus as plain HTML: an offline, archival copy "
+        "that needs no application, no database and no network.",
+    )
+    site.add_argument("--out", type=Path, required=True, help="Directory to write the site into.")
+
     back = commands.add_parser("restore", help="Read an export into an empty database.")
     back.add_argument("--from", dest="source", type=Path, required=True, help="Directory or .tar.gz.")
     back.add_argument(
@@ -70,6 +78,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Wrote {args.archive}")
             for name, value in counts.items():
                 print(f"  {name:<16} {value}")
+            return 0
+
+        if args.command == "publish":
+            from .static_site import publish
+
+            report = publish(db, settings, args.out)
+            print(report.to_text())
+            print(f"Wrote {args.out}")
             return 0
 
         document, files = read_export(args.source)
