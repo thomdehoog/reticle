@@ -127,6 +127,7 @@ reticle/
 ├── docs/MIGRATION.md    the importer, the mapping, and the verification checklist
 ├── docs/EXPORT.md       the export format, for whoever moves the data on next
 ├── docs/NEXT_SESSION.md the brief for the session that has the live site
+├── docs/ARCHITECTURE.md where the data lives, and what hosting it as a service takes
 ├── frontend/            React 19 + TypeScript + Vite
 └── backend/             FastAPI + SQLAlchemy + SQLite
     └── app/importer/    the migration tool; nothing in app imports it

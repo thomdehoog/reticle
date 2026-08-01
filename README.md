@@ -134,6 +134,18 @@ restored is a hypothesis.
 
 Administrators can take the same export over HTTP at `/api/export/archive`.
 
+## Where the data lives
+
+GitHub holds the software. The server holds the data, in two places: a database
+file with all the text and structure, and a media folder with the actual images
+and videos. Nothing uploaded ever reaches the repository — `.gitignore` excludes
+both, deliberately.
+
+`docs/ARCHITECTURE.md` covers that in full, and sets out what running Reticle as
+a hosted service for several facilities would take: PostgreSQL instead of
+SQLite, object storage instead of local disk, a database per facility rather
+than a shared one, and the order to do it in.
+
 ## Licence and provenance
 
 Reticle is MIT licensed — see `LICENSE`. It is an independent implementation
