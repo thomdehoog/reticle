@@ -97,6 +97,102 @@ def test_hardening_headers_are_present_on_every_response(anon):
     assert headers["referrer-policy"] == "no-referrer"
 
 
+NEW_SURFACE = frozenset(
+    {
+        "/api/pages",
+        "/api/pages/{key}",
+        "/api/pages/{page_id}",
+        "/api/pages/{page_id}/publish",
+        "/api/pages/{page_id}/unpublish",
+        "/api/pages/{page_id}/revisions",
+        "/api/pages/{page_id}/revisions/{version}",
+        "/api/categories/{category_id}/page",
+        "/api/tags",
+        "/api/search",
+    }
+)
+"""Everything the wiki and discovery routers added.
+
+Listed by hand rather than derived from the routers, because a list derived from
+the thing under test agrees with it however wrong it is.
+"""
+
+
+def test_the_wiki_and_discovery_routes_are_inside_the_authentication_sweep():
+    """``unauthenticated_routes() == []`` is only a guarantee about the routes
+    the sweep can see.
+
+    A router mounted outside the ``APIRoute`` tree, or one whose paths the sweep
+    never reaches, would satisfy that assertion by being absent from it — so the
+    endpoints added with pages, tags and search are named here and required to be
+    both present and guarded.
+    """
+    from fastapi.routing import APIRoute
+
+    from app.main import _all_routes, _dependant_requires_auth, unauthenticated_routes
+
+    api_routes = [route for route in _all_routes() if isinstance(route, APIRoute)]
+    guarded = {route.path for route in api_routes if _dependant_requires_auth(route.dependant)}
+
+    assert NEW_SURFACE <= {route.path for route in api_routes}
+    assert NEW_SURFACE <= guarded
+    assert unauthenticated_routes() == []
+
+
+def test_the_authentication_sweep_can_actually_see_an_unguarded_route():
+    """The sweep's own regression test.
+
+    An assertion that a list is empty is worthless if the list is empty because
+    nothing was examined — and that is exactly what happened: an included router
+    stopped being copied into ``app.routes`` and became a single pathless
+    wrapper, so the sweep skipped every endpoint in the application and reported
+    a clean bill of health for a router mounted with no authentication at all.
+    Planting a hole and requiring the sweep to name it is the only assertion that
+    distinguishes "no holes" from "no sight".
+    """
+    from fastapi import APIRouter
+
+    from app.main import unauthenticated_routes
+
+    hole = APIRouter(prefix="/api/deliberate-hole")
+
+    @hole.get("")
+    def wide_open() -> dict[str, str]:  # pragma: no cover - never called
+        return {}
+
+    original = list(app.routes)
+    try:
+        app.include_router(hole)
+        assert unauthenticated_routes() == ["/api/deliberate-hole"]
+    finally:
+        app.router.routes[:] = original
+
+
+def test_the_public_allow_list_is_still_only_the_probe_and_the_login():
+    """The sweep measures against this set, so widening it is how a hole gets
+    declared safe rather than fixed."""
+    from app.main import PUBLIC_PATHS
+
+    assert set(PUBLIC_PATHS) == {"/api/health", "/api/auth/login"}
+
+
+def test_every_readable_endpoint_on_the_new_surface_refuses_an_anonymous_caller(anon):
+    """The structural sweep proves a dependency is declared; this proves the
+    dependency actually fires."""
+    for path in (
+        "/api/pages",
+        "/api/pages/anything",
+        "/api/pages/01JQNOTAREALULID00000000/revisions",
+        "/api/pages/01JQNOTAREALULID00000000/revisions/1",
+        "/api/categories/01JQNOTAREALULID00000000/page",
+        "/api/tags",
+        "/api/search?q=anything",
+    ):
+        response = anon.get(path)
+        assert response.status_code == 401, path
+        assert response.json()["error"]["code"] == "not_authenticated", path
+
+
 def test_an_unmapped_http_error_still_uses_the_error_envelope(author):
     """FastAPI raises its own HTTPException for things like an unparseable path
     parameter; the client must never see a bare FastAPI body."""

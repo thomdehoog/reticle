@@ -206,6 +206,27 @@ def _dependant_requires_auth(dependant) -> bool:
     return False
 
 
+def _all_routes() -> list[object]:
+    """Every route the application will actually serve, wrappers expanded.
+
+    ``include_router`` no longer copies a router's routes into ``app.routes``;
+    it inserts one pathless wrapper that holds the original router. Walking
+    ``app.routes`` directly therefore saw exactly one endpoint — the health
+    probe — and skipped every wrapper as pathless, so the sweep below reported
+    no holes because it was inspecting nothing.
+    """
+    flattened: list[object] = []
+    pending = list(app.routes)
+    while pending:
+        route = pending.pop()
+        nested = getattr(route, "original_router", None)
+        if nested is not None:
+            pending.extend(nested.routes)
+        else:
+            flattened.append(route)
+    return flattened
+
+
 def unauthenticated_routes() -> list[str]:
     """Every route of any kind that no authentication dependency protects.
 
@@ -213,16 +234,16 @@ def unauthenticated_routes() -> list[str]:
     endpoint simply works for everybody. Enumerating the holes turns that into
     something a test can fail on.
 
-    The sweep covers all of ``app.routes`` and measures them against one fixed
-    allow-list, rather than filtering to the ``/api`` prefix and taking the
-    exempt set from the caller. Both of those details mattered: the holes that
-    actually appeared here were ``/docs``, ``/redoc`` and ``/openapi.json``,
-    which carry no ``/api`` prefix and so could not have been caught by a filter
-    that assumed one, and an allow-list a caller passes in is an allow-list the
-    caller can widen to make the assertion pass.
+    The sweep covers every route the application serves and measures them
+    against one fixed allow-list, rather than filtering to the ``/api`` prefix
+    and taking the exempt set from the caller. Both of those details mattered:
+    the holes that actually appeared here were ``/docs``, ``/redoc`` and
+    ``/openapi.json``, which carry no ``/api`` prefix and so could not have been
+    caught by a filter that assumed one, and an allow-list a caller passes in is
+    an allow-list the caller can widen to make the assertion pass.
     """
     unguarded = []
-    for route in app.routes:
+    for route in _all_routes():
         path = getattr(route, "path", None)
         if path is None or path in PUBLIC_PATHS:
             continue
