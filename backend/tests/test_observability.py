@@ -220,3 +220,61 @@ def test_configuring_twice_does_not_double_every_line():
 def test_the_startup_line_never_prints_the_database_password(url, expected):
     """Startup logs are the ones people paste into tickets."""
     assert _redacted(url) == expected
+
+
+# --- crash reports from the browser ----------------------------------------
+
+
+def test_a_browser_crash_reaches_the_log(author, captured):
+    """The whole point: a rendering bug used to reach a developer as "it did
+    not work this morning", if at all."""
+    response = author.post(
+        "/api/client-errors",
+        json={"message": "annotation has no shape", "componentStack": "at StepGallery", "url": "/g/x"},
+    )
+
+    assert response.status_code == 204
+    entry = next(line for line in captured if line.get("logger") == "reticle.client")
+    assert entry["clientMessage"] == "annotation has no shape"
+    assert entry["level"] == "ERROR"
+    assert entry["userId"]
+
+
+def test_a_crash_report_cannot_forge_surrounding_log_entries(author, captured):
+    """The risk this endpoint carries. It writes caller-supplied text to a log
+    file, and a newline in that text reads back as a separate record — so an
+    account could manufacture entries saying whatever it liked."""
+    author.post(
+        "/api/client-errors",
+        json={
+            "message": 'boom\n{"level":"INFO","logger":"reticle.request","message":"admin logged in"}',
+            "componentStack": "line one\nline two",
+        },
+    )
+
+    entry = next(line for line in captured if line.get("logger") == "reticle.client")
+    assert "\n" not in entry["clientMessage"]
+    assert "\n" not in entry["componentStack"]
+    assert "admin logged in" in entry["clientMessage"]  # kept, but as one field
+
+
+def test_an_oversized_report_is_refused_rather_than_written(author):
+    """Otherwise the endpoint is a way to fill a disk one request at a time."""
+    response = author.post(
+        "/api/client-errors",
+        json={"message": "x" * 5000, "componentStack": "", "url": ""},
+    )
+
+    assert response.status_code == 422
+
+
+def test_reporting_a_crash_is_refused_without_a_session(anon):
+    """403 rather than 401: the CSRF check runs as middleware, ahead of routing,
+    so an anonymous POST is stopped before the authentication dependency is
+    reached. Either way it does not reach the log, which is what matters — an
+    unauthenticated write into a log file is a way to fill a disk from
+    outside."""
+    response = anon.post("/api/client-errors", json={"message": "boom"})
+
+    assert response.status_code in (401, 403)
+    assert response.status_code != 204

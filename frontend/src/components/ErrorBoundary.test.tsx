@@ -107,3 +107,65 @@ describe('ErrorBoundary', () => {
     expect(screen.getByText(/technical detail/i)).toBeInTheDocument()
   })
 })
+
+describe('reporting a crash to the server', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('posts the failure so it reaches somebody who can fix it', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <ErrorBoundary>
+        <Explodes message="annotation has no shape" />
+      </ErrorBoundary>,
+    )
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/client-errors')
+    expect(JSON.parse(options.body).message).toBe('annotation has no shape')
+
+    vi.unstubAllGlobals()
+  })
+
+  it('does not send the query string, which carries search terms', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <ErrorBoundary>
+        <Explodes />
+      </ErrorBoundary>,
+    )
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(sent.url).not.toContain('?')
+    expect(Object.keys(sent).sort()).toEqual(['componentStack', 'message', 'url'])
+
+    vi.unstubAllGlobals()
+  })
+
+  it('still shows the message when reporting itself fails', async () => {
+    /* A crash reporter that throws must not become the reason the user sees a
+       blank page after all. */
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
+
+    render(
+      <ErrorBoundary>
+        <Explodes />
+      </ErrorBoundary>,
+    )
+
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+
+    vi.unstubAllGlobals()
+  })
+})

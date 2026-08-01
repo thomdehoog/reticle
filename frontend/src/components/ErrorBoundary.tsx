@@ -27,6 +27,45 @@ interface Props {
   scope?: 'app' | 'content'
 }
 
+/**
+ * Sends the failure to the server, so it lands in the same log stream as
+ * everything else with a request id attached.
+ *
+ * Plain `fetch` rather than the application's own `ApiClient`, deliberately.
+ * This runs at the moment something in the application has already failed, and
+ * routing the report through a layer that may itself be the broken thing is how
+ * a crash reporter becomes the reason a crash goes unreported. Nothing here
+ * depends on React, on context, or on any module that a rendering bug could
+ * have taken down.
+ *
+ * Failure is swallowed for the same reason: if reporting throws, the user must
+ * still see the message telling them what happened.
+ */
+async function report(error: Error, componentStack: string): Promise<void> {
+  try {
+    const csrf = document.cookie.match(/(?:^|;\s*)reticle_csrf=([^;]*)/)
+    await fetch('/api/client-errors', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(csrf ? { 'X-CSRF-Token': decodeURIComponent(csrf[1]) } : {}),
+      },
+      body: JSON.stringify({
+        // Only the message and the stack. Not the URL's query string, which on
+        // this application carries search terms, and nothing scooped from the
+        // surrounding page — a crash report that collects local state
+        // eventually collects a password somebody was typing.
+        message: error.message.slice(0, 500),
+        componentStack: componentStack.slice(0, 4000),
+        url: window.location.pathname,
+      }),
+    })
+  } catch {
+    // Nothing to do. The screen below is what the user needs.
+  }
+}
+
 interface State {
   error: Error | null
 }
@@ -39,11 +78,11 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // The browser console is the only reporter this installation has. It is
-    // what somebody will be asked to open when they report the page went
-    // blank, so the component stack has to be in it rather than only React's
-    // own warning.
+    // The console is for whoever is sitting in front of it; the report is for
+    // whoever has to fix it. A console message alone reaches a developer as
+    // "it did not work this morning", if at all.
     console.error('Reticle: a component failed to render.', error, info.componentStack)
+    void report(error, info.componentStack ?? '')
   }
 
   render() {

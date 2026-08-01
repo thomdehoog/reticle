@@ -36,7 +36,17 @@ from .observability import (
     request_id,
 )
 from .ratelimit import RateLimitMiddleware
-from .routers import auth, categories, discovery, export, guides, media, pages, users
+from .routers import (
+    auth,
+    categories,
+    discovery,
+    export,
+    guides,
+    media,
+    pages,
+    telemetry,
+    users,
+)
 from .security import CSRF_COOKIE, CSRF_HEADER, constant_time_equals
 from .settings import get_settings
 
@@ -287,7 +297,17 @@ def create_app() -> FastAPI:
             }
         }
 
-    for module in (auth, categories, discovery, export, guides, media, pages, users):
+    for module in (
+        auth,
+        categories,
+        discovery,
+        export,
+        guides,
+        media,
+        pages,
+        telemetry,
+        users,
+    ):
         application.include_router(module.router)
 
     return application
