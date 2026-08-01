@@ -17,22 +17,80 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
 from .db import SessionLocal, init_db, utcnow
-from .models import Bullet, Category, Guide, GuideRevision, Step, User
-from .schemas import guide_document
+from .models import (
+    Bullet,
+    Category,
+    Guide,
+    GuideContributor,
+    GuideRevision,
+    GuideTag,
+    Page,
+    PageContributor,
+    PageRevision,
+    Step,
+    Tag,
+    User,
+)
+from .schemas import guide_document, page_document
 from .security import hash_password
 from .settings import Settings, get_settings
 from .slugs import slugify
 
-ZMB_CATEGORIES: list[tuple[str, str]] = [
-    ("Basics, Access and IT", "Accounts, building access, booking, storage and the ZMB network."),
-    ("Sample Preparation", "Preparing samples for light microscopy: fixation, labelling and mounting."),
-    ("Light Microscopy", "Widefield, confocal, superresolution and live-cell systems."),
-    ("Electron Microscopy", "Transmission and scanning electron microscopy, from resin to image."),
-    ("Image Analysis", "Segmentation, quantification, batch processing and reproducible pipelines."),
-    ("Internal Guides", "Procedures for ZMB staff: maintenance, handover and instrument checks."),
-    ("CryoEM", "Vitrification, screening and single-particle data collection."),
-    ("Spatial Biology", "Spatial transcriptomics and multiplexed imaging workflows."),
+ZMB_CATEGORIES: list[tuple[str, str, bool]] = [
+    ("Basics, Access and IT", "Accounts, building access, booking, storage and the ZMB network.", False),
+    ("Sample Preparation", "Preparing samples for light microscopy: fixation, labelling and mounting.", False),
+    ("Light Microscopy", "Widefield, confocal, superresolution and live-cell systems.", False),
+    ("Electron Microscopy", "Transmission and scanning electron microscopy, from resin to image.", False),
+    ("Image Analysis", "Segmentation, quantification, batch processing and reproducible pipelines.", False),
+    ("Internal Guides", "Procedures for ZMB staff: maintenance, handover and instrument checks.", False),
+    ("CryoEM", "Vitrification, screening and single-particle data collection.", False),
+    ("Spatial Biology", "Spatial transcriptomics and multiplexed imaging workflows.", False),
+    (
+        "Confocal - hidden guides",
+        "A holding category. Its guides are reached through tags and through the wiki "
+        "pages that embed them, never by browsing to it.",
+        True,
+    ),
 ]
+"""The sections, plus one holding category.
+
+The hidden one is not decoration: on ZMB's live site the largest single category
+is a hidden holding pen of 86 confocal guides that readers only ever reach
+through tags. Seeding one means a fresh install demonstrates the arrangement the
+real corpus uses rather than a tree that the imported content will immediately
+contradict.
+"""
+
+EXAMPLE_TAGS = ["confocal", "stellaris", "startup"]
+
+LANDING_PAGE_TITLE = "Light Microscopy"
+
+LANDING_PAGE_BODY = """\
+The light microscopy suite runs widefield, confocal, superresolution and
+live-cell systems. Everything below is written by the people who maintain the
+instruments; if a procedure looks wrong, it probably is — tell us rather than
+working around it.
+
+## Before your first session
+
+You need an introduction on the system before you can book it. Bring your sample
+to the introduction: a session spent on a test slide teaches you less than one
+spent on the thing you actually want to image.
+
+## Starting up
+
+```guidelist
+tags: confocal, startup
+heading: Confocal start-up
+```
+
+## Everything confocal
+
+```guidelist
+tags: confocal
+heading: All confocal guides
+```
+"""
 
 EXAMPLE_GUIDE_TITLE = "Starting a Session on the Confocal"
 
@@ -49,8 +107,8 @@ EXAMPLE_STEPS: list[tuple[str, list[tuple[str, str, str | None, int]]]] = [
         "Power up in order",
         [
             ("Switch on the mains strip, then the scanner, then the PC. Wait for each to settle.", "black", None, 0),
-            ("Never switch the lasers on before the scanner has finished its self-test.", "red", "warning", 0),
-            ("The 405 nm laser needs about 10 minutes to reach a stable output.", "black", None, 1),
+            ("Never switch the lasers on before the scanner has finished its self-test.", "red", "caution", 0),
+            ("The 405 nm laser needs about 10 minutes to reach a stable output.", "light_blue", None, 1),
             ("Log in with your ZMB account, not with the local Administrator account.", "violet", "reminder", 0),
         ],
     ),
@@ -59,7 +117,7 @@ EXAMPLE_STEPS: list[tuple[str, list[tuple[str, str, str | None, int]]]] = [
         [
             ("Select the objective in the software first so the turret moves under control.", "black", None, 0),
             ("Clean the front lens with lens tissue and a single drop of solvent, one pass only.", "orange", "caution", 0),
-            ("Never let solvent run down the barrel; it dissolves the cement inside.", "red", "warning", 1),
+            ("Never let solvent run down the barrel; it dissolves the cement inside.", "red", "caution", 1),
             ("Use the immersion medium printed on the objective, not the one already on the bench.", "black", None, 1),
         ],
     ),
@@ -75,7 +133,7 @@ EXAMPLE_STEPS: list[tuple[str, list[tuple[str, str, str | None, int]]]] = [
         "Acquire, save and shut down",
         [
             ("Save to your group folder on the server, never to the local desktop.", "black", None, 0),
-            ("Local disks are wiped without warning during maintenance.", "red", "warning", 1),
+            ("Local disks are wiped without warning during maintenance.", "red", "caution", 1),
             ("Export the acquisition settings alongside the images so the run is reproducible.", "blue", "note", 0),
             ("Log the session in the booking system, including any fault you noticed.", "violet", "reminder", 0),
         ],
@@ -91,6 +149,7 @@ def seed(db: DbSession, settings: Settings) -> None:
     admin = _seed_admin(db, settings)
     categories = _seed_categories(db)
     _seed_example_guide(db, admin, categories["Light Microscopy"])
+    _seed_landing_page(db, admin, categories["Light Microscopy"])
     db.commit()
 
 
@@ -123,7 +182,7 @@ def _seed_admin(db: DbSession, settings: Settings) -> User:
 
 def _seed_categories(db: DbSession) -> dict[str, Category]:
     seeded: dict[str, Category] = {}
-    for order_index, (name, description) in enumerate(ZMB_CATEGORIES):
+    for order_index, (name, description, is_hidden) in enumerate(ZMB_CATEGORIES):
         existing = db.scalars(select(Category).where(Category.name == name)).one_or_none()
         if existing is None:
             existing = Category(
@@ -132,6 +191,7 @@ def _seed_categories(db: DbSession) -> dict[str, Category]:
                 description=description,
                 parent_id=None,
                 order_index=order_index,
+                is_hidden=is_hidden,
             )
             db.add(existing)
         seeded[name] = existing
@@ -155,7 +215,8 @@ def _seed_example_guide(db: DbSession, author: User, category: Category) -> None
         summary="From booking to shutdown: the routine every confocal session at ZMB follows.",
         category_id=category.id,
         difficulty="easy",
-        time_required_minutes=25,
+        time_required_min_minutes=20,
+        time_required_max_minutes=40,
         introduction=(
             "This guide covers the standard start-up routine for the confocal systems in the ZMB "
             "light microscopy suite. It assumes you have completed the introductory training and "
@@ -173,6 +234,20 @@ def _seed_example_guide(db: DbSession, author: User, category: Category) -> None
     )
     db.add(guide)
     db.flush()
+
+    for index, slug in enumerate(EXAMPLE_TAGS):
+        tag = db.scalars(select(Tag).where(Tag.slug == slug)).one_or_none()
+        if tag is None:
+            tag = Tag(slug=slug, name=slug.replace("-", " "))
+            db.add(tag)
+            db.flush()
+        db.add(GuideTag(guide_id=guide.id, tag_id=tag.id, order_index=index))
+
+    db.add(
+        GuideContributor(
+            guide_id=guide.id, user_id=author.id, first_edited_at=now, last_edited_at=now
+        )
+    )
 
     for order_index, (title, bullets) in enumerate(EXAMPLE_STEPS):
         step = Step(guide_id=guide.id, order_index=order_index, title=title)
@@ -199,6 +274,49 @@ def _seed_example_guide(db: DbSession, author: User, category: Category) -> None
             published_at=now,
             published_by_id=author.id,
             document=guide_document(guide),
+        )
+    )
+
+
+def _seed_landing_page(db: DbSession, author: User, category: Category) -> None:
+    """The category landing, as a wiki page with guide lists embedded in it.
+
+    This is the arrangement the live site uses and the one thing a fresh install
+    could not otherwise demonstrate: the page is the navigation, the guide lists
+    inside it are filled by tag, and the guides they surface need not live in
+    this category at all.
+    """
+    if db.scalar(select(func.count()).select_from(Page)):
+        return
+
+    now = utcnow()
+    page = Page(
+        slug=slugify(LANDING_PAGE_TITLE),
+        title=LANDING_PAGE_TITLE,
+        summary="Instruments, access and the procedures for running them.",
+        category_id=category.id,
+        is_landing=True,
+        body=LANDING_PAGE_BODY,
+        status="published",
+        version=1,
+        author_id=author.id,
+        last_edited_by_id=author.id,
+        published_at=now,
+    )
+    db.add(page)
+    db.flush()
+    db.add(
+        PageContributor(page_id=page.id, user_id=author.id, first_edited_at=now, last_edited_at=now)
+    )
+    db.flush()
+    db.refresh(page)
+    db.add(
+        PageRevision(
+            page_id=page.id,
+            version=page.version,
+            published_at=now,
+            published_by_id=author.id,
+            document=page_document(page),
         )
     )
 

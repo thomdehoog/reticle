@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import select
 
-from app.models import Bullet, Category, Guide, GuideRevision, Step, User
+from app.models import Bullet, Category, Guide, GuideRevision, Page, PageRevision, Step, Tag, User
 from app.seed import ZMB_CATEGORIES, SeedError, seed
 from app.security import verify_password
 from app.settings import get_settings
@@ -22,7 +22,7 @@ def seeded(db_session, monkeypatch):
     return db_session
 
 
-def test_the_eight_zmb_categories_are_seeded_in_order(seeded):
+def test_the_zmb_sections_and_the_holding_category_are_seeded_in_order(seeded):
     categories = seeded.scalars(select(Category).order_by(Category.order_index)).all()
 
     assert [c.name for c in categories] == [
@@ -34,9 +34,20 @@ def test_the_eight_zmb_categories_are_seeded_in_order(seeded):
         "Internal Guides",
         "CryoEM",
         "Spatial Biology",
+        "Confocal - hidden guides",
     ]
-    assert [c.order_index for c in categories] == list(range(8))
+    assert [c.order_index for c in categories] == list(range(9))
     assert all(c.parent_id is None for c in categories)
+
+
+def test_only_the_holding_category_is_hidden(seeded):
+    """The live corpus reaches its largest section through tags alone, so a
+    fresh install has to demonstrate that arrangement rather than a tree the
+    imported content will immediately contradict."""
+    categories = seeded.scalars(select(Category).order_by(Category.order_index)).all()
+
+    assert [c.name for c in categories if c.is_hidden] == ["Confocal - hidden guides"]
+    assert sum(1 for c in categories if not c.is_hidden) == 8
 
 
 def test_sample_preparation_carries_its_scope_note(seeded):
@@ -54,7 +65,11 @@ def test_category_slugs_are_url_safe(seeded):
 
 
 def test_the_declared_category_set_is_the_one_seeded(seeded):
-    assert [name for name, _ in ZMB_CATEGORIES] == [c.name for c in seeded.scalars(select(Category).order_by(Category.order_index))]
+    seeded_rows = seeded.scalars(select(Category).order_by(Category.order_index)).all()
+
+    assert [(name, hidden) for name, _, hidden in ZMB_CATEGORIES] == [
+        (c.name, c.is_hidden) for c in seeded_rows
+    ]
 
 
 def test_the_admin_password_comes_from_the_environment(seeded):
@@ -121,8 +136,21 @@ def test_the_example_guide_is_published_and_richly_annotated(seeded):
     assert guide.published_at is not None
     assert guide.summary
     assert guide.introduction and guide.conclusion
-    assert guide.time_required_minutes and guide.time_required_minutes > 0
+    assert (guide.time_required_min_minutes, guide.time_required_max_minutes) == (20, 40)
     assert guide.category.name == "Light Microscopy"
+
+
+def test_the_example_guide_carries_the_tags_that_navigate_to_it(seeded):
+    guide = seeded.scalars(select(Guide)).one()
+
+    assert guide.tag_slugs == ["confocal", "stellaris", "startup"]
+    assert {t.slug for t in seeded.scalars(select(Tag))} == {"confocal", "stellaris", "startup"}
+
+
+def test_the_seeding_admin_is_credited_as_the_only_contributor(seeded):
+    guide = seeded.scalars(select(Guide)).one()
+
+    assert [person.display_name for person in guide.contributors] == ["ZMB Administrator"]
 
 
 def test_the_example_guide_has_several_steps_with_contiguous_numbering(seeded):
@@ -137,8 +165,9 @@ def test_the_example_bullets_exercise_the_annotation_vocabulary(seeded):
     bullets = seeded.scalars(select(Bullet)).all()
 
     assert len(bullets) >= 8
-    assert {"caution", "warning", "note"} <= {b.icon for b in bullets if b.icon}
-    assert {"black", "red", "orange"} <= {b.color for b in bullets}
+    assert {"caution", "note", "reminder"} == {b.icon for b in bullets if b.icon}
+    assert {"black", "red", "orange", "light_blue", "violet"} <= {b.color for b in bullets}
+    assert "warning" not in {b.icon for b in bullets}
     assert max(b.level for b in bullets) >= 1
 
 
@@ -158,3 +187,36 @@ def test_the_seeded_guide_is_immediately_readable_by_a_viewer(seeded, as_role):
     assert len(listing) == 1
     assert listing[0]["stepCount"] >= 4
     assert client.get(f"/api/guides/{listing[0]['slug']}").status_code == 200
+
+
+def test_light_microscopy_gets_a_published_landing_page(seeded):
+    page = seeded.scalars(select(Page)).one()
+
+    assert page.is_landing is True
+    assert page.status == "published"
+    assert page.version == 1
+    assert page.category.name == "Light Microscopy"
+    assert [person.display_name for person in page.contributors] == ["ZMB Administrator"]
+    assert seeded.scalars(select(PageRevision)).one().version == 1
+
+
+def test_the_landing_page_navigates_by_embedded_guide_lists(seeded):
+    """The page *is* the navigation on the live site: the lists inside it are
+    filled by tag, and the guides they surface need not sit in this category at
+    all. A landing that was merely prose would not demonstrate that."""
+    page = seeded.scalars(select(Page)).one()
+
+    assert page.body.count("```guidelist") == 2
+    assert "tags: confocal, startup" in page.body
+    assert "tags: confocal" in page.body
+
+
+def test_the_seeded_landing_page_is_what_the_category_endpoint_returns(seeded, as_role):
+    client = as_role("viewer", "landing.reader@zmb.uzh.ch")
+    category = seeded.scalars(select(Category).where(Category.name == "Light Microscopy")).one()
+
+    body = client.get(f"/api/categories/{category.id}/page").json()
+
+    assert body["isLanding"] is True
+    assert body["slug"] == "light-microscopy"
+    assert "```guidelist" in body["body"]

@@ -16,11 +16,13 @@ from sqlalchemy.orm import Session as DbSession
 
 from .. import audit, errors
 from ..auth import AdminUser, AnyUser, DbDep, client_address
-from ..models import Category, Guide
-from ..schemas import CategoryCreateIn, CategoryOut, CategoryPatchIn, category_out
+from ..models import Category, Guide, Page
+from ..schemas import CategoryCreateIn, CategoryOut, CategoryPatchIn, PageOut, category_out, page_out
 from ..slugs import unique_slug
 
 router = APIRouter(prefix="/api/categories", tags=["categories"])
+
+READER_STATUS = "published"
 
 
 def _load(db: DbSession, category_id: str) -> Category:
@@ -61,6 +63,24 @@ def list_categories(db: DbDep, user: AnyUser) -> list[CategoryOut]:
     return [category_out(category) for category in categories]
 
 
+@router.get("/{category_id}/page", response_model=PageOut | None)
+def read_landing_page(category_id: str, db: DbDep, user: AnyUser) -> PageOut | None:
+    """The category's landing content, or ``null`` when nobody has written it.
+
+    Null rather than 404: a category with no landing page yet is the ordinary
+    state of a fresh install, and making the client treat that as an error would
+    put a red alert on every category page at ZMB until somebody wrote one.
+    """
+    _load(db, category_id)
+    statement = select(Page).where(Page.category_id == category_id, Page.is_landing.is_(True))
+    if user.role == "viewer":
+        statement = statement.where(Page.status == READER_STATUS)
+    else:
+        statement = statement.where(Page.status != "archived")
+    page = db.scalars(statement).first()
+    return page_out(page) if page is not None else None
+
+
 @router.post("", response_model=CategoryOut, status_code=status.HTTP_201_CREATED)
 def create_category(payload: CategoryCreateIn, request: Request, db: DbDep, user: AdminUser) -> CategoryOut:
     name = payload.name.strip()
@@ -76,6 +96,7 @@ def create_category(payload: CategoryCreateIn, request: Request, db: DbDep, user
         description=payload.description,
         parent_id=payload.parent_id,
         order_index=_next_order_index(db, payload.parent_id),
+        is_hidden=payload.is_hidden,
     )
     db.add(category)
     db.flush()
@@ -124,6 +145,9 @@ def patch_category(
     if "order_index" in changed and payload.order_index is not None:
         category.order_index = payload.order_index
 
+    if "is_hidden" in changed and payload.is_hidden is not None:
+        category.is_hidden = payload.is_hidden
+
     audit.record(
         db,
         action="category.update",
@@ -148,6 +172,10 @@ def delete_category(category_id: str, request: Request, db: DbDep, user: AdminUs
     guides = db.scalar(select(func.count()).select_from(Guide).where(Guide.category_id == category.id))
     if guides:
         raise errors.conflict("Move the guides in this category somewhere else first.")
+
+    pages = db.scalar(select(func.count()).select_from(Page).where(Page.category_id == category.id))
+    if pages:
+        raise errors.conflict("Move or delete this category's wiki pages first.")
 
     audit.record(
         db,

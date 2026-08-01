@@ -69,9 +69,10 @@ class Settings(BaseSettings):
 
     max_request_bytes: int = 2 * 1024 * 1024
     max_upload_bytes: int = 20 * 1024 * 1024
+    max_video_bytes: int = 200 * 1024 * 1024
     max_image_dimension: int = 10_000
     max_image_pixels: int = MAX_IMAGE_PIXELS_DEFAULT
-    max_media_per_step: int = 3
+    max_media_per_step: int = 4
 
     min_password_length: int = 12
 

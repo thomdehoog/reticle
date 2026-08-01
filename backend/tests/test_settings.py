@@ -71,6 +71,7 @@ def test_a_dotenv_file_supplies_the_whole_configuration(tmp_path):
 
     assert settings.cookie_secure is False
     assert settings.session_lifetime_hours == 4
+    assert settings.max_media_per_step == 3
     assert str(settings.media_root).replace("\\", "/") == "/srv/reticle/media"
 
 
@@ -119,6 +120,17 @@ def test_secure_defaults_hold_when_nothing_is_configured(tmp_path, monkeypatch):
     assert settings.admin_password is None
     assert settings.max_upload_bytes == 20 * 1024 * 1024
     assert settings.max_image_dimension == 10_000
-    assert settings.max_media_per_step == 3
+    assert settings.max_media_per_step == 4
+    assert settings.max_video_bytes == 200 * 1024 * 1024
     assert settings.min_password_length == 12
     assert settings.argon2_memory_cost_kib == 65536
+
+
+def test_video_uploads_have_their_own_ceiling(tmp_path):
+    """A clip of a stage moving is an order of magnitude larger than any
+    photograph, so holding it to the image cap would reject the files the video
+    slot exists to accept."""
+    settings = load(tmp_path, MINIMAL + "RETICLE_MAX_VIDEO_BYTES=52428800\n")
+
+    assert settings.max_video_bytes == 50 * 1024 * 1024
+    assert settings.max_upload_bytes == 20 * 1024 * 1024

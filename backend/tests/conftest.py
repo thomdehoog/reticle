@@ -260,6 +260,22 @@ def jpeg_with_exif(make: str = "ZMB-Stellaris", model: str = "DMi8") -> bytes:
     return image_bytes(32, 24, "JPEG", exif=exif.tobytes())
 
 
+def mp4_bytes(brand: bytes = b"isom", padding: int = 64) -> bytes:
+    """The smallest byte string ``app.videos`` will accept as an MP4.
+
+    The sniffer reads an ``ftyp`` box header and a known brand, which is all a
+    container test needs; a real clip would only make the fixture slow and the
+    failure message longer.
+    """
+    box = b"\x00\x00\x00\x18ftyp" + brand + b"\x00\x00\x02\x00" + brand
+    return box + b"\x00" * padding
+
+
+def webm_bytes(padding: int = 64) -> bytes:
+    """An EBML header, which is what identifies a WebM container."""
+    return b"\x1a\x45\xdf\xa3" + b"\x01\x00\x00\x00\x00\x00\x00\x1f" + b"\x00" * padding
+
+
 def upload_media(client: ApiClient, payload: bytes | None = None, filename: str = "step.png") -> dict:
     files = {"file": (filename, payload if payload is not None else image_bytes(), "image/png")}
     response = client.post("/api/media", files=files)
@@ -267,8 +283,32 @@ def upload_media(client: ApiClient, payload: bytes | None = None, filename: str 
     return response.json()
 
 
+def upload_video(client: ApiClient, payload: bytes | None = None, filename: str = "stage.mp4") -> dict:
+    """Upload a clip through the same endpoint images use, and prove it landed as one."""
+    files = {"file": (filename, payload if payload is not None else mp4_bytes(), "video/mp4")}
+    response = client.post("/api/media", files=files)
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["kind"] == "video", body
+    return body
+
+
 def create_guide(client: ApiClient, category_id: str, title: str = "Aligning the Confocal") -> dict:
     response = client.post("/api/guides", json={"title": title, "categoryId": category_id})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def create_page(
+    client: ApiClient,
+    title: str = "Light Microscopy",
+    category_id: str | None = None,
+    is_landing: bool = False,
+) -> dict:
+    body: dict[str, Any] = {"title": title, "isLanding": is_landing}
+    if category_id is not None:
+        body["categoryId"] = category_id
+    response = client.post("/api/pages", json=body)
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -293,15 +333,64 @@ def document_from(guide: dict, **overrides: Any) -> dict:
     return body
 
 
-def step(title: str, bullets: list[dict] | None = None, media: list[dict] | None = None, step_id: str | None = None) -> dict:
+def page_document_from(page: dict, **overrides: Any) -> dict:
+    """The wiki half of :func:`document_from`.
+
+    A page is saved by the same whole-document ``PUT`` as a guide, so its editor
+    hands back the object it was given — including the ``updatedAt`` that the
+    concurrency guard compares against.
+    """
+    body = dict(page)
+    body.update(overrides)
+    return body
+
+
+def step(
+    title: str,
+    bullets: list[dict] | None = None,
+    media: list[dict] | None = None,
+    step_id: str | None = None,
+    video: dict | None = None,
+) -> dict:
     entry: dict[str, Any] = {
         "title": title,
         "orderIndex": 99,
         "bullets": bullets or [],
         "media": media or [],
+        "video": video,
     }
     if step_id is not None:
         entry["id"] = step_id
+    return entry
+
+
+def annotation(
+    shape: str = "rectangle",
+    color: str = "red",
+    x: float = 0.1,
+    y: float = 0.2,
+    width: float = 0.3,
+    height: float = 0.4,
+    annotation_id: str | None = None,
+) -> dict:
+    """One shape over a step image, as fractions of the image's own size."""
+    entry: dict[str, Any] = {
+        "shape": shape,
+        "color": color,
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+    }
+    if annotation_id is not None:
+        entry["id"] = annotation_id
+    return entry
+
+
+def annotated(media: dict, *shapes: dict) -> dict:
+    """Attach shapes to a fetched media object without mutating the original."""
+    entry = dict(media)
+    entry["annotations"] = list(shapes)
     return entry
 
 

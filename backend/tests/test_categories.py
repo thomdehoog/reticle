@@ -17,6 +17,7 @@ def test_any_authenticated_role_can_list_categories(viewer, category):
             "description": "Confocal, widefield and superresolution systems.",
             "parentId": None,
             "orderIndex": 0,
+            "isHidden": False,
         }
     ]
 
@@ -33,6 +34,27 @@ def test_admin_creates_a_category_and_the_slug_is_derived(admin):
     assert body["slug"] == "electron-microscopy"
     assert body["parentId"] is None
     assert body["orderIndex"] == 0
+    assert body["isHidden"] is False
+
+
+def test_a_holding_category_can_be_created_hidden(admin):
+    """ZMB's largest section is a hidden pen of confocal guides that readers only
+    ever reach through tags, so hiding has to be settable at creation."""
+    body = admin.post(
+        "/api/categories",
+        json={"name": "Confocal - hidden guides", "isHidden": True},
+    ).json()
+
+    assert body["isHidden"] is True
+    assert [c["isHidden"] for c in admin.get("/api/categories").json()] == [True]
+
+
+def test_hiding_and_revealing_a_category_is_a_patch(admin, category):
+    hidden = admin.patch(f"/api/categories/{category.id}", json={"isHidden": True}).json()
+    revealed = admin.patch(f"/api/categories/{category.id}", json={"isHidden": False}).json()
+
+    assert hidden["isHidden"] is True
+    assert revealed["isHidden"] is False
 
 
 def test_slugs_transliterate_rather_than_dropping_accents(admin):

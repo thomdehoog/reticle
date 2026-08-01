@@ -23,7 +23,8 @@ def test_put_returns_the_saved_document(author, category):
             title="Sample Preparation for CLEM",
             summary="Correlative workflow from fixation to imaging.",
             difficulty="difficult",
-            timeRequiredMinutes=90,
+            timeRequiredMinMinutes=45,
+            timeRequiredMaxMinutes=90,
             introduction="Read the safety sheet first.",
             conclusion="Log the session in the booking system.",
             steps=[step("Fix the sample", bullets=[bullet("Use 4% PFA", color="orange", icon="caution")])],
@@ -35,7 +36,8 @@ def test_put_returns_the_saved_document(author, category):
     assert body["title"] == "Sample Preparation for CLEM"
     assert body["summary"] == "Correlative workflow from fixation to imaging."
     assert body["difficulty"] == "difficult"
-    assert body["timeRequiredMinutes"] == 90
+    assert body["timeRequiredMinMinutes"] == 45
+    assert body["timeRequiredMaxMinutes"] == 90
     assert body["introduction"] == "Read the safety sheet first."
     assert body["conclusion"] == "Log the session in the booking system."
     assert body["steps"][0]["bullets"][0] == {
@@ -178,9 +180,9 @@ def test_a_malformed_step_id_is_rejected(author, category):
     assert response.status_code == 422
 
 
-def test_at_most_three_media_per_step(author, category):
+def test_at_most_four_media_per_step(author, category):
     created = create_guide(author, category.id)
-    media = [upload_media(author) for _ in range(4)]
+    media = [upload_media(author) for _ in range(5)]
 
     response = author.put(
         f"/api/guides/{created['id']}",
@@ -189,16 +191,16 @@ def test_at_most_three_media_per_step(author, category):
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_failed"
-    assert "3" in response.json()["error"]["message"]
+    assert "4" in response.json()["error"]["message"]
 
 
-def test_exactly_three_media_is_allowed(author, category):
+def test_exactly_four_media_is_allowed(author, category):
     created = create_guide(author, category.id)
-    media = [upload_media(author) for _ in range(3)]
+    media = [upload_media(author) for _ in range(4)]
 
     body = author.put(
         f"/api/guides/{created['id']}",
-        json=document_from(created, steps=[step("Three", media=media)]),
+        json=document_from(created, steps=[step("Four", media=media)]),
     ).json()
 
     assert [m["id"] for m in body["steps"][0]["media"]] == [m["id"] for m in media]
@@ -207,14 +209,14 @@ def test_exactly_three_media_is_allowed(author, category):
 
 def test_the_cap_is_per_step_not_per_guide(author, category):
     created = create_guide(author, category.id)
-    media = [upload_media(author) for _ in range(4)]
+    media = [upload_media(author) for _ in range(5)]
 
     body = author.put(
         f"/api/guides/{created['id']}",
-        json=document_from(created, steps=[step("A", media=media[:3]), step("B", media=media[3:])]),
+        json=document_from(created, steps=[step("A", media=media[:4]), step("B", media=media[4:])]),
     ).json()
 
-    assert [len(s["media"]) for s in body["steps"]] == [3, 1]
+    assert [len(s["media"]) for s in body["steps"]] == [4, 1]
 
 
 def test_media_order_within_a_step_is_preserved(author, category):
@@ -259,33 +261,60 @@ def test_alt_text_is_saved_through_the_document(author, category):
     assert author.get(f"/api/guides/{created['id']}").json()["steps"][0]["media"][0]["alt"] == media["alt"]
 
 
-def test_prerequisites_are_validated_and_stored_in_order(author, category):
-    first = create_guide(author, category.id, "Prerequisite One")
-    second = create_guide(author, category.id, "Prerequisite Two")
-    target = create_guide(author, category.id, "Main Guide")
+def test_either_end_of_the_time_estimate_may_be_left_open(author, category):
+    """ZMB writes "from 30 min" and "up to 2 h" as often as a closed range, so a
+    single end has to be storable without inventing the other one."""
+    created = create_guide(author, category.id)
 
-    body = author.put(
-        f"/api/guides/{target['id']}",
-        json=document_from(target, prerequisiteIds=[second["id"], first["id"]]),
+    lower_only = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, timeRequiredMinMinutes=30, timeRequiredMaxMinutes=None),
+    ).json()
+    upper_only = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(lower_only, timeRequiredMinMinutes=None, timeRequiredMaxMinutes=120),
     ).json()
 
-    assert body["prerequisiteIds"] == [second["id"], first["id"]]
+    assert (lower_only["timeRequiredMinMinutes"], lower_only["timeRequiredMaxMinutes"]) == (30, None)
+    assert (upper_only["timeRequiredMinMinutes"], upper_only["timeRequiredMaxMinutes"]) == (None, 120)
 
 
-def test_an_unknown_prerequisite_is_rejected(author, category):
+def test_a_single_number_is_expressed_as_an_equal_range(author, category):
     created = create_guide(author, category.id)
 
-    response = author.put(f"/api/guides/{created['id']}", json=document_from(created, prerequisiteIds=[str(ULID())]))
+    body = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, timeRequiredMinMinutes=45, timeRequiredMaxMinutes=45),
+    ).json()
 
-    assert response.status_code == 422
+    assert (body["timeRequiredMinMinutes"], body["timeRequiredMaxMinutes"]) == (45, 45)
 
 
-def test_a_guide_cannot_be_its_own_prerequisite(author, category):
+def test_a_reversed_time_range_is_refused_rather_than_quietly_swapped(author, category):
+    """Guessing which of the two numbers the author meant would publish a
+    duration nobody wrote."""
     created = create_guide(author, category.id)
 
-    response = author.put(f"/api/guides/{created['id']}", json=document_from(created, prerequisiteIds=[created["id"]]))
+    response = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, timeRequiredMinMinutes=90, timeRequiredMaxMinutes=45),
+    )
 
     assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+    assert author.get(f"/api/guides/{created['id']}").json()["timeRequiredMinMinutes"] is None
+
+
+def test_a_negative_time_estimate_is_rejected(author, category):
+    created = create_guide(author, category.id)
+
+    assert (
+        author.put(
+            f"/api/guides/{created['id']}",
+            json=document_from(created, timeRequiredMinMinutes=-1),
+        ).status_code
+        == 422
+    )
 
 
 def test_moving_a_guide_to_an_unknown_category_is_rejected(author, category):

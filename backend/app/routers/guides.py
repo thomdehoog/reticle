@@ -13,14 +13,14 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Query, Request, Response, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session as DbSession
 
 from .. import audit, errors
 from ..auth import AdminUser, AnyUser, AuthorUser, DbDep, client_address
 from ..db import utcnow
-from ..documents import apply_document, next_updated_at
-from ..models import Category, Guide, GuideRevision, Step, User
+from ..documents import apply_document, next_updated_at, record_contribution
+from ..models import Category, Guide, GuideRevision, GuideTag, Step, Tag, User
 from ..schemas import (
     GuideCreateIn,
     GuideDocumentIn,
@@ -38,9 +38,49 @@ router = APIRouter(prefix="/api/guides", tags=["guides"])
 
 READER_STATUS = "published"
 
+MAX_TAG_FILTER_TERMS = 20
+
 
 def _escape_like(term: str) -> str:
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def parse_tag_filter(raw: str | None) -> list[str]:
+    """Split the comma-separated ``?tags=`` filter into slugs.
+
+    Bounded because the filter becomes one correlated subquery per term: a
+    caller passing a thousand tags would otherwise hand themselves a thousand-way
+    join on the single SQLite writer.
+    """
+    if not raw:
+        return []
+    terms: list[str] = []
+    for part in raw.split(","):
+        slug = part.strip().lower()
+        if slug and slug not in terms:
+            terms.append(slug)
+    if len(terms) > MAX_TAG_FILTER_TERMS:
+        raise errors.validation_failed(f"Filter by at most {MAX_TAG_FILTER_TERMS} tags at once.")
+    return terms
+
+
+def apply_tag_filter(statement, tags: list[str]):
+    """Require *all* of the tags, not any of them.
+
+    A wiki page that asks for ``stellaris, confocal`` means the guides that are
+    both, which is how one heading on a category page stays specific. ``any``
+    would turn every embed on ZMB's busiest page into an undifferentiated dump.
+    """
+    for slug in tags:
+        member = (
+            select(GuideTag.id)
+            .join(Tag, Tag.id == GuideTag.tag_id)
+            .where(GuideTag.guide_id == Guide.id, Tag.slug == slug)
+            .correlate(Guide)
+            .exists()
+        )
+        statement = statement.where(member)
+    return statement
 
 
 def _slug_taken(db: DbSession, slug: str) -> bool:
@@ -76,6 +116,7 @@ def list_guides(
     status_filter: str | None = Query(default=None, alias="status"),
     q: str | None = Query(default=None, max_length=200),
     author_id: str | None = Query(default=None, alias="authorId"),
+    tags: str | None = Query(default=None, max_length=800),
 ) -> list[GuideSummaryOut]:
     step_count = (
         select(func.count(Step.id)).where(Step.guide_id == Guide.id).correlate(Guide).scalar_subquery()
@@ -94,6 +135,7 @@ def list_guides(
         statement = statement.where(Guide.category_id == category_id)
     if author_id is not None:
         statement = statement.where(Guide.author_id == author_id)
+    statement = apply_tag_filter(statement, parse_tag_filter(tags))
     if q:
         pattern = f"%{_escape_like(q.strip())}%"
         statement = statement.where(
@@ -121,6 +163,7 @@ def create_guide(payload: GuideCreateIn, request: Request, db: DbDep, user: Auth
     )
     db.add(guide)
     db.flush()
+    record_contribution(db, guide, user)
     audit.record(
         db,
         action="guide.create",
@@ -136,7 +179,27 @@ def create_guide(payload: GuideCreateIn, request: Request, db: DbDep, user: Auth
 
 @router.get("/{key}", response_model=GuideOut)
 def read_guide(key: str, db: DbDep, user: AnyUser) -> GuideOut:
-    return guide_out(_load_for(db, user, key))
+    guide = _load_for(db, user, key)
+    _count_reading(db, guide, user)
+    return guide_out(guide)
+
+
+def _count_reading(db: DbSession, guide: Guide, user: User) -> None:
+    """Count somebody opening a published guide.
+
+    Only published guides count: an author refreshing their own draft forty
+    times while writing it would otherwise make the busiest guide at ZMB the one
+    nobody has read. The counter is written with a bare ``UPDATE`` rather than by
+    mutating the loaded row, so two people opening the same guide at once add two
+    rather than one, and so it never touches ``updated_at`` — a read is not an
+    edit, and moving the concurrency token would eject every editor who had the
+    guide open.
+    """
+    if guide.status != READER_STATUS:
+        return
+    db.execute(update(Guide).where(Guide.id == guide.id).values(view_count=Guide.view_count + 1))
+    db.commit()
+    db.refresh(guide)
 
 
 @router.put("/{guide_id}", response_model=GuideOut)

@@ -46,10 +46,17 @@ def test_uploading_a_png_returns_the_domain_media_object(author, media_root):
 
     assert response.status_code == 201
     body = response.json()
-    assert set(body) == {"id", "url", "alt", "width", "height"}
+    assert set(body) == {
+        "id", "url", "kind", "alt", "width", "height", "durationSeconds",
+        "posterUrl", "annotations",
+    }
+    assert body["kind"] == "image"
     assert body["width"] == 64
     assert body["height"] == 48
     assert body["alt"] == ""
+    assert body["durationSeconds"] is None
+    assert body["posterUrl"] is None
+    assert body["annotations"] == []
     assert body["url"] == f"/api/media/{body['id']}"
 
 

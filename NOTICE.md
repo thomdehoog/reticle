@@ -15,6 +15,11 @@ Specifically, this project contains **no** third-party proprietary:
 
 All icon artwork, styling and page layout in this repository is original work.
 
+Reticle is deliberately **not** a visual copy of any vendor's interface. It
+implements the same functions and looks like itself. That is a design decision,
+not only a legal one: a facility's documentation should look like the facility's
+own, and a lookalike would invite the question of what else was copied.
+
 Reticle implements *functionality* that other guide platforms also implement —
 numbered procedural steps, annotated bullets, per-step images, categories,
 draft/publish states. Functional concepts, workflows and conventions of this
@@ -30,12 +35,21 @@ anyone else's material.
 
 ## Content migration policy
 
-Content is imported through the **official vendor API or a vendor-provided
-export**, using ZMB's own account credentials, and only for content ZMB owns.
+Content is imported through the **official vendor API**, and only for content
+ZMB owns. The importer lives in `backend/app/importer/`; `docs/MIGRATION.md`
+describes exactly what it reads and what it writes.
 
-Bulk scraping of the hosted site is deliberately **not** used: it is the route
+Bulk scraping of the hosted site is deliberately **not** used. It is the route
 most likely to conflict with a vendor's terms of service, and it is unnecessary
-when a supported export path exists.
+when a supported export path exists — the guide and wiki endpoints return
+everything the site displays, in a form that does not have to be reverse
+engineered from markup.
+
+What the importer takes is **content**: text, images, video, annotation
+geometry, tags and structure. What it never takes is **expression of the
+interface**: no HTML, no stylesheet, no script, no icon, no font, no layout.
+Rendered HTML in a payload is reduced to text and to Reticle's own structures on
+the way in, so vendor markup cannot survive the crossing even accidentally.
 
 Before running the importer, confirm that your account's terms permit export of
 your own content. This is normal for a paid account, but it is worth a look at

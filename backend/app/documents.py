@@ -15,6 +15,7 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
@@ -23,18 +24,30 @@ from sqlalchemy.orm import Session as DbSession
 from . import errors
 from .db import utcnow
 from .models import (
+    Annotation,
     Bullet,
     Category,
     Guide,
-    GuidePrerequisite,
+    GuideContributor,
+    GuideTag,
     Media,
+    Page,
+    PageContributor,
     Step,
     StepMedia,
+    Tag,
     User,
     is_valid_id,
     new_id,
 )
-from .schemas import BulletIn, GuideDocumentIn, StepIn
+from .schemas import (
+    TAG_SLUG_PATTERN,
+    BulletIn,
+    GuideDocumentIn,
+    MediaRefIn,
+    PageDocumentIn,
+    StepIn,
+)
 from .settings import get_settings
 
 
@@ -50,11 +63,12 @@ def next_updated_at(previous: datetime) -> datetime:
     return max(now, floor)
 
 
-def assert_not_stale(guide: Guide, client_seen: datetime) -> None:
+def assert_not_stale(record: Guide | Page, client_seen: datetime, noun: str = "guide") -> None:
     seen = client_seen if client_seen.tzinfo is not None else client_seen.replace(tzinfo=timezone.utc)
-    if guide.updated_at > seen:
+    if record.updated_at > seen:
         raise errors.conflict(
-            "This guide changed after you opened it. Reload to pick up the newer version before saving."
+            f"This {noun} changed after you opened it. "
+            "Reload to pick up the newer version before saving."
         )
 
 
@@ -67,38 +81,172 @@ def apply_document(db: DbSession, guide: Guide, payload: GuideDocumentIn, actor:
     if category is None:
         raise errors.validation_failed("That category does not exist.")
 
-    prerequisite_ids = _validated_prerequisites(db, guide, payload.prerequisite_ids)
+    tag_slugs = _validated_tags(payload.tags)
     media_by_id = _validated_media(db, payload, settings.max_media_per_step)
+    minimum, maximum = _validated_time_range(
+        payload.time_required_min_minutes, payload.time_required_max_minutes
+    )
 
     guide.title = payload.title.strip()
     guide.summary = payload.summary
     guide.category_id = category.id
     guide.difficulty = payload.difficulty
-    guide.time_required_minutes = payload.time_required_minutes
+    guide.time_required_min_minutes = minimum
+    guide.time_required_max_minutes = maximum
     guide.introduction = payload.introduction
     guide.conclusion = payload.conclusion
     guide.last_edited_by_id = actor.id
     guide.updated_at = next_updated_at(guide.updated_at)
 
-    _sync_prerequisites(db, guide, prerequisite_ids)
+    _sync_tags(db, guide, tag_slugs)
     _sync_steps(db, guide, payload.steps, media_by_id)
+    record_contribution(db, guide, actor)
 
 
-def _validated_prerequisites(db: DbSession, guide: Guide, requested: list[str]) -> list[str]:
+def apply_page_document(db: DbSession, page: Page, payload: PageDocumentIn, actor: User) -> None:
+    """The wiki half of the same whole-document write.
+
+    A page is one Markdown body rather than a tree of steps, so this is short —
+    but it goes through the same staleness check, the same contributor ledger
+    and the same landing-page rule as everything else, because a wiki page at
+    ZMB *is* a category landing and is edited by the same people.
+    """
+    assert_not_stale(page, payload.updated_at, noun="page")
+
+    category_id: str | None = None
+    if payload.category_id is not None:
+        category = db.get(Category, payload.category_id)
+        if category is None:
+            raise errors.validation_failed("That category does not exist.")
+        category_id = category.id
+
+    if payload.is_landing and category_id is None:
+        raise errors.validation_failed("A landing page has to belong to a category.")
+
+    if payload.is_landing:
+        _assert_landing_is_free(db, category_id, page.id)
+
+    if payload.hero_media_id is not None:
+        if not is_valid_id(payload.hero_media_id) or db.get(Media, payload.hero_media_id) is None:
+            raise errors.validation_failed("That hero image no longer exists.")
+
+    page.title = payload.title.strip()
+    page.summary = payload.summary
+    page.category_id = category_id
+    page.is_landing = payload.is_landing
+    page.body = payload.body
+    page.hero_media_id = payload.hero_media_id
+    page.last_edited_by_id = actor.id
+    page.updated_at = next_updated_at(page.updated_at)
+
+    record_contribution(db, page, actor)
+
+
+def _assert_landing_is_free(db: DbSession, category_id: str | None, page_id: str) -> None:
+    clash = db.scalars(
+        select(Page).where(
+            Page.category_id == category_id,
+            Page.is_landing.is_(True),
+            Page.id != page_id,
+        )
+    ).first()
+    if clash is not None:
+        raise errors.conflict("That category already has a landing page.")
+
+
+def record_contribution(db: DbSession, record: Guide | Page, actor: User) -> None:
+    """Credit whoever saved it, once, in the order they first appeared.
+
+    Kept as data rather than derived from the audit log: the audit log is
+    rotated, and at a facility the edit history is frequently the only surviving
+    answer to "why does this procedure say that, and who do I ask about it".
+    """
+    link_model = GuideContributor if isinstance(record, Guide) else PageContributor
+    now = utcnow()
+    for link in record.contributor_links:
+        if link.user_id == actor.id:
+            link.last_edited_at = now
+            return
+    owner_column = "guide_id" if isinstance(record, Guide) else "page_id"
+    db.add(
+        link_model(
+            **{owner_column: record.id},
+            user_id=actor.id,
+            first_edited_at=now,
+            last_edited_at=now,
+        )
+    )
+
+
+def _validated_time_range(minimum: int | None, maximum: int | None) -> tuple[int | None, int | None]:
+    """A range, not two independent numbers.
+
+    ZMB writes estimates as "30 – 90 min" because that is how long a procedure
+    honestly takes. A reversed pair is refused rather than quietly swapped: the
+    author meant one of the two numbers to be something else, and guessing which
+    would publish a time nobody wrote.
+    """
+    if minimum is not None and maximum is not None and minimum > maximum:
+        raise errors.validation_failed("The shortest time cannot be longer than the longest time.")
+    return minimum, maximum
+
+
+def _validated_tags(requested: list[str]) -> list[str]:
+    """Keep the author's order, drop repeats, refuse anything not already a slug.
+
+    The tag input slugifies as you type, so a value arriving here in another
+    shape is a client that has drifted from the contract. Re-slugifying it
+    server-side would be worse than refusing: two spellings would agree in the
+    editor and disagree in the database, which is exactly how ZMB's live site
+    ended up with four spellings of one instrument.
+    """
     ordered: list[str] = []
     for candidate in requested:
-        if candidate in ordered:
+        slug = candidate.strip()
+        if slug == "" or slug in ordered:
             continue
-        if candidate == guide.id:
-            raise errors.validation_failed("A guide cannot be its own prerequisite.")
-        if not is_valid_id(candidate) or db.get(Guide, candidate) is None:
-            raise errors.validation_failed("A prerequisite guide does not exist.")
-        ordered.append(candidate)
+        if not re.fullmatch(TAG_SLUG_PATTERN, slug) or len(slug) > 120:
+            raise errors.validation_failed(
+                f"“{candidate}” is not a usable tag. Use lower-case words joined by hyphens."
+            )
+        ordered.append(slug)
     return ordered
 
 
+def _sync_tags(db: DbSession, guide: Guide, slugs: list[str]) -> None:
+    """Attach the guide to each tag, minting any tag that does not exist yet.
+
+    Authors are not administrators of a taxonomy; making them create a tag
+    before they can use it is how a corpus ends up with none. The input suggests
+    existing tags first, which keeps the vocabulary tidy without a gate.
+    """
+    for link in list(guide.tag_links):
+        db.delete(link)
+    db.flush()
+
+    if not slugs:
+        return
+
+    known = {tag.slug: tag for tag in db.scalars(select(Tag).where(Tag.slug.in_(slugs))).all()}
+    for index, slug in enumerate(slugs):
+        tag = known.get(slug)
+        if tag is None:
+            tag = Tag(slug=slug, name=slug.replace("-", " "))
+            db.add(tag)
+            db.flush()
+            known[slug] = tag
+        db.add(GuideTag(guide_id=guide.id, tag_id=tag.id, order_index=index))
+
+
 def _validated_media(db: DbSession, payload: GuideDocumentIn, cap: int) -> dict[str, Media]:
+    """Resolve every file the document references, and refuse the impossible ones.
+
+    A video dropped into an image slot renders as a broken picture and an image
+    in the video slot as a player that never starts. Both are silent until a
+    reader opens the step, so they are refused at the write.
+    """
     referenced: set[str] = set()
+    videos: set[str] = set()
     for step in payload.steps:
         if len(step.media) > cap:
             raise errors.validation_failed(f"A step may hold at most {cap} images.")
@@ -108,6 +256,9 @@ def _validated_media(db: DbSession, payload: GuideDocumentIn, cap: int) -> dict[
                 raise errors.validation_failed("The same image is attached to a step twice.")
             seen.add(item.id)
             referenced.add(item.id)
+        if step.video is not None:
+            videos.add(step.video.id)
+            referenced.add(step.video.id)
 
     if not referenced:
         return {}
@@ -116,16 +267,45 @@ def _validated_media(db: DbSession, payload: GuideDocumentIn, cap: int) -> dict[
     media_by_id = {item.id: item for item in found}
     missing = referenced - media_by_id.keys()
     if missing:
-        raise errors.validation_failed("One or more images referenced by this guide no longer exist.")
+        raise errors.validation_failed("One or more files referenced by this guide no longer exist.")
+
+    for media_id, media in media_by_id.items():
+        wanted = "video" if media_id in videos else "image"
+        if media.kind != wanted:
+            raise errors.validation_failed(
+                "The file in a step's video slot is not a video."
+                if wanted == "video"
+                else "A video cannot be used as one of a step's images."
+            )
     return media_by_id
 
 
-def _sync_prerequisites(db: DbSession, guide: Guide, prerequisite_ids: list[str]) -> None:
-    for link in list(guide.prerequisites):
-        db.delete(link)
+def _sync_annotations(db: DbSession, media: Media, item: MediaRefIn) -> None:
+    """Replace an image's shapes with the set the editor is holding.
+
+    Annotations are stored as fractions of the image rather than burned into the
+    pixels, so the upload stays untouched, the shape stays editable and it
+    scales with whatever size the reader's screen renders it at. The colour is
+    the bullet's colour: that pairing is the whole point — a red shape on the
+    picture and the red bullet beside it are one instruction.
+    """
+    for annotation in list(media.annotations):
+        db.delete(annotation)
     db.flush()
-    for index, prerequisite_id in enumerate(prerequisite_ids):
-        db.add(GuidePrerequisite(guide_id=guide.id, prerequisite_id=prerequisite_id, order_index=index))
+    for index, spec in enumerate(item.annotations):
+        db.add(
+            Annotation(
+                id=spec.id if spec.id is not None and is_valid_id(spec.id) else new_id(),
+                media_id=media.id,
+                order_index=index,
+                shape=spec.shape,
+                color=spec.color,
+                x=spec.x,
+                y=spec.y,
+                width=spec.width,
+                height=spec.height,
+            )
+        )
 
 
 def _claim_id(db: DbSession, model: type, candidate: str | None, owned: set[str], label: str) -> str:
@@ -213,4 +393,12 @@ def _sync_steps(db: DbSession, guide: Guide, steps_in: list[StepIn], media_by_id
         for position, item in enumerate(step_in.media):
             media = media_by_id[item.id]
             media.alt = item.alt
+            _sync_annotations(db, media, item)
             db.add(StepMedia(step_id=step.id, media_id=media.id, order_index=position))
+
+        if step_in.video is None:
+            step.video_media_id = None
+        else:
+            video = media_by_id[step_in.video.id]
+            video.alt = step_in.video.alt
+            step.video_media_id = video.id

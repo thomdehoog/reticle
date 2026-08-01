@@ -27,7 +27,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from . import errors
 from .auth import SAFE_METHODS, get_session_row
 from .db import init_db
-from .routers import auth, categories, guides, media, users
+from .routers import auth, categories, discovery, guides, media, pages, users
 from .security import CSRF_COOKIE, CSRF_HEADER, constant_time_equals
 from .settings import get_settings
 
@@ -180,7 +180,7 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    for module in (auth, categories, guides, media, users):
+    for module in (auth, categories, discovery, guides, media, pages, users):
         application.include_router(module.router)
 
     return application

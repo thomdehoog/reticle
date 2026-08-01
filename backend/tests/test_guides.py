@@ -16,16 +16,19 @@ def test_author_creates_a_draft_with_sane_defaults(author, category):
     assert body["version"] == 0
     assert body["slug"] == "aligning-the-confocal"
     assert body["steps"] == []
-    assert body["prerequisiteIds"] == []
+    assert body["tags"] == []
     assert body["summary"] == ""
     assert body["introduction"] == ""
     assert body["conclusion"] == ""
     assert body["difficulty"] == "moderate"
-    assert body["timeRequiredMinutes"] is None
+    assert body["timeRequiredMinMinutes"] is None
+    assert body["timeRequiredMaxMinutes"] is None
+    assert body["viewCount"] == 0
     assert body["publishedAt"] is None
     assert body["categoryId"] == category.id
     assert body["author"] == {"id": body["lastEditedBy"]["id"], "displayName": "Author"}
     assert set(body["author"]) == {"id", "displayName"}
+    assert body["contributors"] == [body["author"]]
     assert body["createdAt"].endswith("Z")
 
 
@@ -33,10 +36,11 @@ def test_guide_response_matches_the_domain_model_exactly(author, category):
     body = create_guide(author, category.id)
 
     assert set(body) == {
-        "id", "slug", "title", "summary", "categoryId", "difficulty",
-        "timeRequiredMinutes", "introduction", "conclusion", "status", "steps",
-        "prerequisiteIds", "author", "lastEditedBy", "createdAt", "updatedAt",
-        "publishedAt", "version",
+        "id", "slug", "title", "summary", "categoryId", "tags", "difficulty",
+        "timeRequiredMinMinutes", "timeRequiredMaxMinutes", "introduction",
+        "conclusion", "status", "steps", "author", "lastEditedBy",
+        "contributors", "viewCount", "createdAt", "updatedAt", "publishedAt",
+        "version",
     }
 
 
@@ -120,9 +124,9 @@ def test_summary_projection_matches_the_domain_model(author, category):
     entry = author.get("/api/guides").json()[0]
 
     assert set(entry) == {
-        "id", "slug", "title", "summary", "categoryId", "difficulty",
-        "timeRequiredMinutes", "status", "stepCount", "author", "updatedAt",
-        "publishedAt",
+        "id", "slug", "title", "summary", "categoryId", "tags", "difficulty",
+        "timeRequiredMinMinutes", "timeRequiredMaxMinutes", "status",
+        "stepCount", "author", "viewCount", "updatedAt", "publishedAt",
     }
     assert entry["stepCount"] == 2
 
