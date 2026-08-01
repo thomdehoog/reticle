@@ -2804,3 +2804,50 @@ a:hover {
     display: none;
   }
 }
+
+/* The crash screen. Deliberately plain: it renders when something else in the
+   application has already failed, so it must not depend on anything clever. */
+.crash {
+  max-width: 34rem;
+  margin: 4rem auto;
+  padding: 2rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.crash__title {
+  margin: 0 0 0.75rem;
+  font-size: 1.35rem;
+  color: var(--ink-900);
+}
+
+.crash__body {
+  margin: 0 0 0.75rem;
+  color: var(--ink-500);
+  line-height: 1.6;
+}
+
+.crash__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 1.25rem 0 0.5rem;
+}
+
+.crash__details {
+  margin-top: 1.5rem;
+  color: var(--ink-500);
+  font-size: 0.85rem;
+}
+
+.crash__stack {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  overflow-x: auto;
+  background: var(--surface-sunken);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

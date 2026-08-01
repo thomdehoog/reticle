@@ -1,6 +1,7 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { AppShell } from './components/AppShell'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAuth } from './auth/AuthContext'
 import { AccountPage } from './pages/AccountPage'
 import { CategoriesPage } from './pages/CategoriesPage'
@@ -25,6 +26,11 @@ import { WikiIndexPage } from './pages/WikiIndexPage'
  */
 export function App() {
   const { status, can } = useAuth()
+  // Keying the boundary on the path gives it a fresh instance per page, so a
+  // guide that fails to render does not leave every subsequent page showing
+  // that guide's error. Navigating away is the recovery; re-rendering the same
+  // broken page in place would only loop.
+  const { pathname } = useLocation()
 
   if (status === 'checking') {
     return <div className="spinner">Loading Reticle…</div>
@@ -36,25 +42,27 @@ export function App() {
 
   return (
     <AppShell>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/c/:slug" element={<CategoryPage />} />
-        <Route path="/g/:slug" element={<GuideViewPage />} />
-        <Route path="/g/:id/edit" element={<GuideEditorPage />} />
-        <Route path="/w" element={<WikiIndexPage />} />
-        <Route path="/w/:slug" element={<PageViewPage />} />
-        <Route path="/w/:id/edit" element={<PageEditorPage />} />
-        <Route path="/t" element={<TagIndexPage />} />
-        <Route path="/t/:tag" element={<TagPage />} />
-        <Route path="/search" element={<SearchPage />} />
-        <Route path="/account" element={<AccountPage />} />
-        <Route path="/users" element={can('admin') ? <UsersPage /> : <Navigate to="/" replace />} />
-        <Route
-          path="/categories"
-          element={can('admin') ? <CategoriesPage /> : <Navigate to="/" replace />}
-        />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <ErrorBoundary scope="content" key={pathname}>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/c/:slug" element={<CategoryPage />} />
+          <Route path="/g/:slug" element={<GuideViewPage />} />
+          <Route path="/g/:id/edit" element={<GuideEditorPage />} />
+          <Route path="/w" element={<WikiIndexPage />} />
+          <Route path="/w/:slug" element={<PageViewPage />} />
+          <Route path="/w/:id/edit" element={<PageEditorPage />} />
+          <Route path="/t" element={<TagIndexPage />} />
+          <Route path="/t/:tag" element={<TagPage />} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/account" element={<AccountPage />} />
+          <Route path="/users" element={can('admin') ? <UsersPage /> : <Navigate to="/" replace />} />
+          <Route
+            path="/categories"
+            element={can('admin') ? <CategoriesPage /> : <Navigate to="/" replace />}
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </ErrorBoundary>
     </AppShell>
   )
 }
