@@ -24,9 +24,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The tag being deployed has to pass the same checks a pull request does.
+  # Without this, `git tag v1.2.3 && git push --tags` ships whatever is on that
+  # commit — and a tag is exactly the moment somebody is in a hurry.
+  verify:
+    name: Verify the tag
+    uses: ./.github/workflows/ci.yml
+
   build:
     name: Build release bundle
     runs-on: ubuntu-latest
+    needs: verify
     steps:
       - uses: actions/checkout@v4
 
@@ -76,10 +84,12 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
 
-      # The database and the media store live outside the release directory and
-      # are never touched here, so a bad release is rolled back by pointing the
-      # symlink at the previous one — no restore required.
-      - name: Ship and switch
+      # The database and the media store live outside the release directory, so
+      # a bad release is rolled back by pointing the symlink at the previous
+      # one. That is only true while migrations stay additive — see
+      # MAINTENANCE.md. A destructive migration breaks rollback, which is why
+      # the backup below is taken before anything runs and not after.
+      - name: Ship, back up, migrate, switch
         env:
           HOST: ${{ vars.DEPLOY_HOST }}
           USER: ${{ vars.DEPLOY_USER }}
@@ -90,20 +100,81 @@ jobs:
           scp "$BUNDLE" "$USER@$HOST:/tmp/$BUNDLE"
           ssh "$USER@$HOST" bash -euo pipefail <<EOF
             RELEASE_DIR="$PATH_ON_HOST/releases/$RELEASE"
+            SHARED="$PATH_ON_HOST/shared"
+
+            # What the symlink points at right now, recorded before it moves.
+            # This is what the rollback step below returns to, and reading it
+            # afterwards would read the release that just failed.
+            PREVIOUS=\$(readlink -f "$PATH_ON_HOST/current" || true)
+            echo "\$PREVIOUS" > /tmp/reticle-previous-release
+
             mkdir -p "\$RELEASE_DIR"
             tar -xzf "/tmp/$BUNDLE" -C "\$RELEASE_DIR"
             rm "/tmp/$BUNDLE"
 
             python3 -m venv "\$RELEASE_DIR/venv"
             "\$RELEASE_DIR/venv/bin/pip" install --quiet -r "\$RELEASE_DIR/backend/requirements.txt"
+            ln -sfn "\$SHARED/.env" "\$RELEASE_DIR/backend/.env"
 
-            ln -sfn "$PATH_ON_HOST/shared/.env" "\$RELEASE_DIR/backend/.env"
+            # Back up before migrating, every time, without exception. This is
+            # the step that makes every other step reversible, and it runs
+            # while the old code is still serving.
+            mkdir -p "\$SHARED/backups"
+            STAMP=\$(date -u +%Y%m%dT%H%M%SZ)
+            cd "\$RELEASE_DIR/backend"
+            ./../venv/bin/python -m app.portability export \
+              --archive "\$SHARED/backups/pre-$RELEASE-\$STAMP.tar.gz"
+
+            # Migrations run explicitly, before the new code serves traffic,
+            # rather than being left to startup. A failure here has to stop the
+            # deploy while the old release is still the live one.
+            "\$RELEASE_DIR/venv/bin/alembic" upgrade head
+
             ln -sfn "\$RELEASE_DIR" "$PATH_ON_HOST/current"
-
             sudo systemctl restart reticle
-            sleep 3
-            curl -sf http://127.0.0.1:8000/api/health
+
+            # Readiness, not liveness. The process answers /api/health before
+            # it can reach the database, so waiting on that would call a
+            # release good while it is still broken.
+            for attempt in \$(seq 1 30); do
+              if curl -sf http://127.0.0.1:8000/api/ready >/dev/null; then
+                echo "ready after \$attempt attempts"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "the new release never became ready" >&2
+            exit 1
           EOF
 
-      - name: Verify the site answers
-        run: curl -sf "https://${{ vars.DEPLOY_HOST }}/api/health"
+      - name: Verify the public site answers
+        run: |
+          curl -sf "https://${{ vars.DEPLOY_HOST }}/api/ready"
+          curl -sf "https://${{ vars.DEPLOY_HOST }}/api/health"
+
+      # Only on failure, and only back to the release that was live before this
+      # run. An automatic rollback is safe here precisely because the database
+      # was backed up first and migrations are additive: the previous code can
+      # read the new schema.
+      - name: Roll back
+        if: failure()
+        env:
+          HOST: ${{ vars.DEPLOY_HOST }}
+          USER: ${{ vars.DEPLOY_USER }}
+          PATH_ON_HOST: ${{ vars.DEPLOY_PATH }}
+        run: |
+          ssh "$USER@$HOST" bash -euo pipefail <<EOF
+            PREVIOUS=\$(cat /tmp/reticle-previous-release 2>/dev/null || true)
+            if [ -z "\$PREVIOUS" ] || [ ! -d "\$PREVIOUS" ]; then
+              echo "no previous release recorded; leaving the server as it is" >&2
+              exit 1
+            fi
+            ln -sfn "\$PREVIOUS" "$PATH_ON_HOST/current"
+            sudo systemctl restart reticle
+            for attempt in \$(seq 1 30); do
+              curl -sf http://127.0.0.1:8000/api/ready >/dev/null && exit 0
+              sleep 2
+            done
+            echo "rolled back and it is still not ready - this needs a person" >&2
+            exit 1
+          EOF
