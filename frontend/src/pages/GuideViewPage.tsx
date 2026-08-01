@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router-dom'
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { BulletList } from '../components/BulletList'
+import { SectionNav } from '../components/SectionNav'
 import { StepGallery } from '../components/StepGallery'
 import { IconEdit, IconPrint } from '../components/icons'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
@@ -40,7 +41,14 @@ export function GuideViewPage() {
   const { data, error, loading } = useAsync(
     async () => {
       const [guide, categories] = await Promise.all([api.getGuide(slug), api.listCategories()])
-      return { guide, categories }
+      /* The rest of the section, for the list beside the guide. Asked for after
+         the guide rather than alongside it, because the category is not known
+         until the guide arrives. */
+      const [siblings, pages] = await Promise.all([
+        api.listGuides({ categoryId: guide.categoryId }),
+        api.listPages({ categoryId: guide.categoryId }),
+      ])
+      return { guide, categories, siblings, pages }
     },
     [api, slug],
   )
@@ -49,7 +57,7 @@ export function GuideViewPage() {
   if (error) return <ErrorAlert error={error} />
   if (!data) return <EmptyState>That guide does not exist.</EmptyState>
 
-  const { guide, categories } = data
+  const { guide, categories, siblings, pages } = data
   const category = categories.find((candidate) => candidate.id === guide.categoryId)
 
   /**
@@ -60,7 +68,15 @@ export function GuideViewPage() {
   const otherContributors = guide.contributors.filter((person) => person.id !== guide.author.id)
 
   return (
-    <article className="guide">
+    <div className="with-sidebar">
+      <SectionNav
+        section={category ? { name: category.name, slug: category.slug } : null}
+        pages={pages}
+        guides={siblings}
+        currentId={guide.id}
+      />
+
+      <article className="guide">
       <nav className="breadcrumb">
         <Link to="/">Guides</Link>
         {category && (
@@ -171,6 +187,7 @@ export function GuideViewPage() {
           </div>
         </section>
       )}
-    </article>
+      </article>
+    </div>
   )
 }

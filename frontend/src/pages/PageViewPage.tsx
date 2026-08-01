@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useApi, useAuth } from '../auth/AuthContext'
 import { IconEdit, IconPrint } from '../components/icons'
 import { MarkdownBody } from '../components/MarkdownBody'
+import { SectionNav } from '../components/SectionNav'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
 import { useAsync } from '../hooks/useAsync'
 
@@ -16,7 +17,17 @@ export function PageViewPage() {
     async () => {
       const page = await api.getPage(slug)
       const categories = await api.listCategories()
-      return { page, categories }
+      /* A standalone article belongs to no section, so there is nothing to list
+         beside it — asking for every guide in the institute to discover that is
+         not a trade worth making. */
+      const [siblings, pages] =
+        page.categoryId === null
+          ? [[], []]
+          : await Promise.all([
+              api.listGuides({ categoryId: page.categoryId }),
+              api.listPages({ categoryId: page.categoryId }),
+            ])
+      return { page, categories, siblings, pages }
     },
     [api, slug],
   )
@@ -25,12 +36,20 @@ export function PageViewPage() {
   if (error) return <ErrorAlert error={error} />
   if (!data) return <EmptyState>That page does not exist.</EmptyState>
 
-  const { page, categories } = data
+  const { page, categories, siblings, pages } = data
   const category = categories.find((candidate) => candidate.id === page.categoryId)
   const otherContributors = page.contributors.filter((person) => person.id !== page.author.id)
 
   return (
-    <article className="guide">
+    <div className="with-sidebar">
+      <SectionNav
+        section={category ? { name: category.name, slug: category.slug } : null}
+        pages={pages}
+        guides={siblings}
+        currentId={page.id}
+      />
+
+      <article className="guide">
       <nav className="breadcrumb">
         <Link to="/">Guides</Link>
         <span className="breadcrumb__sep">/</span>
@@ -112,6 +131,7 @@ export function PageViewPage() {
       )}
 
       <MarkdownBody body={page.body} />
-    </article>
+      </article>
+    </div>
   )
 }

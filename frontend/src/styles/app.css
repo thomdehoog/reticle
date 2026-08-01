@@ -18,6 +18,8 @@
   --brand-600: #1450ad;
   --brand-100: #dce7fa;
   --brand-050: #eef3fd;
+  --tag-ink: #0a2f6f;
+  --tag-surface: #eef3fd;
 
   --ink-900: #10151c;
   --ink-700: #2c3644;
@@ -55,6 +57,91 @@
 
   --header-height: 56px;
   --content-max: 1180px;
+}
+
+/*
+ * A dark theme, because of where this is read.
+ *
+ * A live-cell room is kept dark and a superresolution room is darker still.
+ * Somebody standing at the eyepiece with a procedure open on the bench monitor
+ * is dark-adapted, and a full-page white background at that moment is not a
+ * matter of taste — it costs them the adaptation they need to see the sample.
+ * So the palette follows the machine's own setting rather than asking.
+ *
+ * The bullet colours are lifted rather than reused: the light-mode values are
+ * chosen for contrast against white and several of them (the black bullet
+ * above all) are unreadable on a dark surface. Their *identity* has to survive
+ * the change, because a red bullet is paired with a red shape on the picture
+ * beside it, so each one moves to the lightest version of itself that still
+ * reads as that colour.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --brand-900: #071a33;
+    --brand-800: #0d2c56;
+    --brand-700: #6ea8ff;
+    --brand-600: #4a8cf0;
+    --brand-100: #23334f;
+    --brand-050: #111c30;
+    /* A tag is a pale mark on a dark chip here. Reusing the brand ramp put dark
+       ink on a dark wash, because both ends of it move together when inverted. */
+    --tag-ink: #b9d2ff;
+    --tag-surface: #1a2740;
+
+    --ink-900: #e8edf5;
+    --ink-700: #c3ccda;
+    --ink-500: #98a3b4;
+    --ink-400: #7b8695;
+    --surface: #0d1117;
+    --surface-sunken: #090d13;
+    --surface-raised: #151b24;
+    --border: #262e3a;
+    --border-strong: #38414f;
+
+    --danger-700: #ff9a9f;
+    --danger-600: #f2555f;
+    --danger-050: #2a1216;
+    --success-600: #4ac06a;
+    --success-050: #10261a;
+    --warning-600: #e0b341;
+    --warning-050: #2a2110;
+
+    --bullet-black: #cdd5e0;
+    --bullet-red: #ff7b82;
+    --bullet-orange: #f0913f;
+    --bullet-yellow: #e0b341;
+    --bullet-green: #4ac06a;
+    --bullet-light-blue: #3fc0d8;
+    --bullet-blue: #67a8ff;
+    --bullet-violet: #b98cff;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow: 0 2px 4px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+
+    color-scheme: dark;
+  }
+}
+
+/* Paper is white whatever the screen was. */
+@media print {
+  :root {
+    --ink-900: #10151c;
+    --ink-700: #2c3644;
+    --ink-500: #5b6675;
+    --surface: #ffffff;
+    --surface-sunken: #ffffff;
+    --surface-raised: #ffffff;
+    --border: #dde3ec;
+    --bullet-black: #1f2328;
+    --bullet-red: #d1242f;
+    --bullet-orange: #bc4c00;
+    --bullet-yellow: #9a6700;
+    --bullet-green: #1a7f37;
+    --bullet-light-blue: #0e7490;
+    --bullet-blue: #0969da;
+    --bullet-violet: #8250df;
+  }
 }
 
 *,
@@ -278,8 +365,8 @@ a:hover {
   padding: 0.15rem 0.6rem;
   font-size: 0.8rem;
   font-weight: 550;
-  color: var(--brand-800);
-  background: var(--brand-050);
+  color: var(--tag-ink);
+  background: var(--tag-surface);
   border: 1px solid var(--brand-100);
   border-radius: 999px;
 }
@@ -2609,4 +2696,111 @@ a:hover {
   flex-direction: column;
   gap: 0.5rem;
   align-items: flex-start;
+}
+
+/* --------------------------------------------------------- section sidebar */
+
+.with-sidebar {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  gap: 2.25rem;
+  align-items: start;
+}
+
+.section-nav {
+  position: sticky;
+  top: calc(var(--header-height) + 1.25rem);
+  max-height: calc(100vh - var(--header-height) - 2.5rem);
+  padding-right: 0.4rem;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+
+.section-nav__head {
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-nav__section {
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--ink-900);
+}
+
+.section-nav__group {
+  margin: 0.9rem 0 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+
+.section-nav__list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.section-nav__item {
+  display: flex;
+  gap: 0.45rem;
+  align-items: baseline;
+  padding: 0.32rem 0.5rem;
+  font-size: 0.86rem;
+  line-height: 1.35;
+  color: var(--ink-700);
+  border-radius: var(--radius-sm);
+}
+
+.section-nav__item:hover {
+  color: var(--ink-900);
+  text-decoration: none;
+  background: var(--surface-sunken);
+}
+
+/* The one being read is marked rather than merely highlighted: on a list of
+   twenty procedures for one instrument, "where am I" is the question. */
+.section-nav__item--current {
+  font-weight: 650;
+  color: var(--brand-700);
+  background: var(--brand-050);
+}
+
+.section-nav__icon {
+  flex: 0 0 auto;
+  color: var(--ink-400);
+}
+
+.section-nav__item--current .section-nav__icon {
+  color: var(--brand-700);
+}
+
+/* Below the two-column threshold the sidebar goes above the content, where it
+   is a short list to scroll past rather than a column squeezed to nothing. */
+@media (max-width: 900px) {
+  .with-sidebar {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
+  }
+
+  .section-nav {
+    position: static;
+    max-height: none;
+    padding-right: 0;
+    padding-bottom: 0.75rem;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+@media print {
+  .with-sidebar {
+    display: block;
+  }
+
+  .section-nav {
+    display: none;
+  }
 }
