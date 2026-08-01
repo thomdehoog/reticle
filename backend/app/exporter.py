@@ -44,7 +44,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from . import images
 from .models import (
     Category,
     Guide,
@@ -65,6 +64,7 @@ from .schemas import (
     user_out,
 )
 from .settings import Settings
+from .storage import build_storage
 
 FORMAT_VERSION = 1
 """The export format's own version.
@@ -90,9 +90,11 @@ def media_entry(media: Media, settings: Settings) -> dict[str, Any]:
     corrupted media store shows up here rather than three years later.
     """
     entry = media_out(media).model_dump(mode="json", by_alias=True)
-    path = images.resolve_file(settings.media_root, media.storage_path)
-    payload = path.read_bytes()
-    extension = path.suffix.lstrip(".")
+    # Through the storage interface rather than the filesystem, so an export
+    # keeps working when the files live in a bucket. The extension comes from
+    # the stored path rather than from a real file for the same reason.
+    payload = build_storage(settings).read(media.storage_path)
+    extension = media.storage_path.rpartition(".")[2]
 
     entry.update(
         {
@@ -224,8 +226,7 @@ def stream_archive(db: DbSession, settings: Settings) -> Iterator[bytes]:
             media = db.get(Media, entry["id"])
             if media is None:  # pragma: no cover - the document was just built from these
                 continue
-            path = images.resolve_file(settings.media_root, media.storage_path)
-            archive.add(path, arcname=entry["file"])
+            _add_to_archive(archive, build_storage(settings), media, entry["file"])
             chunk = buffer.take()
             if chunk:
                 yield chunk
@@ -233,6 +234,26 @@ def stream_archive(db: DbSession, settings: Settings) -> Iterator[bytes]:
     remainder = buffer.take()
     if remainder:
         yield remainder
+
+
+def _add_to_archive(archive: tarfile.TarFile, store, media: Media, arcname: str) -> None:
+    """Add one file, preferring a path over bytes when the backend has one.
+
+    The distinction is not cosmetic. ``TarFile.add`` streams from disk, so a
+    local export never holds a file in memory; the remote branch has to read
+    the object first, and on a corpus of several gigabytes that difference is
+    the whole reason the export is streamed at all. Local installations — which
+    is every installation today — keep the streaming path.
+    """
+    path = store.local_path(media.storage_path)
+    if path is not None:
+        archive.add(path, arcname=arcname)
+        return
+
+    payload = store.read(media.storage_path)
+    info = tarfile.TarInfo(arcname)
+    info.size = len(payload)
+    archive.addfile(info, io.BytesIO(payload))
 
 
 class _StreamBuffer(io.RawIOBase):
@@ -281,7 +302,8 @@ def write_to_directory(db: DbSession, settings: Settings, destination: Path) -> 
         media = db.get(Media, entry["id"])
         if media is None:  # pragma: no cover
             continue
-        source = images.resolve_file(settings.media_root, media.storage_path)
-        (destination / entry["file"]).write_bytes(source.read_bytes())
+        (destination / entry["file"]).write_bytes(
+            build_storage(settings).read(media.storage_path)
+        )
 
     return document

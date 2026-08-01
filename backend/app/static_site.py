@@ -32,7 +32,6 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 from __future__ import annotations
 
 import html
-import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,10 +39,10 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from . import images
 from .models import Category, Guide, Media, Page
 from .schemas import guide_out, page_out
 from .settings import Settings
+from .storage import build_storage
 
 PUBLISHED = "published"
 
@@ -319,9 +318,12 @@ def publish(db: DbSession, settings: Settings, destination: Path) -> SiteReport:
         media = db.get(Media, media_id)
         if media is None:
             continue
-        source = images.resolve_file(settings.media_root, media.storage_path)
-        filename = f"{media.id}{source.suffix}"
-        shutil.copyfile(source, destination / "media" / filename)
+        payload = build_storage(settings).read(media.storage_path)
+        # The extension comes from the stored path rather than from a file on
+        # disk, because with a remote backend there is no file on disk.
+        extension = media.storage_path.rpartition(".")[2]
+        filename = f"{media.id}.{extension}" if extension else media.id
+        (destination / "media" / filename).write_bytes(payload)
         filenames[media.id] = filename
         report.media += 1
 
