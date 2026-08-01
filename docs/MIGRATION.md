@@ -207,6 +207,32 @@ simply be repeated.
 
 ---
 
+## Proving the content is faithful
+
+Counting catches a run that lost half a corpus. It does not catch one where a
+step arrived with the right number of bullets and different words in them, and
+it does not catch content that is here and was never there.
+
+```powershell
+python -m app.importer.run --base-url https://zmb.dozuki.com --verify --report fidelity.txt
+```
+
+That re-fetches every imported guide, maps it again, and compares it with what
+Reticle stores — field by field, bullet by bullet, shape by shape. It separates
+two failures, and the distinction is the point:
+
+- **Differs from the source** — a value lost or altered on the way in.
+- **Content with no source** — an extra bullet, an extra step, a summary where
+  the original was blank, a tag nobody applied. Nothing in this importer writes
+  prose, so anything here is either a defect or an edit somebody made after the
+  import. **This is the check against invented content**, and it exits `5` if
+  there is any.
+
+The rule it enforces is worth stating plainly, because the pressure to break it
+is real when a source guide is thin: **never improve, reword, summarise,
+translate or complete imported content.** A guide that reads better than its
+original is a guide somebody will follow believing ZMB wrote it.
+
 ## Checklist for the verification step
 
 Run these in order and report the results.

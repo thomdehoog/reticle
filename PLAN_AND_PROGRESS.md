@@ -126,6 +126,7 @@ reticle/
 ├── docs/MAINTENANCE.md  backups, restores, people, troubleshooting
 ├── docs/MIGRATION.md    the importer, the mapping, and the verification checklist
 ├── docs/EXPORT.md       the export format, for whoever moves the data on next
+├── docs/NEXT_SESSION.md the brief for the session that has the live site
 ├── frontend/            React 19 + TypeScript + Vite
 └── backend/             FastAPI + SQLAlchemy + SQLite
     └── app/importer/    the migration tool; nothing in app imports it
@@ -214,20 +215,32 @@ Decisions worth not re-litigating:
 
 ## What is left
 
-1. **Feature parity sweep against the live site** (step 2 above). Needs the
-   network. Checklist in `docs/MIGRATION.md`.
-2. **The migration run and content review** (step 3 above). ⚠️ **Export before
-   the subscription lapses** — the API dies with it and the contract contains no
-   obligation to hand the data back afterwards.
-3. **Confirm the three flag colours.** The vendor encodes flag and colour in one
+**`docs/NEXT_SESSION.md` is the brief.** It covers all of the below in the order
+they have to happen, with what to report back.
+
+1. **Check the API against reality.** The whole mapping was written without ever
+   seeing a response; every table in it is a hypothesis until a real payload
+   agrees. Record real payloads as fixtures.
+2. **Feature parity sweep against the live site.** Capabilities, never
+   appearance. Checklist in `docs/MIGRATION.md`.
+3. **The migration run, and proving the content is faithful.** ⚠️ **Export
+   before the subscription lapses** — the API dies with it and the contract
+   contains no obligation to hand the data back afterwards.
+   `--verify` re-fetches every imported guide and diffs it against what is
+   stored, reporting drift and — separately — content that has no source at all.
+   Nothing in this pipeline writes prose, and that check is how it stays true.
+4. **Author ten real guides by hand in the CMS**, keep a friction log, and
+   answer whether it is good enough to write 257 guides in. Then fix the top of
+   the list. That last part is the deliverable, not the log.
+5. **Confirm the three flag colours.** The vendor encodes flag and colour in one
    field; Reticle keeps them apart. The colours the flags map to are the
    conventional renderings and are the one part of the mapping written without
    being able to see the site.
-4. **UZH SSO** (#18) — ZMB uses ADFS SAML and email login is disabled, so staff
+6. **UZH SSO** (#18) — ZMB uses ADFS SAML and email login is disabled, so staff
    have never typed a password here. Keep local login for break-glass access.
    Deliberately not attempted: it cannot be tested without the ADFS metadata,
    and an untested authentication path is worse than an absent one.
-5. **Hidden holding categories after import.** The importer marks imported
+7. **Hidden holding categories after import.** The importer marks imported
    categories visible; which of them are really holding pens is a judgement made
    from the report, in the admin screen, not guessed from a name.
 

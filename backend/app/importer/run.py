@@ -672,6 +672,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-media", action="store_true", help="Text only. For a fast rehearsal.")
     parser.add_argument("--pages-only", action="store_true", help="Import wiki pages and nothing else.")
     parser.add_argument("--guides-only", action="store_true", help="Import guides and nothing else.")
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Do not import. Re-read every guide already imported and compare it with the "
+        "source, field by field, reporting anything that differs and anything here that the "
+        "source does not have.",
+    )
     parser.add_argument("--report", type=Path, default=None, help="Write the text report here.")
     parser.add_argument("--json-report", type=Path, default=None, help="Write the JSON report here.")
     return parser
@@ -696,7 +703,21 @@ def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
     db = SessionLocal()
     try:
-        importer = Importer(db, DozukiClient(options.base_url, options.token), options, settings)
+        client = DozukiClient(options.base_url, options.token)
+
+        if args.verify:
+            from .verify import verify
+
+            verification = verify(db, client, limit=options.limit)
+            text = verification.to_text()
+            print(text)
+            if options.report_path is not None:
+                options.report_path.write_text(text, encoding="utf-8")
+            if options.json_report_path is not None:
+                options.json_report_path.write_text(verification.to_json(), encoding="utf-8")
+            return 0 if verification.faithful else 5
+
+        importer = Importer(db, client, options, settings)
         if not args.pages_only:
             importer.import_guides()
         if not args.guides_only:
