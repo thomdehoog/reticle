@@ -99,6 +99,11 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      # Formatting is checked rather than applied, so a badly-formatted commit
+      # fails here instead of turning up as noise in somebody else's diff.
+      - name: Formatting
+        run: ruff format --check .
+
       - name: Tests with coverage
         run: pytest --cov=app --cov-report=term-missing --cov-fail-under=85
 
