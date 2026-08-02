@@ -141,6 +141,56 @@ describe('CategoryPage', () => {
     ).not.toBeInTheDocument()
   })
 
+  /**
+   * The prose on a parent's landing page is not a duplicate of anything — it is
+   * where ZMB says you need an introduction on a system before you can book it,
+   * and it exists nowhere else. Only the lists are repeated at the level below,
+   * so only the lists come out, together with the headings that introduced
+   * them.
+   */
+  it('shows a parent category’s prose without the guide lists inside it', async () => {
+    const server = createFakeServer({
+      categories: [
+        categoryFixture(),
+        categoryFixture({
+          id: 'c-confocal',
+          slug: 'confocal',
+          name: 'Confocal',
+          parentId: 'c-light',
+          orderIndex: 0,
+        }),
+      ],
+      guides: [
+        guideFixture({
+          id: 'g-child',
+          slug: 'stellaris-startup',
+          title: 'Stellaris startup',
+          categoryId: 'c-confocal',
+          status: 'published',
+          tags: ['stellaris'],
+        }),
+      ],
+      pages: [
+        pageFixture({
+          id: 'w-light-landing',
+          categoryId: 'c-light',
+          isLanding: true,
+          status: 'published',
+          title: 'Light Microscopy',
+          body: 'Bring your sample to the introduction.\n\n## Starting up\n\n```guidelist\ntags: stellaris\nheading: Stellaris\n```',
+        }),
+      ],
+    })
+    renderCategory(server)
+
+    expect(await screen.findByText('Bring your sample to the introduction.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Confocal$/ })).toHaveAttribute('href', '/c/confocal')
+
+    expect(screen.queryByRole('heading', { name: 'Stellaris' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Starting up' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Stellaris startup/ })).not.toBeInTheDocument()
+  })
+
   it('sends an author to the editor for the landing page that already exists', async () => {
     const server = createFakeServer({
       pages: [
@@ -234,5 +284,25 @@ describe('CategoryPage', () => {
       expect(screen.getByRole('heading', { name: 'Tag-only guides' })).toBeInTheDocument(),
     )
     expect(screen.getByRole('link', { name: /LAS X basics/ })).toBeInTheDocument()
+  })
+
+  /**
+   * An empty category is kept off the browse surfaces, not taken away. Its URL
+   * is what an author follows out of the admin screen or out of the category
+   * picker to put the first guide in it, so it opens, it says it is empty, and
+   * it offers the page nobody has written yet.
+   */
+  it('still opens a category with nothing in it, and offers to fill it', async () => {
+    const server = createFakeServer({
+      categories: [categoryFixture({ id: 'c-cryo', slug: 'cryoem', name: 'CryoEM' })],
+      guides: [],
+    })
+    renderCategory(server, 'cryoem')
+
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'CryoEM' })).toBeInTheDocument(),
+    )
+    expect(screen.getByText('No guides in this section yet.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Write a landing page/ })).toBeInTheDocument()
   })
 })
