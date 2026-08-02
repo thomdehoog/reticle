@@ -20,13 +20,18 @@ function renderHome(server: ReturnType<typeof createFakeServer>) {
 }
 
 describe('HomePage', () => {
+  /* Both hold a published guide, so the only thing keeping the holding
+     category off the front page is that it is a holding category. */
   it('keeps holding categories out of the browse tree', async () => {
     const server = createFakeServer({
       categories: [
         categoryFixture({ id: 'c-light', name: 'Light Microscopy' }),
         categoryFixture({ id: 'c-holding', slug: 'holding', name: 'Tag-only', isHidden: true }),
       ],
-      guides: [],
+      guides: [
+        guideFixture({ id: 'g1', categoryId: 'c-light', status: 'published' }),
+        guideFixture({ id: 'g2', slug: 'las-x', categoryId: 'c-holding', status: 'published' }),
+      ],
     })
     renderHome(server)
 
@@ -51,8 +56,9 @@ describe('HomePage', () => {
 
   /**
    * A viewer used to download every draft in the institute so the front page
-   * could put a number on eight cards. Now the only listing anybody asks for is
-   * the handful of quick links.
+   * could put a number on eight cards. What it asks for now is the published
+   * guides — which is what decides whether a tile leads anywhere — and the
+   * quick links. Neither can contain somebody's half-written work.
    */
   it('does not pull the editorial pipeline down to a reader', async () => {
     const server = createFakeServer({ user: VIEWER, guides: [] })
@@ -60,9 +66,15 @@ describe('HomePage', () => {
 
     await screen.findByRole('heading', { name: 'Guides' })
 
-    const listings = server.requests.filter((request) => request.path.startsWith('/guides'))
-    expect(listings).toHaveLength(1)
-    expect(listings[0].path).toBe('/guides?quickLink=true')
+    const listings = server.requests
+      .filter((request) => request.path.startsWith('/guides') || request.path.startsWith('/pages'))
+      .map((request) => request.path)
+      .sort()
+    expect(listings).toEqual([
+      '/guides?quickLink=true',
+      '/guides?status=published',
+      '/pages?status=published',
+    ])
   })
 
   /* The procedures people arrive asking for, which no category name would have

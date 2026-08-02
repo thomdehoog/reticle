@@ -15,9 +15,13 @@
  *
  * That is the mechanism ZMB's category pages are built from — guides live in
  * holding categories and surface wherever a page asks for their tag.
+ *
+ * The same page is shown in two places, and one of them wants the prose without
+ * the lists: see `hideGuideLists`.
  */
 
 import { Children, isValidElement, useMemo } from 'react'
+import type { Root, RootContent } from 'mdast'
 import ReactMarkdown from 'react-markdown'
 import { Link } from 'react-router'
 import remarkGfm from 'remark-gfm'
@@ -29,6 +33,57 @@ import { EmptyState, ErrorAlert } from './ui'
 
 /** The fence language that marks a guide-list block. */
 const GUIDE_LIST_LANGUAGE = 'language-guidelist'
+
+/** The same fence as the parser sees it, before it becomes a class name. */
+const GUIDE_LIST_FENCE = 'guidelist'
+
+function isGuideList(node: RootContent | undefined): boolean {
+  return node?.type === 'code' && node.lang === GUIDE_LIST_FENCE
+}
+
+/**
+ * Whether everything a heading covers is guide lists, and there is at least
+ * one. A heading nobody has written under yet is somebody's work in progress
+ * and stays.
+ */
+function holdsOnlyGuideLists(nodes: RootContent[], from: number, depth: number): boolean {
+  let found = false
+  for (let index = from; index < nodes.length; index += 1) {
+    const node = nodes[index]
+    if (node.type === 'heading') {
+      if (node.depth <= depth) break
+      if (!holdsOnlyGuideLists(nodes, index + 1, node.depth)) return false
+      continue
+    }
+    if (!isGuideList(node)) return false
+    found = true
+  }
+  return found
+}
+
+/**
+ * Drops the guide lists, and the headings whose only content they were.
+ *
+ * A list arrives with a heading over it — "Starting up" written above the
+ * block, and the block's own `heading:` written inside it — so removing the
+ * list alone leaves a heading with nothing under it, which reads as a page that
+ * failed to load. The heading goes with its list on purpose: if you are here
+ * because a heading went missing from a category page, that heading belonged to
+ * a list this page is not showing, and putting it back is not the fix.
+ *
+ * It works on the parsed document rather than on the markdown text. A regular
+ * expression over what an author wrote eventually eats a code sample that
+ * merely mentions the word.
+ */
+function remarkWithoutGuideLists() {
+  return (tree: Root) => {
+    tree.children = tree.children.filter(
+      (node, index) =>
+        !isGuideList(node) &&
+        !(node.type === 'heading' && holdsOnlyGuideLists(tree.children, index + 1, node.depth)),
+    )
+  }
+}
 
 export interface GuideListSpec {
   tags: string[]
@@ -150,11 +205,25 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
   return <img src={src} alt={alt ?? ''} loading="lazy" />
 }
 
-export function MarkdownBody({ body, wide = false }: { body: string; wide?: boolean }) {
+/**
+ * `hideGuideLists` shows the page's prose without its embedded listings, which
+ * is what a category with sub-categories underneath it wants: the lists belong
+ * to the level below, but the prose above them — at ZMB, what you have to do
+ * before your first session — exists nowhere else.
+ */
+export function MarkdownBody({
+  body,
+  wide = false,
+  hideGuideLists = false,
+}: {
+  body: string
+  wide?: boolean
+  hideGuideLists?: boolean
+}) {
   return (
     <div className={`markdown${wide ? ' markdown--wide' : ''}`}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={hideGuideLists ? [remarkGfm, remarkWithoutGuideLists] : [remarkGfm]}
         components={{
           a: MarkdownLink,
           img: MarkdownImage,

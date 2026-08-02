@@ -27,18 +27,21 @@ export function HomePage() {
   const authorId = can('author') ? (user?.id ?? null) : null
 
   /**
-   * The drafts query is scoped to one author and only runs for somebody who can
-   * write. One listing of every guide in the institute would send a viewer the
-   * whole editorial pipeline — drafts and other people's in-review work
-   * included — for a screen that shows neither.
+   * Narrow listings rather than one broad one. The published ones are what says
+   * whether a tile leads anywhere, and the drafts query is scoped to one author
+   * and only runs for somebody who can write: one listing of every guide in the
+   * institute would send a viewer the whole editorial pipeline — drafts and
+   * other people's in-review work included — for a screen that shows neither.
    */
   const { data, error, loading } = useAsync(
     async () => {
-      const [categories, mine] = await Promise.all([
+      const [categories, publishedGuides, publishedPages, mine] = await Promise.all([
         api.listCategories(),
+        api.listGuides({ status: 'published' }),
+        api.listPages({ status: 'published' }),
         authorId === null ? Promise.resolve([]) : api.listGuides({ authorId }),
       ])
-      return { categories, mine }
+      return { categories, publishedGuides, publishedPages, mine }
     },
     [api, authorId],
   )
@@ -47,7 +50,9 @@ export function HomePage() {
   if (error) return <ErrorAlert error={error} />
   if (!data) return null
 
-  const roots = buildCategoryTree(browsableCategories(data.categories))
+  const roots = buildCategoryTree(
+    browsableCategories(data.categories, data.publishedGuides, data.publishedPages),
+  )
   const myDrafts = data.mine.filter((guide) => guide.status !== 'published')
 
   return (

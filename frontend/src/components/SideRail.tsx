@@ -24,7 +24,7 @@ import { Link, NavLink, useLocation } from 'react-router'
 
 import { useAuth } from '../auth/AuthContext'
 import type { Category } from '../domain/types'
-import { browsableCategories, useCategories } from '../hooks/useCategories'
+import { useBrowsableCategories } from '../hooks/useCategories'
 import { IconBook, IconHome, IconTag, ReticleMark } from './icons'
 
 /** The places listed under the heading, and what the heading calls them. */
@@ -49,9 +49,13 @@ function byOrder(categories: Category[]): Category[] {
  * and inside a sub-category its siblings — which is the list somebody comparing
  * two instruments actually wants. A category with nothing under it has no level
  * of its own to show, so it falls back to the front's list with itself marked.
+ *
+ * It is given the browsable categories rather than all of them, and the rule
+ * that makes them browsable is `browsableCategories`. The rail has to offer the
+ * same places the tiles do: a category the front page has hidden, listed here,
+ * is the dead end back again with a shorter name.
  */
-export function railPlaces(all: Category[], slug: string | null): Places {
-  const browsable = browsableCategories(all)
+export function railPlaces(browsable: Category[], slug: string | null): Places {
   const current = slug === null ? undefined : browsable.find((c) => c.slug === slug)
   const childrenOf = (id: string) => byOrder(browsable.filter((c) => c.parentId === id))
 
@@ -89,8 +93,8 @@ function categorySlug(pathname: string): string | null {
  */
 export function RailPlaces() {
   const { pathname } = useLocation()
-  const { data: categories } = useCategories()
-  const { heading, places, currentId } = railPlaces(categories ?? [], categorySlug(pathname))
+  const { data: browsable } = useBrowsableCategories()
+  const { heading, places, currentId } = railPlaces(browsable ?? [], categorySlug(pathname))
 
   if (places.length === 0) return null
 

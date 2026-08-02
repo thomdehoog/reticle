@@ -81,9 +81,10 @@ def is_valid_id(value: str) -> bool:
 def clip(value: str | None, length: int) -> str | None:
     """Hold a string to its column width at the boundary, not at each caller.
 
-    SQLite ignores a declared ``VARCHAR`` length, so an over-long value inserts
-    happily in development and raises on PostgreSQL in production — which is the
-    worst possible place to find out. Truncating here means the guarantee holds
+    PostgreSQL enforces a declared ``VARCHAR`` length by refusing the row, and
+    the values that overflow one arrive from outside — an imported title, a
+    pasted slug — so the failure would land on whoever ran the import rather
+    than on whoever wrote the column. Truncating here means the guarantee holds
     for every writer, including the ones that do not exist yet.
     """
     if value is None:
@@ -446,7 +447,6 @@ class Page(Base):
             "uq_page_landing_per_category",
             "category_id",
             unique=True,
-            sqlite_where=text("is_landing = 1"),
             postgresql_where=text("is_landing"),
         ),
     )

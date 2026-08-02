@@ -8,19 +8,16 @@ writing, and closes it at the end; ``get_db`` is what hands one to an endpoint
 and guarantees it is closed however the request ends.
 
 The **column types** are two small adapters used by nearly every table.
-``UtcDateTime`` makes sure every instant is stored and read back as UTC, because
-SQLite has no notion of a time zone and a value that comes back without one
+``UtcDateTime`` makes sure every instant is stored and read back as UTC: the
+column is a plain ``TIMESTAMP``, so a value that comes back without a zone
 silently compares unequal to the one that went in — and instants are what decide
 whether an editor's copy of a guide is stale. ``JsonDocument`` stores a whole
 published snapshot as text, so an old revision still reads correctly after the
 schema around it has changed.
 
-**Either database works.** A single facility runs on SQLite: one file its IT can
-back up, no server to operate, which for a handful of autosaves a minute is the
-right answer. A multi-facility installation runs PostgreSQL, one database per
-facility, because that is what separate hosts and real concurrency need. The
-suite runs against both, and the SQLite-specific settings below are the price of
-supporting the first.
+**The database is PostgreSQL**, one per facility, and nothing else. That is what
+``deploy/provision-facility.sh`` creates, what the suite runs against and what
+the settings below assume.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
@@ -33,7 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import DateTime, Engine, Text, TypeDecorator, create_engine, event
+from sqlalchemy import DateTime, Engine, Text, TypeDecorator, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .settings import get_settings
@@ -46,10 +43,11 @@ class Base(DeclarativeBase):
 class UtcDateTime(TypeDecorator):
     """Store naive UTC, hand back aware UTC.
 
-    SQLite has no timezone-aware type, so without this every value read back
-    would be naive and would silently compare unequal to ``datetime.now(utc)``.
-    Normalising at the column boundary means the rest of the application only
-    ever deals in aware UTC instants, which is also what the wire format needs.
+    The column is ``TIMESTAMP WITHOUT TIME ZONE``, so without this every value
+    read back would be naive and would silently compare unequal to
+    ``datetime.now(utc)``. Normalising at the column boundary means the rest of
+    the application only ever deals in aware UTC instants, which is also what
+    the wire format needs.
     """
 
     impl = DateTime
@@ -104,90 +102,19 @@ def escape_like(term: str) -> str:
 def build_engine(url: str) -> Engine:
     """Open the connection pool.
 
-    The two pool settings only apply to a real database server, and they are
-    the difference between a PostgreSQL restart being invisible and being an
-    outage. A pooled connection whose far end has gone away looks fine until it
-    is used; without ``pool_pre_ping`` every request that picks up a dead one
-    fails, and the readiness probe flaps, until the pool happens to churn.
-    ``pool_recycle`` covers the quieter version of the same thing - a firewall
-    or NAT that drops an idle connection without telling either side.
-
-    SQLite gets neither, because there is no server to lose. It gets
-    ``check_same_thread=False`` instead: the driver refuses cross-thread use by
-    default, and a threaded web server legitimately does exactly that.
+    Both pool settings are the difference between a PostgreSQL restart being
+    invisible and being an outage. A pooled connection whose far end has gone
+    away looks fine until it is used; without ``pool_pre_ping`` every request
+    that picks up a dead one fails, and the readiness probe flaps, until the
+    pool happens to churn. ``pool_recycle`` covers the quieter version of the
+    same thing - a firewall or NAT that drops an idle connection without telling
+    either side.
     """
-    if url.startswith("sqlite"):
-        return create_engine(url, connect_args={"check_same_thread": False}, future=True)
     return create_engine(url, future=True, pool_pre_ping=True, pool_recycle=1800)
 
 
 engine = build_engine(get_settings().database_url)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, future=True)
-
-
-@event.listens_for(Engine, "connect")
-def _configure_sqlite(dbapi_connection: Any, connection_record: Any) -> None:
-    """The three settings that decide whether SQLite behaves like a database.
-
-    All of them are per-connection or persistent defaults that SQLite gets wrong
-    for a server, and all three have to be set here because there is nowhere
-    else that every connection passes through.
-
-    **Foreign keys are off by default**, which would quietly turn every
-    ``ForeignKey`` and every ``ondelete="CASCADE"`` in ``models`` into
-    decoration: orphaned steps would accumulate under deleted guides and nothing
-    would say so.
-
-    **The default journal blocks readers against the writer.** In the rollback
-    journal a write takes the whole database, so an autosave — which the editor
-    performs every few seconds while somebody types — stalls every colleague
-    reading a guide at that moment. Write-ahead logging lets them proceed
-    concurrently, which is the difference between a system that feels responsive
-    at a bench and one that stutters whenever anybody is writing.
-
-    **Synchronous stays FULL**, rather than the NORMAL usually paired with WAL.
-    NORMAL trades a small window of durability on power loss for speed, and the
-    speed is worth nothing here: this is a few writes a minute, and the thing
-    being written is a safety procedure somebody is part-way through revising.
-
-    ⚠️ WAL does not work on a network filesystem. If the database is ever moved
-    onto an SMB or NFS share, this has to change and the move is a bad idea for
-    other reasons too.
-
-    The fourth thing here is not a pragma but belongs with them: SQLite's
-    built-in ``lower()`` only folds A–Z. See ``_unicode_lower``.
-    """
-    if not dbapi_connection.__class__.__module__.startswith("sqlite3"):
-        return
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA synchronous=FULL")
-    cursor.close()
-    dbapi_connection.create_function("lower", 1, _unicode_lower, deterministic=True)
-
-
-def _unicode_lower(value: Any) -> Any:
-    """Replace SQLite's ``lower()``, which stops at Z.
-
-    SQLite folds ASCII and leaves every other letter alone — ``lower('PRÄP')``
-    is ``'prÄp'`` — because full Unicode folding would drag ICU into a library
-    that fits on a microcontroller. Reasonable for SQLite; wrong here.
-
-    It matters because SQLAlchemy renders ``ilike`` on SQLite as
-    ``lower(a) LIKE lower(b)``, and every search in the application is an
-    ``ilike``. Against a German corpus that means searching *Präparation*,
-    *Färbung* or *Auflösung* in the case they appear in a title silently
-    returns nothing, and "no results" is indistinguishable from "not written
-    yet" — the reader goes and asks somebody instead.
-
-    Overriding the built-in is supported and applies to every use of ``lower``
-    on the connection. Python's ``str.lower`` is Unicode-aware, so the fix is
-    the whole implementation. On PostgreSQL none of this exists: ``ILIKE`` is
-    a real operator that folds by collation, and this function is never
-    registered.
-    """
-    return value.lower() if isinstance(value, str) else value
 
 
 def get_db() -> Iterator[Session]:

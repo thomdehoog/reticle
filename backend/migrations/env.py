@@ -48,17 +48,12 @@ def database_url() -> str:
     return override or get_settings().database_url
 
 
-# Both configurations share these. ``render_as_batch`` matters most: SQLite
-# cannot ALTER a column, so Alembic rebuilds the table instead. Without it the
-# first migration that alters a column fails at the least convenient possible
-# moment — on a facility's server, mid-deploy. PostgreSQL ignores it.
-#
-# The two ``compare_*`` flags only affect autogenerate, and they are on because
-# the alternative is autogenerate quietly omitting a changed column type and the
-# difference being discovered later by a query returning the wrong thing.
+# Both configurations share these. The two ``compare_*`` flags only affect
+# autogenerate, and they are on because the alternative is autogenerate quietly
+# omitting a changed column type and the difference being discovered later by a
+# query returning the wrong thing.
 OPTIONS = {
     "target_metadata": target_metadata,
-    "render_as_batch": True,
     "compare_type": True,
     "compare_server_default": True,
 }
@@ -82,10 +77,11 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     # ``init_db`` calls Alembic in-process and hands over the engine it already
-    # has. Honouring that matters for more than tidiness: an in-memory SQLite
-    # database exists only inside the connection that made it, so building a
-    # second engine here would migrate a different, empty database and leave
-    # the real one untouched.
+    # has. Honouring that matters for more than tidiness: the supplied engine
+    # may carry connection settings this module knows nothing about — the test
+    # suite pins each engine to a schema of its own that way — and building a
+    # second engine here would migrate a different database and leave the real
+    # one untouched.
     supplied = config.attributes.get("connection")
     if supplied is not None:
         with supplied.connect() as connection:

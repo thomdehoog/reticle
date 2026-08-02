@@ -1,18 +1,20 @@
 /**
  * One category, opened up.
  *
- * A category shows one thing, and which thing depends on where it sits in the
- * tree. With sub-categories under it, it shows those and the quick links, and
- * nothing else: the guides belong to the level below, and listing them here as
- * well is the same procedures twice, once under a heading nobody has chosen
- * yet. With nothing under it — a leaf, whether that is a sub-category or a
- * top-level category that never needed dividing — it is the bottom of the tree,
- * so it shows the guides.
+ * Which guides a category shows depends on where it sits in the tree. With
+ * sub-categories under it, it shows those and the quick links and no guides at
+ * all: the guides belong to the level below, and listing them here as well is
+ * the same procedures twice, once under a heading nobody has chosen yet. With
+ * nothing under it — a leaf, whether that is a sub-category or a top-level
+ * category that never needed dividing — it is the bottom of the tree, so it
+ * shows the guides.
  *
- * The landing page is the point of the leaf screen at ZMB. Their category pages
- * are prose with tag-gathered guide lists embedded in them — "Confocal
- * systems", then the guides carrying that tag — and a bare alphabetical list of
- * every guide in the category is exactly what that arrangement exists to avoid.
+ * The landing page is shown at both levels, because what is duplicated is the
+ * lists and not the writing around them. At ZMB a category page is prose with
+ * tag-gathered guide lists embedded in it — "Confocal systems", then the guides
+ * carrying that tag — and a bare alphabetical list of every guide in the
+ * category is exactly what that arrangement exists to avoid. On a parent the
+ * lists come out and the prose stays; on a leaf the page is the whole screen.
  * The plain list stays as the fallback, because a category nobody has written a
  * page for yet must still show its contents.
  */
@@ -41,14 +43,26 @@ export function CategoryPage() {
     async () => {
       const categories = await api.listCategories()
       const category = categories.find((candidate) => candidate.slug === slug) ?? null
-      if (!category) return { categories, category, guides: [], landing: null, pages: [] }
+      if (!category) {
+        return {
+          categories,
+          category,
+          guides: [],
+          landing: null,
+          pages: [],
+          publishedGuides: [],
+          publishedPages: [],
+        }
+      }
 
-      const [guides, landing, pages] = await Promise.all([
+      const [guides, landing, pages, publishedGuides, publishedPages] = await Promise.all([
         api.listGuides({ categoryId: category.id }),
         api.getCategoryLandingPage(category.id),
         api.listPages({ categoryId: category.id }),
+        api.listGuides({ status: 'published' }),
+        api.listPages({ status: 'published' }),
       ])
-      return { categories, category, guides, landing, pages }
+      return { categories, category, guides, landing, pages, publishedGuides, publishedPages }
     },
     [api, slug],
   )
@@ -59,7 +73,7 @@ export function CategoryPage() {
 
   const { category, categories, guides, landing, pages } = data
   const articles = pages.filter((page) => !page.isLanding)
-  const children = browsableCategories(categories)
+  const children = browsableCategories(categories, data.publishedGuides, data.publishedPages)
     .filter((candidate) => candidate.parentId === category.id)
     .sort((a, b) => a.orderIndex - b.orderIndex)
   const isLeaf = children.length === 0
@@ -91,8 +105,20 @@ export function CategoryPage() {
 
       <ErrorAlert error={createError} />
 
-      {/* No heading over them: a row of pictures directly under a section's own
-          name is not something a reader needs told is a list of sections. */}
+      {/* The page's own words come first, above the sections, because they are
+          what the reader has to know before opening one of them: at ZMB, that
+          you need an introduction on a system before you can book it. Below a
+          wall of tiles, on a phone, that sentence is under the fold.
+
+          On a section with sub-sections the guide lists inside the page are
+          suppressed, headings and all — the guides belong to the level below,
+          and listing them here as well is the same procedures twice. The prose
+          around them is not duplicated anywhere, which is why the page is
+          rendered rather than skipped. */}
+      {landing && <MarkdownBody body={landing.body} wide hideGuideLists={!isLeaf} />}
+
+      {/* No heading over them: a row of pictures under a section's own name is
+          not something a reader needs told is a list of sections. */}
       {!isLeaf && (
         <>
           <TileGrid>
@@ -103,12 +129,6 @@ export function CategoryPage() {
           <QuickLinks />
         </>
       )}
-
-      {/* A landing page lists its guides itself, grouped under the instrument
-          they belong to. Repeating all of them underneath it as one flat run is
-          the same guides a second time, which is what the landing page was
-          written to replace. Without one, this list is the section. */}
-      {isLeaf && landing && <MarkdownBody body={landing.body} wide />}
 
       {isLeaf && !landing && guides.length > 0 && (
         <section className="section">

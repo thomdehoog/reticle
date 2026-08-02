@@ -50,7 +50,16 @@ describe('CategoryPage', () => {
           orderIndex: 0,
         }),
       ],
-      guides: [guideFixture({ status: 'published', title: 'Confocal startup' })],
+      guides: [
+        guideFixture({ status: 'published', title: 'Confocal startup' }),
+        guideFixture({
+          id: 'g-child',
+          slug: 'stellaris-startup',
+          title: 'Stellaris startup',
+          categoryId: 'c-confocal',
+          status: 'published',
+        }),
+      ],
     })
     renderCategory(server)
 
@@ -166,6 +175,8 @@ describe('CategoryPage', () => {
     expect(created.title).toBe('Light Microscopy')
   })
 
+  /* Both sub-categories hold a published guide, so the hidden one is kept out
+     for being hidden and for no other reason. */
   it('keeps hidden sub-categories out of the browse tree', async () => {
     const server = createFakeServer({
       categories: [
@@ -182,6 +193,20 @@ describe('CategoryPage', () => {
           name: 'Tag-only guides',
           parentId: 'c-light',
           isHidden: true,
+        }),
+      ],
+      guides: [
+        guideFixture({
+          id: 'g-stellaris',
+          slug: 'stellaris-startup',
+          categoryId: 'c-stellaris',
+          status: 'published',
+        }),
+        guideFixture({
+          id: 'g-holding',
+          slug: 'las-x-basics',
+          categoryId: 'c-holding',
+          status: 'published',
         }),
       ],
     })

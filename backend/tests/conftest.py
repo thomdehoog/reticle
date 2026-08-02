@@ -1,10 +1,20 @@
 """Shared test harness for the Reticle backend.
 
-Every test gets a private in-memory database and a private media directory.
-That isolation is not cosmetic: the login throttle, the session table and the
-uploaded files are all persistent state, so sharing a database between tests
-would make the suite order-dependent and would let one test's failed logins
-lock another test out.
+**The suite runs against PostgreSQL, because the application does.** There is
+no second engine to fall back to, and that is deliberate: a lighter engine
+accepts things PostgreSQL rejects — a NUL byte in a text column, a string into
+an integer column, an aggregate over a column that is not grouped — so a green
+run against one of those would be evidence about it rather than about
+production. The server is ``DEFAULT_TEST_DATABASE_URL`` below, overridden by
+``RETICLE_TEST_DATABASE_URL`` where CI and a developer's own server differ. If
+it cannot be reached the run stops and says so; there is nothing useful to run
+without it.
+
+Every test gets a clean database and a private media directory. That isolation
+is not cosmetic: the login throttle, the session table and the uploaded files
+are all persistent state, so sharing a database between tests would make the
+suite order-dependent and would let one test's failed logins lock another test
+out.
 
 The environment is configured before ``app`` is imported because settings are
 read once and cached; the values here are deliberately weak (cheap Argon2
@@ -24,9 +34,30 @@ from datetime import datetime
 from io import BytesIO
 from typing import Any
 
+DEFAULT_TEST_DATABASE_URL = "postgresql+psycopg://reticle@/reticle_test?host=/var/tmp&port=55432"
+TEST_DATABASE_URL = os.environ.get("RETICLE_TEST_DATABASE_URL") or DEFAULT_TEST_DATABASE_URL
+
+UNREACHABLE = """\
+Cannot connect to the PostgreSQL server the suite needs.
+
+    URL: {url}
+    {error}
+
+Reticle runs on PostgreSQL only, so the suite does too. Start a server and
+point the suite at it:
+
+    docker run --rm -d -p 5432:5432 \\
+        -e POSTGRES_USER=reticle -e POSTGRES_PASSWORD=reticle \\
+        -e POSTGRES_DB=reticle_test postgres:16
+    export RETICLE_TEST_DATABASE_URL=postgresql+psycopg://reticle:reticle@localhost:5432/reticle_test
+
+The database is emptied at the start of the run, so give the suite one of its
+own rather than a database holding anything you want to keep.
+"""
+
 os.environ["RETICLE_ENV_FILE"] = ""
 os.environ["RETICLE_SECRET_KEY"] = "test-secret-key-do-not-use-in-production"
-os.environ["RETICLE_DATABASE_URL"] = "sqlite://"
+os.environ["RETICLE_DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["RETICLE_COOKIE_SECURE"] = "false"
 os.environ["RETICLE_ARGON2_TIME_COST"] = "1"
 os.environ["RETICLE_ARGON2_MEMORY_COST_KIB"] = "8"
@@ -41,9 +72,9 @@ os.environ["RETICLE_RATE_LIMIT_ENABLED"] = "false"
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
-from sqlalchemy import create_engine
+from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
 from app.main import app
@@ -109,34 +140,68 @@ def media_root(tmp_path, monkeypatch) -> Iterator[Any]:
     get_settings.cache_clear()
 
 
-@pytest.fixture()
-def db_session(media_root) -> Iterator[Session]:
-    """Bind the application to a throwaway in-memory database.
+def pytest_configure(config: Any) -> None:
+    """Stop the run, once and legibly, if the server is not there.
 
-    ``StaticPool`` keeps every connection pointed at the same in-memory
-    database; without it each pooled connection would silently get its own
-    empty schema and requests would see a different world than the fixtures.
-
-    Setting ``RETICLE_TEST_DATABASE_URL`` runs the whole suite against a real
-    server instead, which is how the PostgreSQL job in CI works. That job is
-    not a formality: SQLite accepts things PostgreSQL rejects — a string into
-    an integer column, an aggregate over a column that is not grouped — so a
-    suite that has only ever run on SQLite is evidence about SQLite. Each test
-    still gets a clean schema, dropped afterwards, so ordering stays
-    irrelevant.
+    Without this the same connection error is reported against every test in
+    the suite, and the reason it happened scrolls past.
     """
-    external = os.environ.get("RETICLE_TEST_DATABASE_URL")
-    if external:
-        engine = create_engine(external, poolclass=StaticPool)
-        Base.metadata.drop_all(engine)
-    else:
-        engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
+    engine = create_engine(TEST_DATABASE_URL)
+    try:
+        with engine.connect():
+            pass
+    except OperationalError as error:
+        raise pytest.UsageError(UNREACHABLE.format(url=TEST_DATABASE_URL, error=error)) from error
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def database() -> Iterator[Engine]:
+    """The one database the whole run uses, emptied before anything touches it.
+
+    Everything is dropped rather than only the tables the models describe: a
+    table left behind by a since-deleted model, or an ``alembic_version`` stamped
+    by an older revision of this checkout, would otherwise make the first
+    start-up try to migrate a schema it did not create.
+    """
+    engine = create_engine(TEST_DATABASE_URL)
+    with engine.connect() as connection:
+        existing = connection.execute(
+            text("SELECT tablename FROM pg_tables WHERE schemaname = current_schema()")
+        ).scalars().all()
+        for table in existing:
+            connection.execute(text(f'DROP TABLE "{table}" CASCADE'))
+        connection.commit()
+
     Base.metadata.create_all(engine)
-    factory = sessionmaker(bind=engine, autoflush=False, future=True)
+    yield engine
+    engine.dispose()
+
+
+# Children before parents, so emptying the database does not trip a foreign key.
+EMPTY_EVERY_TABLE = text(
+    "; ".join(f'DELETE FROM "{table.name}"' for table in reversed(Base.metadata.sorted_tables))
+)
+
+
+@pytest.fixture()
+def db_session(media_root, database: Engine) -> Iterator[Session]:
+    """Bind the application to an empty database.
+
+    The tables are emptied rather than dropped and rebuilt. Both give a test a
+    database with nothing in it; ``DELETE`` does it in about a millisecond
+    against tables this size, where ``CREATE``/``DROP`` costs a fifth of a
+    second per test and would add minutes to the run.
+
+    ``app.db.engine`` points at the same database, so start-up — which runs the
+    migrations — acts on the schema the tests then use.
+    """
+    with database.connect() as connection:
+        connection.execute(EMPTY_EVERY_TABLE)
+        connection.commit()
+
+    factory = sessionmaker(bind=database, autoflush=False, future=True)
 
     def override_get_db() -> Iterator[Session]:
         session = factory()
@@ -152,9 +217,51 @@ def db_session(media_root) -> Iterator[Session]:
     finally:
         session.close()
         app.dependency_overrides.clear()
-        if external:
-            Base.metadata.drop_all(engine)
+
+
+@pytest.fixture()
+def scratch_engine(database: Engine) -> Iterator[Callable[[str], Engine]]:
+    """Hand out further empty databases, for the tests that need two.
+
+    A restore has to be proved into a database that is not the one exported
+    from, and the migration tests compare a schema built by Alembic against one
+    built from the models. Each caller gets a PostgreSQL schema of its own,
+    pinned with ``search_path`` so the code under test sees an ordinary empty
+    database, and dropped afterwards.
+    """
+    created: list[tuple[str, Engine]] = []
+
+    def _make(label: str) -> Engine:
+        name = f"scratch_{label}_{len(created)}"
+        with database.connect() as connection:
+            connection.execute(text(f'DROP SCHEMA IF EXISTS "{name}" CASCADE'))
+            connection.execute(text(f'CREATE SCHEMA "{name}"'))
+            connection.commit()
+        engine = create_engine(
+            TEST_DATABASE_URL, connect_args={"options": f"-csearch_path={name}"}
+        )
+        created.append((name, engine))
+        return engine
+
+    yield _make
+
+    for name, engine in created:
         engine.dispose()
+        with database.connect() as connection:
+            connection.execute(text(f'DROP SCHEMA IF EXISTS "{name}" CASCADE'))
+            connection.commit()
+
+
+@pytest.fixture()
+def empty_database(scratch_engine) -> Iterator[Session]:
+    """A session on a second, empty database — the machine being restored onto."""
+    engine = scratch_engine("restore")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, future=True)()
+    try:
+        yield session
+    finally:
+        session.close()
 
 
 @pytest.fixture()

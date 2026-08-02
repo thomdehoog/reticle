@@ -41,11 +41,6 @@ def upgrade() -> None:
             sa.Column('is_quick_link', sa.Boolean(), nullable=False, server_default=sa.false())
         )
 
-    # Separate from the block above on purpose: SQLite cannot drop a default in
-    # place, so this one rebuilds the table, and asking one batch to both add a
-    # column and rebuild around it would copy the existing rows before they had
-    # a value to copy.
-    with op.batch_alter_table('guides', schema=None) as batch_op:
         batch_op.alter_column(
             'is_quick_link',
             existing_type=sa.Boolean(),

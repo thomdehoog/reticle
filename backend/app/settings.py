@@ -5,6 +5,12 @@ mandatory: a fallback value would be identical on every deployment, and since
 it is the pepper for session-token hashes a shared default would let anyone who
 obtained one installation's database forge sessions on another.
 
+``database_url`` is mandatory for a different reason. A default that worked
+would be a default that runs — the server would come up against a database
+nobody meant to use and serve an empty library, which looks to a reader like a
+facility that has written nothing down. Refusing to start says what is wrong
+and names the variable that fixes it.
+
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
 
@@ -31,6 +37,19 @@ WILDCARD_ORIGIN_REFUSAL = (
     "institute. List the exact origins instead, for example https://guides.zmb.uzh.ch."
 )
 
+MISSING_DATABASE_URL = (
+    "RETICLE_DATABASE_URL is not set. It must name the facility's PostgreSQL database, for "
+    "example postgresql+psycopg://reticle_zmb:password@localhost/reticle_zmb — "
+    "deploy/provision-facility.sh writes that line into the facility's environment file. There "
+    "is no default on purpose: a server that cannot be told where its corpus lives must stop "
+    "here rather than start and serve an empty library."
+)
+
+NOT_POSTGRESQL_REFUSAL = (
+    "RETICLE_DATABASE_URL must be a PostgreSQL URL — postgresql:// or postgresql+psycopg:// — "
+    "and this one begins {scheme}://. PostgreSQL is the only engine Reticle supports."
+)
+
 
 class Settings(BaseSettings):
     """Every knob Reticle exposes, prefixed ``RETICLE_`` in the environment.
@@ -49,7 +68,7 @@ class Settings(BaseSettings):
     )
 
     secret_key: str = Field(min_length=16)
-    database_url: str = "sqlite:///./reticle.db"
+    database_url: str = ""
     media_root: Path = Path("./media")
 
     # "local" or "s3". Local disk is right for one facility on one server; it
@@ -121,6 +140,24 @@ class Settings(BaseSettings):
 
     admin_email: str = "admin@zmb.uzh.ch"
     admin_password: str | None = None
+
+    @field_validator("database_url")
+    @classmethod
+    def _require_postgresql(cls, value: str) -> str:
+        """Refuse to start without a PostgreSQL URL.
+
+        The second check catches the leftover ``sqlite:///./reticle.db`` from an
+        older environment file. Reticle no longer speaks that engine, and a URL
+        it cannot use is better refused by name here than by a driver error
+        somewhere in the first request. Only the scheme is quoted back, because
+        the rest of the URL holds the database password.
+        """
+        url = value.strip()
+        if not url:
+            raise ValueError(MISSING_DATABASE_URL)
+        if not (url.startswith("postgresql://") or url.startswith("postgresql+")):
+            raise ValueError(NOT_POSTGRESQL_REFUSAL.format(scheme=url.partition(":")[0]))
+        return url
 
     @field_validator("cors_origins", mode="before")
     @classmethod

@@ -225,7 +225,7 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_pages_category_id'), ['category_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_pages_slug'), ['slug'], unique=True)
         batch_op.create_index(batch_op.f('ix_pages_status'), ['status'], unique=False)
-        batch_op.create_index('uq_page_landing_per_category', ['category_id'], unique=True, sqlite_where=sa.text('is_landing = 1'), postgresql_where=sa.text('is_landing'))
+        batch_op.create_index('uq_page_landing_per_category', ['category_id'], unique=True, postgresql_where=sa.text('is_landing'))
 
     op.create_table('guide_contributors',
     sa.Column('id', sa.String(length=26), nullable=False),
@@ -385,7 +385,7 @@ def downgrade() -> None:
 
     op.drop_table('guide_contributors')
     with op.batch_alter_table('pages', schema=None) as batch_op:
-        batch_op.drop_index('uq_page_landing_per_category', sqlite_where=sa.text('is_landing = 1'), postgresql_where=sa.text('is_landing'))
+        batch_op.drop_index('uq_page_landing_per_category', postgresql_where=sa.text('is_landing'))
         batch_op.drop_index(batch_op.f('ix_pages_status'))
         batch_op.drop_index(batch_op.f('ix_pages_slug'))
         batch_op.drop_index(batch_op.f('ix_pages_category_id'))
