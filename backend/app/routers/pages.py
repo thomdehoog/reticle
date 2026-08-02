@@ -27,6 +27,7 @@ from ..db import escape_like, utcnow
 from ..documents import apply_page_document, next_updated_at, record_contribution
 from ..models import PUBLISHED, Category, Page, PageRevision, User
 from ..schemas import (
+    ContentStatus,
     PageCreateIn,
     PageDocumentIn,
     PageOut,
@@ -91,7 +92,9 @@ def list_pages(
     db: DbDep,
     user: AnyUser,
     category_id: str | None = Query(default=None, alias="categoryId"),
-    status_filter: str | None = Query(default=None, alias="status"),
+    # Typed for the same reason as the guide listing: an unrecognised status
+    # must say so rather than answer "no pages".
+    status_filter: ContentStatus | None = Query(default=None, alias="status"),
     q: str | None = Query(default=None, max_length=200),
 ) -> list[PageSummaryOut]:
     statement = select(Page)

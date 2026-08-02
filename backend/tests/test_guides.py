@@ -211,6 +211,29 @@ def test_listing_filters_by_category_author_and_free_text(author, admin, categor
     ] == ["Vacuum Maintenance"]
 
 
+def test_an_unknown_status_is_refused_rather_than_answered_with_nothing(author, category):
+    """A status the server does not know must say so, not return an empty list.
+
+    It used to filter on whatever string arrived, so ``?status=`` and
+    ``?status=publshed`` both matched no row and came back as ``[]``. A caller
+    cannot tell that apart from a library with nothing in it: the demo corpus
+    script read it as "none of these guides exist yet" and wrote all ten a
+    second time. Answering a question nobody asked is worse than refusing.
+    """
+    create_guide(author, category.id, "Confocal Alignment")
+
+    for wrong in ("", "publshed", "PUBLISHED", "deleted"):
+        response = author.get("/api/guides", params={"status": wrong})
+        assert response.status_code == 422, wrong
+
+    # The three it does know still work, and still mean what they meant.
+    assert author.get("/api/guides", params={"status": "draft"}).status_code == 200
+    assert [g["title"] for g in author.get("/api/guides", params={"status": "draft"}).json()] == [
+        "Confocal Alignment"
+    ]
+    assert author.get("/api/guides", params={"status": "published"}).json() == []
+
+
 def test_free_text_search_also_covers_the_summary(author, category):
     created = create_guide(author, category.id, "Nothing Matching Here")
     author.put(

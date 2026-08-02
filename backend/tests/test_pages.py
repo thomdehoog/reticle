@@ -583,3 +583,15 @@ def test_page_endpoints_require_a_session(anon):
     assert anon.get("/api/pages").status_code == 401
     assert anon.get("/api/pages/anything").status_code == 401
     assert anon.post("/api/pages", json={"title": "Nope"}).status_code == 403
+
+
+def test_an_unknown_page_status_is_refused_rather_than_answered_with_nothing(author):
+    """The page listing takes the same three words the guide listing takes.
+
+    Same reasoning as the guide test of the same name: a filter that silently
+    matches nothing reports an empty library, and a caller acts on that.
+    """
+    for wrong in ("", "publshed", "PUBLISHED"):
+        assert author.get("/api/pages", params={"status": wrong}).status_code == 422, wrong
+
+    assert author.get("/api/pages", params={"status": "draft"}).status_code == 200

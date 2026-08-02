@@ -34,6 +34,7 @@ from ..models import (
     User,
 )
 from ..schemas import (
+    ContentStatus,
     GuideCreateIn,
     GuideDocumentIn,
     GuideOut,
@@ -163,7 +164,12 @@ def list_guides(
     db: DbDep,
     user: AnyUser,
     category_id: str | None = Query(default=None, alias="categoryId"),
-    status_filter: str | None = Query(default=None, alias="status"),
+    # Typed, not a bare string. `?status=` and `?status=publshed` used to filter
+    # on a value nothing could equal and return an empty array — a caller with a
+    # typo was told the library is empty rather than that the word is wrong,
+    # which is how a migration script decided nothing had been imported yet and
+    # imported everything a second time.
+    status_filter: ContentStatus | None = Query(default=None, alias="status"),
     q: str | None = Query(default=None, max_length=200),
     author_id: str | None = Query(default=None, alias="authorId"),
     tags: str | None = Query(default=None, max_length=800),
