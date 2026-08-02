@@ -88,6 +88,31 @@ describe('PageEditorPage', () => {
     expect(server.state.pages[0].status).toBe('archived')
   })
 
+  it('offers a way out when a colleague saved the page first', async () => {
+    const server = createFakeServer({ pages: [pageFixture({ body: 'The current wording.' })] })
+    const user = userEvent.setup()
+    renderEditor(server)
+
+    const body = await screen.findByDisplayValue('The current wording.')
+    server.colleagueSavesFirst()
+    await user.type(body, ' And one more thing.')
+
+    expect(
+      await screen.findByText(/Someone else saved this page while you were editing/, undefined, {
+        timeout: 4000,
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/And one more thing\./, { selector: 'pre' }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Keep my version' }))
+    await waitFor(
+      () => expect(server.state.pages[0].body).toBe('The current wording. And one more thing.'),
+      { timeout: 4000 },
+    )
+  })
+
   it('opens a past version of the page read-only', async () => {
     const server = createFakeServer({
       pages: [pageFixture({ status: 'published', version: 1, body: 'The current wording.' })],

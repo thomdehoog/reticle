@@ -78,10 +78,6 @@ DOCUMENT_NAME = "reticle-export.json"
 MEDIA_DIRECTORY = "media"
 
 
-def _checksum(payload: bytes) -> str:
-    return hashlib.sha256(payload).hexdigest()
-
-
 def media_entry(media: Media, settings: Settings) -> dict[str, Any]:
     """One file's metadata, including where it sits in the archive.
 
@@ -104,7 +100,7 @@ def media_entry(media: Media, settings: Settings) -> dict[str, Any]:
             "uploadedById": media.uploaded_by_id,
             "createdAt": iso_utc(media.created_at),
             "file": f"{MEDIA_DIRECTORY}/{media.id}.{extension}" if extension else None,
-            "sha256": _checksum(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
         }
     )
     return entry

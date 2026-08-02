@@ -43,12 +43,18 @@ from .observability import REQUEST_ID_HEADER, request_id
 
 WINDOW_SECONDS = 60.0
 
-MAX_TRACKED_KEYS = 20_000
-"""How many distinct callers are tracked at once.
+MAX_TRACKED_KEYS = 2_000
+"""How many ``address:bucket`` pairs are tracked at once.
 
-Each key costs roughly a kilobyte, so this is about 20 MB - far more addresses
-than a university facility will ever have, and small enough that a flood cannot
-turn the limiter into the memory exhaustion it was added to prevent.
+Pairs, not callers: one caller reading, writing and uploading holds three. So
+this is roughly seven hundred simultaneously active addresses, which is well
+above a university facility and still bounded.
+
+The bound matters because a key is not small. Its deque holds one float per hit
+inside the window, up to the limit for that bucket — 600 for reads — and a
+Python float in a deque costs about 32 bytes all in, so a saturated read key is
+close to 20 KB and a full table is tens of megabytes rather than the couple of
+megabytes the count suggests.
 """
 
 # Uploads get their own, much lower ceiling. A guide's worth of photographs is
@@ -80,15 +86,23 @@ class SlidingWindow:
     def check(self, key: str, limit: int, now: float | None = None) -> Decision:
         moment = time.monotonic() if now is None else now
 
-        # A hard ceiling on how many callers are tracked at once. Without it a
+        # A hard ceiling on how many keys are tracked at once. Without it a
         # flood from many addresses grows this dictionary until the process
         # runs out of memory - the limiter becoming the outage it exists to
-        # prevent. Past the ceiling, prune first; if that frees nothing, refuse
-        # rather than grow.
+        # prevent. Past the ceiling, prune the idle keys first, then evict the
+        # stalest remaining one to make room.
+        #
+        # Evicting rather than refusing, because refusing punishes the wrong
+        # person: the newcomer is as likely to be a colleague whose first save
+        # of the day needs a write key as it is to be part of the flood, and a
+        # limiter that answers 429 to somebody who has sent one request is an
+        # outage. Evicting the stalest key at worst gives one caller a fresh
+        # allowance a little early.
         if key not in self._hits and len(self._hits) >= self.max_keys:
             self.prune(moment)
-            if len(self._hits) >= self.max_keys:
-                return Decision(False, retry_after=int(WINDOW_SECONDS))
+            while len(self._hits) >= self.max_keys:
+                stalest = min(self._hits, key=lambda other: self._hits[other][-1])
+                del self._hits[stalest]
 
         hits = self._hits[key]
 
@@ -104,9 +118,6 @@ class SlidingWindow:
 
         hits.append(moment)
         return Decision(True)
-
-    def forget(self, key: str) -> None:
-        self._hits.pop(key, None)
 
     def prune(self, now: float | None = None) -> None:
         """Drop keys with nothing left in the window.
@@ -159,8 +170,8 @@ class RateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        limit = self._limit_for(path, method)
-        decision = self.window.check(f"{self._identify(scope)}:{self._bucket(path, method)}", limit)
+        bucket, limit = self._allowance(path, method)
+        decision = self.window.check(f"{self._identify(scope)}:{bucket}", limit)
 
         self._maybe_prune()
 
@@ -182,22 +193,23 @@ class RateLimitMiddleware:
 
         await self.app(scope, receive, send)
 
-    def _limit_for(self, path: str, method: str) -> int:
-        if path.startswith(UPLOAD_PATH) and method not in SAFE_METHODS:
-            return self.settings.rate_limit_uploads_per_minute
-        if method in SAFE_METHODS:
-            return self.settings.rate_limit_reads_per_minute
-        return self.settings.rate_limit_writes_per_minute
+    def _allowance(self, path: str, method: str) -> tuple[str, int]:
+        """Which allowance this request spends, and how large it is.
 
-    def _bucket(self, path: str, method: str) -> str:
-        """Separate allowances, so exhausting one does not close the others.
+        Separate allowances, so exhausting one does not close the others: a
+        reader who has hit the read ceiling must still be able to sign out, and
+        an importer saturating uploads must not stop anybody reading.
 
-        A reader who has hit the read ceiling must still be able to sign out,
-        and an importer saturating uploads must not stop anybody reading.
+        Bucket and limit are decided together, in one pass over the same two
+        conditions. Deciding them apart lets them disagree — a request counted
+        against the upload bucket but measured against the read limit — and the
+        disagreement is silent.
         """
         if path.startswith(UPLOAD_PATH) and method not in SAFE_METHODS:
-            return "upload"
-        return "read" if method in SAFE_METHODS else "write"
+            return "upload", self.settings.rate_limit_uploads_per_minute
+        if method in SAFE_METHODS:
+            return "read", self.settings.rate_limit_reads_per_minute
+        return "write", self.settings.rate_limit_writes_per_minute
 
     def _identify(self, scope: Scope) -> str:
         """Which bucket this request counts against.
@@ -214,6 +226,14 @@ class RateLimitMiddleware:
         allowance. That is a real cost, and it is why the limits are set high
         enough that ordinary use never reaches them: the job here is to stop a
         runaway script, not to ration colleagues.
+
+        The peer address, not ``auth.client_address``. That function consults
+        ``X-Forwarded-For`` where the operator has declared a proxy, and this
+        one deliberately does not: this runs before routing, on requests that
+        have not been authenticated, and a limiter whose key a caller can
+        influence is not a limiter. Where uvicorn is started with
+        ``--proxy-headers`` the peer address is already the real client, so the
+        two agree anyway.
         """
         client = scope.get("client")
         return client[0] if client else "unknown"

@@ -1,5 +1,17 @@
 /**
  * A wiki page as a reader sees it.
+ *
+ * Long-form guidance rather than a numbered procedure — background, policy,
+ * "which objective for which sample" — with tag-gathered guide lists embedded
+ * in the prose, so a category page always lists every guide that belongs on it
+ * without anybody maintaining the list by hand.
+ *
+ * It is a separate screen from the guide reader, not a variant of it, because
+ * the two are shaped differently: a page has no steps, no pictures with shapes
+ * on them and no difficulty, and folding them together would put half of a
+ * guide's chrome on a page that has nothing to put in it. What they do share —
+ * the section list beside them, the provenance line on paper, the version and
+ * contributors — comes from the same components.
  */
 
 import { Link, useParams } from 'react-router'
@@ -11,7 +23,6 @@ import { SectionNav } from '../components/SectionNav'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
 import { useAsync } from '../hooks/useAsync'
 
-/** A wiki page: long-form guidance, with guide lists gathered by tag inside it. */
 export function PageViewPage() {
   const { slug = '' } = useParams()
   const api = useApi()

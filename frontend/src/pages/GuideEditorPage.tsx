@@ -7,9 +7,10 @@
  * pictures.
  *
  * It saves by itself, a couple of seconds after you stop typing, so there is no
- * Save button to forget. It also refuses to overwrite somebody else's changes: if
- * a colleague edited the same guide while this copy was open, saving stops and
- * says so rather than quietly discarding their work.
+ * Save button to forget. It also refuses to overwrite somebody else's changes:
+ * if a colleague edited the same guide while this copy was open, the save stops
+ * rather than quietly discarding their work, and the author is shown both what
+ * they wrote and who else saved, and asked which version wins.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -20,6 +21,7 @@ import { useApi } from '../auth/AuthContext'
 import { BulletList } from '../components/BulletList'
 import { LifecycleActions } from '../components/editor/LifecycleActions'
 import { RevisionHistory } from '../components/editor/RevisionHistory'
+import { SaveConflict } from '../components/editor/SaveConflict'
 import { StepEditor } from '../components/editor/StepEditor'
 import { StepNavigator } from '../components/editor/StepNavigator'
 import { TagInput } from '../components/editor/TagInput'
@@ -39,7 +41,12 @@ import {
 } from '../domain/guide'
 import { MAX_MEDIA_PER_STEP, type Difficulty, type Guide } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
-import { useAutosave } from '../hooks/useAutosave'
+import {
+  forgetFailedSave,
+  readFailedSave,
+  rememberFailedSave,
+  useAutosave,
+} from '../hooks/useAutosave'
 import { useCategories } from '../hooks/useCategories'
 
 type SaveState = 'clean' | 'pending' | 'saving' | 'saved' | 'error'
@@ -52,16 +59,34 @@ const SAVE_LABELS: Record<SaveState, string> = {
   error: 'Could not save',
 }
 
+/** The author's own words, flattened so they can be selected and copied out. */
+function guideAsPlainText(guide: Guide): string {
+  const lines = [guide.title, guide.summary, guide.introduction, '']
+
+  guide.steps.forEach((step, index) => {
+    lines.push(`Step ${index + 1}${step.title ? `: ${step.title}` : ''}`)
+    for (const bullet of step.bullets) lines.push(`  • ${bullet.text}`)
+    lines.push('')
+  })
+
+  lines.push(guide.conclusion)
+  return lines.join('\n').trim()
+}
+
 export function GuideEditorPage() {
   const { id = '' } = useParams()
   const api = useApi()
   const navigate = useNavigate()
-  const { data: categories } = useCategories()
+  const { data: categories, error: categoriesError } = useCategories()
   const { data: loaded, error: loadError, loading } = useAsync(() => api.getGuide(id), [api, id])
 
   const [guide, setGuide] = useState<Guide | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('clean')
   const [saveError, setSaveError] = useState<unknown>(null)
+  /** The server's copy, fetched once a save is refused, so a choice can be offered. */
+  const [conflict, setConflict] = useState<Guide | null>(null)
+  /** Left by a save that failed after the editor had already closed. */
+  const [failedSaveNote, setFailedSaveNote] = useState(() => readFailedSave(id))
   const [issues, setIssues] = useState<ValidationIssue[]>([])
   const [focusBulletId, setFocusBulletId] = useState<string | null>(null)
   const [uploadingStepId, setUploadingStepId] = useState<string | null>(null)
@@ -113,18 +138,56 @@ export function GuideEditorPage() {
           : saved,
       )
       setSaveState(dirtyRef.current ? 'pending' : 'saved')
+      forgetFailedSave(guide.id)
+      setFailedSaveNote(null)
     } catch (cause) {
       dirtyRef.current = true
       setSaveError(cause)
       setSaveState('error')
+      /* This same function performs the save fired as the editor closes, and
+         that one has no screen left to report on. The note is what the author
+         is shown the next time they open this guide. */
+
+
+      /* A refused write leaves this copy holding the `updatedAt` the server
+         rejected, so every later autosave would carry it and be refused too.
+         Their copy is what a choice can be offered between; if fetching it
+         fails as well, the plain error stays and says so. */
+      if (cause instanceof ApiError && cause.code === 'conflict') {
+        setConflict(await api.getGuide(guide.id).catch(() => null))
+      }
     }
   }, [guide, api])
 
   useAutosave({
-    document: guide,
-    isDirty: () => dirtyRef.current,
+    snapshot: guide,
+    // An unresolved conflict is waiting for the author to choose. Saving again
+    // before they do would re-send the rejected write once per pause.
+    isDirty: () => dirtyRef.current && conflict === null,
     save: () => void saveNow(),
   })
+
+  function keepMyVersion() {
+    if (!conflict) return
+    /* Adopting their timestamp is what makes the next write legal. It replaces
+       their text with this one, which is the choice just made. */
+    setGuide((current) => (current ? { ...current, updatedAt: conflict.updatedAt } : current))
+    dirtyRef.current = true
+    setSaveState('pending')
+    setSaveError(null)
+    setConflict(null)
+  }
+
+  function useTheirVersion() {
+    if (!conflict) return
+    setGuide(conflict)
+    dirtyRef.current = false
+    setSaveState('saved')
+    setSaveError(null)
+    setConflict(null)
+    forgetFailedSave(conflict.id)
+    setFailedSaveNote(null)
+  }
 
   useEffect(() => {
     function warn(event: BeforeUnloadEvent) {
@@ -170,16 +233,18 @@ export function GuideEditorPage() {
 
   async function onUnpublish() {
     if (!guide) return
-    const updated = await api.unpublishGuide(guide.id)
+    /* Claimed before awaiting, as in onPublish: a pending autosave that fired
+       during the await would carry the timestamp this call is about to move on. */
     dirtyRef.current = false
+    const updated = await api.unpublishGuide(guide.id)
     setGuide(updated)
     setSaveState('saved')
   }
 
   async function onArchive() {
     if (!guide) return
-    await api.archiveGuide(guide.id)
     dirtyRef.current = false
+    await api.archiveGuide(guide.id)
     /* Home rather than back to the guide: the guide is gone from every listing
        the editor could return to, and its own URL now 404s. */
     navigate('/')
@@ -218,8 +283,6 @@ export function GuideEditorPage() {
   if (loadError) return <ErrorAlert error={loadError} />
   if (!guide) return null
 
-  const conflicted = saveError instanceof ApiError && saveError.code === 'conflict'
-
   return (
     <>
       <div className="page-header">
@@ -233,7 +296,12 @@ export function GuideEditorPage() {
         </div>
         <div className="page-actions">
           <StatusBadge status={guide.status} />
-          <span className={`save-state${saveState === 'error' ? ' save-state--error' : ''}`}>
+          {/* Announced, not just drawn: with no Save button this line is the
+              only answer to "did that save", and a blind author has no other. */}
+          <span
+            className={`save-state${saveState === 'error' ? ' save-state--error' : ''}`}
+            role="status"
+          >
             {SAVE_LABELS[saveState]}
           </span>
           {guide.status === 'published' && (
@@ -278,7 +346,7 @@ export function GuideEditorPage() {
                     {step.title ? `: ${step.title}` : ''}
                   </h3>
                   <StepGallery step={step} />
-                  <BulletList bullets={step.bullets} />
+                  <BulletList step={step} />
                 </div>
               ))}
               {snapshot.conclusion && <p>{snapshot.conclusion}</p>}
@@ -288,14 +356,32 @@ export function GuideEditorPage() {
         />
       )}
 
-      {conflicted ? (
+      {failedSaveNote && (
         <div className="alert alert--warning" role="alert">
-          <strong>Someone else saved this guide while you were editing.</strong> To avoid
-          overwriting their work, your recent changes have not been saved.{' '}
-          <button className="button button--sm" type="button" onClick={() => window.location.reload()}>
-            Reload their version
+          <strong>Your last change to this guide did not save.</strong> {failedSaveNote} What you see
+          below is the copy on the server, so anything typed after that is not in it.{' '}
+          <button
+            className="button button--sm"
+            type="button"
+            onClick={() => {
+              forgetFailedSave(id)
+              setFailedSaveNote(null)
+            }}
+          >
+            Dismiss
           </button>
         </div>
+      )}
+
+      {conflict ? (
+        <SaveConflict
+          kind="guide"
+          savedBy={conflict.lastEditedBy.displayName}
+          savedAt={conflict.updatedAt}
+          myVersion={guideAsPlainText(guide)}
+          onKeepMine={keepMyVersion}
+          onUseTheirs={useTheirVersion}
+        />
       ) : (
         <ErrorAlert error={saveError} />
       )}
@@ -414,6 +500,10 @@ export function GuideEditorPage() {
                     </option>
                   ))}
                 </select>
+                {/* An empty list here is not "no categories", it is a failed
+                    request — and publishing then demands a category the author
+                    has no way to choose. */}
+                <ErrorAlert error={categoriesError} />
               </div>
 
               <div className="field">

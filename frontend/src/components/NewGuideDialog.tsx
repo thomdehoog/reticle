@@ -2,11 +2,12 @@
  * The small window that appears when you start a new guide.
  *
  * It asks for the two things a guide cannot exist without - a title and which
- * category it belongs to - and then creates it and opens the editor. Everything
- * else about a guide can be filled in later.
+ * category it belongs to - then creates it and drops the author straight into
+ * the editor. Everything else is filled in while writing.
  *
  * Asking for the minimum is deliberate. A long form in front of somebody who has
- * just had an idea is how the idea gets lost.
+ * just had an idea is how the idea gets lost, and starting a guide should take
+ * one click from anywhere in the application.
  */
 
 import { useState, type FormEvent } from 'react'
@@ -16,16 +17,10 @@ import { useApi } from '../auth/AuthContext'
 import { useCategories } from '../hooks/useCategories'
 import { ErrorAlert, Modal } from './ui'
 
-/**
- * Creating a guide asks for the two things that cannot be defaulted — a title
- * and where it belongs — then drops the author straight into the editor.
- * Everything else is filled in while writing, which is the point: starting a
- * guide should take one click from anywhere in the app.
- */
 export function NewGuideDialog({ onClose }: { onClose: () => void }) {
   const api = useApi()
   const navigate = useNavigate()
-  const { data: categories } = useCategories()
+  const { data: categories, error: categoriesError } = useCategories()
 
   const [title, setTitle] = useState('')
   const [categoryId, setCategoryId] = useState('')
@@ -50,7 +45,9 @@ export function NewGuideDialog({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="New guide" onClose={onClose}>
       <form onSubmit={onSubmit}>
-        <ErrorAlert error={error} />
+        {/* An empty category list is not "no categories yet", it is a request
+            that failed — and the form below cannot be completed without one. */}
+        <ErrorAlert error={error ?? categoriesError} />
 
         <div className="field">
           <label className="field__label" htmlFor="new-guide-title">

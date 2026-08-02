@@ -1,5 +1,17 @@
 /**
- * Turning the flat list of categories into a tree.
+ * The categories, and the rules about which of them anybody sees.
+ *
+ * The API returns one flat list; almost every screen wants something else from
+ * it. `buildCategoryTree` turns it into the nesting the front page and the
+ * admin screen browse. `browsableCategories` drops the holding categories,
+ * which exist to own guides reached by tag and would otherwise turn the front
+ * page into a list of filing-cabinet drawers. `useCategories` fetches the list
+ * itself, unfiltered, because the editors and the admin screen need the hidden
+ * ones too.
+ *
+ * All three live together because the hiding rule is the fragile part: it must
+ * be applied on the browse surfaces and nowhere else, and a copy of it made on
+ * one screen is how a category quietly stops being editable.
  */
 
 import { useApi } from '../auth/AuthContext'

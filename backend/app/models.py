@@ -50,13 +50,19 @@ IP_ADDRESS_LENGTH = 45
 LOGIN_ATTEMPT_KEY_LENGTH = 370
 
 ROLES = ("viewer", "author", "admin")
-CONTENT_STATUSES = ("draft", "in_review", "published", "archived")
-DIFFICULTIES = ("very_easy", "easy", "moderate", "difficult", "very_difficult")
-BULLET_COLORS = ("black", "red", "orange", "yellow", "green", "light_blue", "blue", "violet")
-BULLET_ICONS = ("note", "caution", "reminder")
-ANNOTATION_SHAPES = ("rectangle", "ellipse", "arrow")
 
 ROLE_RANK = {role: rank for rank, role in enumerate(ROLES)}
+
+PUBLISHED = "published"
+"""The one status a reader is ever shown.
+
+Named once and imported, because it is the operand of the ``WHERE`` clause that
+keeps a half-written safety procedure internal. A second spelling of it in a
+second file is a place that rule can drift out of.
+
+The full status vocabulary is the ``ContentStatus`` literal in ``schemas``,
+which is what actually refuses an unknown value at the boundary.
+"""
 
 
 def new_id() -> str:
@@ -310,10 +316,6 @@ class Step(Base):
         cascade="all, delete-orphan",
         order_by="StepMedia.order_index",
     )
-
-    @property
-    def media(self) -> list[Media]:
-        return [link.media for link in self.media_links]
 
 
 class Bullet(Base):

@@ -1,15 +1,5 @@
 /**
- * Taking a guide or a page out of circulation.
- */
-
-import { useState } from 'react'
-
-import { useAuth } from '../../auth/AuthContext'
-import type { ContentStatus } from '../../domain/types'
-import { ErrorAlert, Modal } from '../ui'
-
-/**
- * Taking something out of circulation.
+ * Taking a guide or a wiki page out of circulation.
  *
  * Two separate actions, because they answer two different questions. Unpublish
  * says "this is wrong, stop showing it while I fix it" and any author may do
@@ -20,8 +10,21 @@ import { ErrorAlert, Modal } from '../ui'
  * facility the reason a procedure was withdrawn is itself worth keeping.
  *
  * Both are behind a confirmation. They are irreversible from this screen and
- * they sit next to Publish.
+ * they sit next to Publish, so a mis-click would otherwise pull a procedure off
+ * every bench in the building.
+ *
+ * It is its own file rather than part of the two editors because both editors
+ * need it and the confirmation wording has to be the same in both: an author
+ * who has read "readers stop seeing it immediately" once should not have to
+ * read a different sentence and wonder what else differs.
  */
+
+import { useState } from 'react'
+
+import { useAuth } from '../../auth/AuthContext'
+import type { ContentStatus } from '../../domain/types'
+import { ErrorAlert, Modal } from '../ui'
+
 export function LifecycleActions({
   kind,
   status,

@@ -132,8 +132,8 @@ function NewUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
  *
  * People at a facility change name — after a marriage, or because the account
  * was created from an email address and reads as "t.dehoog" on every guide they
- * have ever written. Without this the only fix was a second account, which
- * splits their authorship in two.
+ * have ever written. The alternative to renaming is a second account, which
+ * splits one person's authorship in two.
  */
 function NameCell({ person, onRenamed }: { person: User; onRenamed: () => void }) {
   const api = useApi()

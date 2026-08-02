@@ -1,13 +1,18 @@
 /**
- * The list of times a guide was published.
+ * The list of times a guide or a wiki page was published, and a way to read one.
  *
- * Every time somebody publishes, Reticle keeps a complete copy of how the guide
- * read at that moment. This panel lists those copies and lets an author look at
- * one.
+ * Every publish writes an immutable snapshot server-side, and this panel is how
+ * an author opens one. That matters at a facility more than it might elsewhere.
+ * If an instrument was damaged in March, the question is what the procedure
+ * said in March, not what it says now that somebody has corrected it; and when
+ * somebody asks "the protocol used to say 90 seconds, who changed it and when",
+ * the answer is a version, a date and a name.
  *
- * That matters at a facility more than it might elsewhere. If an instrument was
- * damaged in March, the question is what the procedure said in March - not what
- * it says now, after somebody corrected it.
+ * Read-only on purpose. There is no restore button, because silently
+ * overwriting the current text with a two-year-old procedure is exactly the
+ * accident the version history exists to investigate. An author who wants an
+ * old wording copies it across, and the new publish is recorded as its own
+ * version.
  */
 
 import { useState, type ReactNode } from 'react'
@@ -16,20 +21,6 @@ import type { RevisionSummary } from '../../api/reticle'
 import { useAsync } from '../../hooks/useAsync'
 import { ErrorAlert, Modal, Spinner } from '../ui'
 
-/**
- * Past published versions, read-only.
- *
- * Every publish writes an immutable snapshot server-side, and until now nothing
- * could open one. That matters more here than in most editors: when somebody
- * asks "the protocol used to say 90 seconds, who changed it and when", the
- * answer is a version, a date and a name, and without it the only recourse was
- * the database.
- *
- * Read-only on purpose. There is no restore button, because silently
- * overwriting the current text with a two-year-old procedure is exactly the
- * accident the version history exists to investigate. An author who wants an old
- * wording copies it across, and the new publish is recorded as its own version.
- */
 export function RevisionHistory<T>({
   title,
   list,

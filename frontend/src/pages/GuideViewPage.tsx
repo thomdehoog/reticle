@@ -36,7 +36,7 @@ function StepBlock({ step, number }: { step: Step; number: number }) {
       </h2>
       <div className={`step__body${hasMedia ? '' : ' step__body--text-only'}`}>
         <StepGallery step={step} />
-        <BulletList bullets={step.bullets} />
+        <BulletList step={step} />
       </div>
     </section>
   )

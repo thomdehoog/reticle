@@ -1,9 +1,26 @@
-"""Authentication and authorisation dependencies.
+"""Who is asking, and whether they are allowed.
 
-Every ``/api`` route except the login and the health probe declares one of the
-aliases at the bottom of this module, and ``main`` refuses to start if a route
-ever forgets. Role checks live here rather than inside handlers so that adding
-an endpoint means choosing a role, not remembering one.
+Signing in creates a **session**: a row in the database, and a long random token
+in a cookie that points at it. The browser sends that cookie on every later
+request, this module looks the row up, and the endpoint is handed the ``User``
+it belongs to. Nothing else identifies a caller — there is no API key and no
+token in a header — so every ``/api`` route ends up here.
+
+Two cookies rather than one, and the second is the part worth understanding.
+The session cookie is ``httpOnly``, which means a script on the page cannot read
+it — good, but it also means the *browser* sends it automatically, including on
+a request some other website provoked. That is cross-site request forgery: a
+page a colleague happens to be visiting quietly asks Reticle to delete a guide,
+and their cookie makes it work. The defence is a second cookie the page *can*
+read, which the frontend copies into the ``X-CSRF-Token`` header; another site
+can make the browser send cookies but cannot read them, so it cannot produce the
+header. Anything that changes data must present both.
+
+At the bottom are the three names a route declares to say who may call it —
+``AnyUser``, ``AuthorUser``, ``AdminUser``. Declaring one is not optional:
+``main.unauthenticated_routes`` walks the whole routing table and a test fails if
+any route is missing one, so adding an endpoint means choosing a role rather
+than remembering to.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
@@ -90,6 +107,14 @@ def client_address(request: Request) -> str | None:
     ``X-Forwarded-For`` is only consulted when the operator has declared that
     Reticle sits behind a proxy that rewrites it; trusting it unconditionally
     would let any client pick its own throttle bucket.
+
+    Two other places in the application ask a similar-looking question and both
+    answer it from the peer address alone, on purpose. ``ratelimit._identify``
+    runs before authentication and must not use a value a caller can influence;
+    ``observability._client_ip`` records the connection this process accepted,
+    which is what a log line is for. This one is the only one that decides
+    *responsibility* — whose login attempt, whose audit entry — so it is the
+    only one that is allowed to believe a declared proxy.
     """
     forwarded = request.headers.get(FORWARDED_HEADER)
     peer = request.client.host if request.client else None
@@ -130,7 +155,7 @@ def get_current_user(session_row: Annotated[SessionRow, Depends(get_session_row)
     return session_row.user
 
 
-CurrentUser = Annotated[User, Depends(get_current_user)]
+AnyUser = Annotated[User, Depends(get_current_user)]
 CurrentSession = Annotated[SessionRow, Depends(get_session_row)]
 
 
@@ -138,7 +163,7 @@ def require_role(minimum: str):
     """Build a dependency that admits the given role and everything above it."""
     threshold = ROLE_RANK[minimum]
 
-    def dependency(user: CurrentUser) -> User:
+    def dependency(user: AnyUser) -> User:
         if ROLE_RANK[user.role] < threshold:
             raise errors.forbidden(f"This action requires the {minimum} role.")
         return user
@@ -147,6 +172,5 @@ def require_role(minimum: str):
     return dependency
 
 
-AnyUser = CurrentUser
 AuthorUser = Annotated[User, Depends(require_role("author"))]
 AdminUser = Annotated[User, Depends(require_role("admin"))]

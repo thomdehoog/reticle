@@ -20,7 +20,8 @@ from fastapi import APIRouter, Query
 from sqlalchemy import case, func, or_, select
 
 from ..auth import AnyUser, DbDep
-from ..models import Bullet, Guide, GuideTag, Page, Step, Tag
+from ..db import escape_like
+from ..models import PUBLISHED, Bullet, Guide, GuideTag, Page, Step, Tag
 from ..schemas import (
     GuideHitOut,
     PageHitOut,
@@ -34,8 +35,6 @@ from .guides import thumbnail_subquery
 
 router = APIRouter(prefix="/api", tags=["discovery"])
 
-READER_STATUS = "published"
-
 SEARCH_LIMIT = 100
 """One screen's worth and then some.
 
@@ -44,10 +43,6 @@ today — but the endpoint is reachable by every account, and a search for "e"
 that returns everything is a cheap way to make the server serialise the entire
 institute's documentation on demand.
 """
-
-
-def _escape_like(term: str) -> str:
-    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 @router.get("/tags", response_model=list[TagOut])
@@ -64,7 +59,7 @@ def list_tags(db: DbDep, user: AnyUser) -> list[TagOut]:
         .join(Guide, Guide.id == GuideTag.guide_id)
     )
     if user.role == "viewer":
-        countable = countable.where(Guide.status == READER_STATUS)
+        countable = countable.where(Guide.status == PUBLISHED)
     else:
         countable = countable.where(Guide.status != "archived")
 
@@ -84,7 +79,7 @@ def search(
     if not term:
         return []
 
-    pattern = f"%{_escape_like(term)}%"
+    pattern = f"%{escape_like(term)}%"
 
     step_count = (
         select(func.count(Step.id))
@@ -130,8 +125,8 @@ def search(
     )
 
     if user.role == "viewer":
-        guides = guides.where(Guide.status == READER_STATUS)
-        pages = pages.where(Page.status == READER_STATUS)
+        guides = guides.where(Guide.status == PUBLISHED)
+        pages = pages.where(Page.status == PUBLISHED)
     else:
         guides = guides.where(Guide.status != "archived")
         pages = pages.where(Page.status != "archived")

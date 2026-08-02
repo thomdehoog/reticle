@@ -29,10 +29,10 @@ export function StatusBadge({ status }: { status: ContentStatus }) {
   return <span className={`badge badge--${status}`}>{STATUS_LABELS[status]}</span>
 }
 
-export function Spinner({ label = 'Loading…' }: { label?: string }) {
+export function Spinner() {
   return (
     <div className="spinner" role="status">
-      {label}
+      Loading…
     </div>
   )
 }
@@ -89,16 +89,60 @@ interface ModalProps {
   children: ReactNode
 }
 
+const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+
+/**
+ * A dialog that keeps the keyboard inside it.
+ *
+ * `aria-modal` tells assistive technology that the page behind is inert; it
+ * does nothing whatever to the Tab order, so the keys have to be caught here.
+ * Without that, Tab walks out of the dialog and into the form underneath — and
+ * the next keystroke goes somewhere the author cannot see. Closing hands focus
+ * back to whatever opened the dialog, because dropping it on `<body>` sends the
+ * next Tab to the top of the page.
+ */
 export function Modal({ title, onClose, children }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') onClose()
+    const panel = panelRef.current
+    const opener = document.activeElement as HTMLElement | null
+
+    function stops(): HTMLElement[] {
+      const found = panel?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []
+      return [...found].filter((element) => !element.hasAttribute('disabled'))
     }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const inside = stops()
+      if (inside.length === 0) return
+
+      const first = inside[0]
+      const last = inside[inside.length - 1]
+      const active = document.activeElement
+
+      if (event.shiftKey && (active === first || !panel?.contains(active))) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
     document.addEventListener('keydown', onKeyDown)
-    panelRef.current?.querySelector<HTMLElement>('input, select, textarea, button')?.focus()
-    return () => document.removeEventListener('keydown', onKeyDown)
+    stops()[0]?.focus()
+
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      opener?.focus()
+    }
   }, [onClose])
 
   return (

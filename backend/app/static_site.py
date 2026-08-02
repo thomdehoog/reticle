@@ -32,6 +32,7 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 from __future__ import annotations
 
 import html
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,12 +40,10 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from .models import Category, Guide, Media, Page
+from .models import PUBLISHED, Category, Guide, Media, Page
 from .schemas import guide_out, page_out
 from .settings import Settings
 from .storage import build_storage
-
-PUBLISHED = "published"
 
 DIFFICULTY_LABELS = {
     "very_easy": "Very easy",
@@ -226,7 +225,7 @@ def render_guide(guide: Guide, organisation: str, filenames: dict[str, str]) -> 
                 )
             parts.append("</div>")
 
-        bullets = [b for b in step["bullets"] if b["text"].strip()]
+        bullets = [bullet for bullet in step["bullets"] if bullet["text"].strip()]
         if bullets:
             parts.append('<ul class="bullets">')
             for bullet in bullets:
@@ -271,8 +270,8 @@ def render_index(
     body = [f"<h1>{esc(organisation)}</h1>", '<p class="lead">Standard operating procedures.</p>']
 
     for category in categories:
-        in_category = [g for g in guides if g.category_id == category.id]
-        category_pages = [p for p in pages if p.category_id == category.id]
+        in_category = [guide for guide in guides if guide.category_id == category.id]
+        category_pages = [page for page in pages if page.category_id == category.id]
         if not in_category and not category_pages:
             continue
         body.append(f'<section class="section"><h2>{esc(category.name)}</h2><ul class="index">')
@@ -285,6 +284,32 @@ def render_index(
         body.append("</ul></section>")
 
     return _page_shell("Guides", organisation, "\n".join(body), depth=0)
+
+
+SLUG_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
+
+
+def _filename(slug: str, noun: str, identifier: str) -> str:
+    """The slug as a file name, having first proved it is only a slug.
+
+    Every slug the API mints goes through ``slugs.slugify`` and can only contain
+    ``[a-z0-9-]``. A restored archive is the one way a row with something else in
+    it can exist, and ``destination / "g" / f"{slug}.html"`` with a slug of
+    ``../../../../tmp/PWNED`` writes outside the destination entirely. The
+    restore sanitises too; this refuses independently, because the two are
+    reached by different paths and a snapshot writing outside its own folder is
+    not a thing to leave resting on one check.
+
+    It raises rather than skipping. This runs from an administrator's command,
+    and an archive that quietly omitted a procedure would be discovered by
+    whoever went looking for it in an incident.
+    """
+    if not SLUG_PATTERN.match(slug):
+        raise ValueError(
+            f"The {noun} {identifier} has the slug {slug!r}, which is not a slug. Fix it before "
+            "publishing a snapshot — a name like this is written to disk as a file name."
+        )
+    return f"{slug}.html"
 
 
 def publish(db: DbSession, settings: Settings, destination: Path) -> SiteReport:
@@ -336,13 +361,13 @@ def publish(db: DbSession, settings: Settings, destination: Path) -> SiteReport:
         report.media += 1
 
     for guide in guides:
-        (destination / "g" / f"{guide.slug}.html").write_text(
+        (destination / "g" / _filename(guide.slug, "guide", guide.id)).write_text(
             render_guide(guide, organisation, filenames), encoding="utf-8"
         )
         report.guides += 1
 
     for page in pages:
-        (destination / "w" / f"{page.slug}.html").write_text(
+        (destination / "w" / _filename(page.slug, "page", page.id)).write_text(
             render_page(page, organisation), encoding="utf-8"
         )
         report.pages += 1
@@ -350,8 +375,8 @@ def publish(db: DbSession, settings: Settings, destination: Path) -> SiteReport:
     report.categories = sum(
         1
         for category in categories
-        if any(g.category_id == category.id for g in guides)
-        or any(p.category_id == category.id for p in pages)
+        if any(guide.category_id == category.id for guide in guides)
+        or any(page.category_id == category.id for page in pages)
     )
 
     (destination / "index.html").write_text(

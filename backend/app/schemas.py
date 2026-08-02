@@ -32,7 +32,6 @@ from . import models
 
 Role = Literal["viewer", "author", "admin"]
 ContentStatus = Literal["draft", "in_review", "published", "archived"]
-GuideStatus = ContentStatus
 Difficulty = Literal["very_easy", "easy", "moderate", "difficult", "very_difficult"]
 BulletColor = Literal["black", "red", "orange", "yellow", "green", "light_blue", "blue", "violet"]
 BulletIcon = Literal["note", "caution", "reminder"]

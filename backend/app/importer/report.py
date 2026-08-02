@@ -145,24 +145,24 @@ class MigrationReport:
 
         totals = {
             "steps": (
-                sum(t.source_steps for t in self.guides),
-                sum(t.imported_steps for t in self.guides),
+                sum(tally.source_steps for tally in self.guides),
+                sum(tally.imported_steps for tally in self.guides),
             ),
             "bullets": (
-                sum(t.source_bullets for t in self.guides),
-                sum(t.imported_bullets for t in self.guides),
+                sum(tally.source_bullets for tally in self.guides),
+                sum(tally.imported_bullets for tally in self.guides),
             ),
             "images": (
-                sum(t.source_images for t in self.guides),
-                sum(t.imported_images for t in self.guides),
+                sum(tally.source_images for tally in self.guides),
+                sum(tally.imported_images for tally in self.guides),
             ),
             "annotations": (
-                sum(t.source_annotations for t in self.guides),
-                sum(t.imported_annotations for t in self.guides),
+                sum(tally.source_annotations for tally in self.guides),
+                sum(tally.imported_annotations for tally in self.guides),
             ),
             "videos": (
-                sum(t.source_videos for t in self.guides),
-                sum(t.imported_videos for t in self.guides),
+                sum(tally.source_videos for tally in self.guides),
+                sum(tally.imported_videos for tally in self.guides),
             ),
         }
         lines.append("Totals, site versus Reticle")

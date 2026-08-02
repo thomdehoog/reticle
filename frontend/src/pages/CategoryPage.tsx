@@ -5,6 +5,13 @@
  * introduces it if there is one, and the guides it holds - as pictures rather
  * than a list of titles, because people recognise the instrument they used far
  * faster than they recall what the procedure was called.
+ *
+ * The landing page is the point of this screen at ZMB. Their category pages are
+ * prose with tag-gathered guide lists embedded in them — "Confocal systems",
+ * then the guides carrying that tag — and a bare alphabetical list of every
+ * guide in the category is exactly what that arrangement exists to avoid. The
+ * plain list stays as the fallback, because a category nobody has written a
+ * page for yet must still show its contents.
  */
 
 import { useState } from 'react'
@@ -18,16 +25,6 @@ import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
 import { browsableCategories } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
-/**
- * A category: its landing page if somebody has written one, and its guides.
- *
- * The landing page is the point of this screen at ZMB. Their category pages are
- * prose with tag-gathered guide lists embedded in them — "Confocal systems",
- * then the guides carrying that tag — and a bare alphabetical list of every
- * guide in the category is exactly what that arrangement exists to avoid. The
- * plain list stays as the fallback, because a category nobody has written a
- * page for yet must still show its contents.
- */
 export function CategoryPage() {
   const { slug = '' } = useParams()
   const api = useApi()

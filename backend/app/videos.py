@@ -53,6 +53,14 @@ hand, which is how a migration stalls.
 
 WEBM_MAGIC = b"\x1a\x45\xdf\xa3"
 
+HEADER_BYTES = 12
+"""How much of an upload has to be in hand before its container can be named.
+
+Small on purpose. The upload route sniffs this much, rewinds, and only then
+knows which size cap applies — so a clip is measured against the video ceiling
+rather than the image one.
+"""
+
 ACCEPTED_VIDEO_TYPES = {
     "mp4": "video/mp4",
     "webm": "video/webm",

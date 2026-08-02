@@ -25,7 +25,7 @@ import { ErrorAlert, Modal } from './ui'
 export function NewPageDialog({ onClose }: { onClose: () => void }) {
   const api = useApi()
   const navigate = useNavigate()
-  const { data: categories } = useCategories()
+  const { data: categories, error: categoriesError } = useCategories()
 
   const [title, setTitle] = useState('')
   const [categoryId, setCategoryId] = useState('')
@@ -55,7 +55,9 @@ export function NewPageDialog({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="New page" onClose={onClose}>
       <form onSubmit={onSubmit}>
-        <ErrorAlert error={error} />
+        {/* An empty category list is not "no categories yet", it is a request
+            that failed — and the page would quietly become a standalone one. */}
+        <ErrorAlert error={error ?? categoriesError} />
 
         <div className="field">
           <label className="field__label" htmlFor="new-page-title">

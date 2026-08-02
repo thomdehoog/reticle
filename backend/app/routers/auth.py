@@ -14,7 +14,7 @@ from fastapi import APIRouter, Request, Response, status
 from sqlalchemy import select
 
 from .. import audit, errors
-from ..auth import CurrentSession, CurrentUser, DbDep, client_address
+from ..auth import AnyUser, CurrentSession, DbDep, client_address
 from ..models import User
 from ..schemas import LoginIn, UserOut, user_out
 from ..security import (
@@ -146,5 +146,5 @@ def logout(request: Request, db: DbDep, session_row: CurrentSession) -> Response
 
 
 @router.get("/me", response_model=UserOut)
-def me(user: CurrentUser) -> UserOut:
+def me(user: AnyUser) -> UserOut:
     return user_out(user)

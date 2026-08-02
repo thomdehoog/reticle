@@ -1,5 +1,13 @@
 /**
- * Everything carrying one tag.
+ * Every guide carrying one tag, wherever in the tree it lives.
+ *
+ * This is the listing the category tree cannot produce. A guide sits in exactly
+ * one category, but a procedure for the LAS X software is relevant at ten
+ * different instruments, and the tag is what gathers it with its siblings —
+ * which is why tags, not categories, are how ZMB's corpus is actually
+ * navigated. It is its own screen rather than part of the tag index because a
+ * tag is a destination people link to and print from, so it needs a URL of its
+ * own.
  */
 
 import { Link, useParams } from 'react-router'
@@ -9,13 +17,6 @@ import { GuideCard, TileGrid } from '../components/BrowseCards'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
 import { useAsync } from '../hooks/useAsync'
 
-/**
- * Every guide carrying a tag, wherever it lives.
- *
- * This is the listing the category tree cannot produce: a guide sits in one
- * category but is relevant to several instruments, and the tag is what gathers
- * it with its siblings.
- */
 export function TagPage() {
   const { tag = '' } = useParams()
   const api = useApi()

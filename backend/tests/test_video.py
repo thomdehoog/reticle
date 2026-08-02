@@ -272,3 +272,40 @@ def test_viewers_cannot_upload_a_video(viewer):
     response = viewer.post("/api/media", files={"file": ("stage.mp4", mp4_bytes(), "video/mp4")})
 
     assert response.status_code == 403
+
+
+def test_a_clip_larger_than_the_image_cap_is_still_accepted(author, monkeypatch, media_root):
+    """The point of a separate video ceiling, and the one case that proves it
+    is reachable.
+
+    Reading the whole body against ``max_upload_bytes`` before deciding what the
+    file is refuses a clip several times that size as an oversized *image* —
+    which is exactly the file the video path exists to accept, and it makes
+    ``max_video_bytes`` and the 200 MB nginx and systemd sizing all dead
+    configuration.
+    """
+    monkeypatch.setenv("RETICLE_MAX_UPLOAD_BYTES", str(4 * 1024))
+    monkeypatch.setenv("RETICLE_MAX_VIDEO_BYTES", str(64 * 1024))
+    get_settings.cache_clear()
+
+    accepted = author.post(
+        "/api/media", files={"file": ("stage.mp4", mp4_bytes(padding=16 * 1024), "video/mp4")}
+    )
+
+    assert accepted.status_code == 201, accepted.text
+    assert accepted.json()["kind"] == "video"
+
+
+def test_a_clip_over_the_video_cap_is_refused_in_the_words_of_the_video_cap(
+    author, monkeypatch, media_root
+):
+    monkeypatch.setenv("RETICLE_MAX_UPLOAD_BYTES", str(4 * 1024))
+    monkeypatch.setenv("RETICLE_MAX_VIDEO_BYTES", str(8 * 1024))
+    get_settings.cache_clear()
+
+    refused = author.post(
+        "/api/media", files={"file": ("stage.mp4", mp4_bytes(padding=32 * 1024), "video/mp4")}
+    )
+
+    assert refused.status_code == 413
+    assert "Videos" in refused.json()["error"]["message"]

@@ -26,9 +26,12 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from . import errors
+
+if TYPE_CHECKING:
+    from .settings import Settings
 
 SIGNED_URL_SECONDS = 300
 """Long enough for a browser to fetch an image on a slow bench connection,
@@ -180,29 +183,26 @@ class S3Storage:
         )
 
 
-def get_storage() -> Storage:
-    """The configured backend.
+def build_storage(settings: Settings) -> Storage:
+    """Pick a backend from configuration. The only way to get one.
 
-    Not cached. ``LocalStorage`` is two attributes and a few path operations, so
-    building one per request costs nothing measurable, and caching it would make
-    the media root impossible to change in a test without reaching into a
-    module global — which is how a suite ends up writing into the developer's
-    real media directory.
-    """
-    from .settings import get_settings
+    Takes the settings rather than reading them, so the caller that already has
+    a ``Settings`` — the importer, the exporter, the static site generator — is
+    guaranteed to get the store those settings describe. A router with none in
+    hand passes ``get_settings()``.
 
-    return build_storage(get_settings())
-
-
-def build_storage(settings) -> Storage:
-    """Pick a backend from configuration.
+    Nothing is cached. ``LocalStorage`` is two attributes and a few path
+    operations, so building one per request costs nothing measurable, and a
+    cached one would make the media root impossible to change in a test without
+    reaching into a module global — which is how a suite ends up writing into
+    the developer's real media directory.
 
     An unknown backend name raises rather than falling back to local. A typo in
     ``RETICLE_STORAGE_BACKEND`` that silently wrote a facility's uploads to the
     instance's own disk would look like it worked, right up until the instance
     was replaced.
     """
-    backend = (getattr(settings, "storage_backend", "local") or "local").lower()
+    backend = (settings.storage_backend or "local").lower()
     if backend == "local":
         return LocalStorage(settings.media_root)
     if backend == "s3":

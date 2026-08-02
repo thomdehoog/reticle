@@ -18,13 +18,19 @@ import { ApiError } from '../api/client'
 import { useApi } from '../auth/AuthContext'
 import { LifecycleActions } from '../components/editor/LifecycleActions'
 import { RevisionHistory } from '../components/editor/RevisionHistory'
+import { SaveConflict } from '../components/editor/SaveConflict'
 import { TagInput } from '../components/editor/TagInput'
 import { IconHistory } from '../components/icons'
 import { MarkdownBody } from '../components/MarkdownBody'
 import { AutoTextarea, ErrorAlert, Modal, Spinner, StatusBadge } from '../components/ui'
 import type { Page } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
-import { useAutosave } from '../hooks/useAutosave'
+import {
+  forgetFailedSave,
+  readFailedSave,
+  rememberFailedSave,
+  useAutosave,
+} from '../hooks/useAutosave'
 import { useCategories } from '../hooks/useCategories'
 
 type SaveState = 'clean' | 'pending' | 'saving' | 'saved' | 'error'
@@ -51,7 +57,7 @@ export function PageEditorPage() {
   const { id = '' } = useParams()
   const api = useApi()
   const navigate = useNavigate()
-  const { data: categories } = useCategories()
+  const { data: categories, error: categoriesError } = useCategories()
   const { data: loaded, error: loadError, loading } = useAsync(() => api.getPage(id), [api, id])
 
   const bodyRef = useRef<HTMLTextAreaElement>(null)
@@ -60,6 +66,10 @@ export function PageEditorPage() {
   const [page, setPage] = useState<Page | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('clean')
   const [saveError, setSaveError] = useState<unknown>(null)
+  /** The server's copy, fetched once a save is refused, so a choice can be offered. */
+  const [conflict, setConflict] = useState<Page | null>(null)
+  /** Left by a save that failed after the editor had already closed. */
+  const [failedSaveNote, setFailedSaveNote] = useState(() => readFailedSave(id))
   const [publishing, setPublishing] = useState(false)
   const [insertingList, setInsertingList] = useState(false)
   const [showingHistory, setShowingHistory] = useState(false)
@@ -101,18 +111,56 @@ export function PageEditorPage() {
           : saved,
       )
       setSaveState(dirtyRef.current ? 'pending' : 'saved')
+      forgetFailedSave(page.id)
+      setFailedSaveNote(null)
     } catch (cause) {
       dirtyRef.current = true
       setSaveError(cause)
       setSaveState('error')
+      /* This same function performs the save fired as the editor closes, and
+         that one has no screen left to report on. The note is what the author
+         is shown the next time they open this page. */
+      rememberFailedSave(page.id, cause instanceof Error ? cause.message : 'Something went wrong.')
+
+      /* A refused write leaves this copy holding the `updatedAt` the server
+         rejected, so every later autosave would carry it and be refused too.
+         Their copy is what a choice can be offered between; if fetching it
+         fails as well, the plain error stays and says so. */
+      if (cause instanceof ApiError && cause.code === 'conflict') {
+        setConflict(await api.getPage(page.id).catch(() => null))
+      }
     }
   }, [page, api])
 
   useAutosave({
-    document: page,
-    isDirty: () => dirtyRef.current,
+    snapshot: page,
+    // An unresolved conflict is waiting for the author to choose. Saving again
+    // before they do would re-send the rejected write once per pause.
+    isDirty: () => dirtyRef.current && conflict === null,
     save: () => void saveNow(),
   })
+
+  function keepMyVersion() {
+    if (!conflict) return
+    /* Adopting their timestamp is what makes the next write legal. It replaces
+       their text with this one, which is the choice just made. */
+    setPage((current) => (current ? { ...current, updatedAt: conflict.updatedAt } : current))
+    dirtyRef.current = true
+    setSaveState('pending')
+    setSaveError(null)
+    setConflict(null)
+  }
+
+  function useTheirVersion() {
+    if (!conflict) return
+    setPage(conflict)
+    dirtyRef.current = false
+    setSaveState('saved')
+    setSaveError(null)
+    setConflict(null)
+    forgetFailedSave(conflict.id)
+    setFailedSaveNote(null)
+  }
 
   useEffect(() => {
     function warn(event: BeforeUnloadEvent) {
@@ -173,16 +221,18 @@ export function PageEditorPage() {
 
   async function onUnpublish() {
     if (!page) return
-    const updated = await api.unpublishPage(page.id)
+    /* Claimed before awaiting, as in onPublish: a pending autosave that fired
+       during the await would carry the timestamp this call is about to move on. */
     dirtyRef.current = false
+    const updated = await api.unpublishPage(page.id)
     setPage(updated)
     setSaveState('saved')
   }
 
   async function onArchive() {
     if (!page) return
-    await api.archivePage(page.id)
     dirtyRef.current = false
+    await api.archivePage(page.id)
     navigate('/')
   }
 
@@ -214,8 +264,6 @@ export function PageEditorPage() {
   if (loadError) return <ErrorAlert error={loadError} />
   if (!page) return null
 
-  const conflicted = saveError instanceof ApiError && saveError.code === 'conflict'
-
   return (
     <>
       <div className="page-header">
@@ -229,7 +277,12 @@ export function PageEditorPage() {
         </div>
         <div className="page-actions">
           <StatusBadge status={page.status} />
-          <span className={`save-state${saveState === 'error' ? ' save-state--error' : ''}`}>
+          {/* Announced, not just drawn: with no Save button this line is the
+              only answer to "did that save", and a blind author has no other. */}
+          <span
+            className={`save-state${saveState === 'error' ? ' save-state--error' : ''}`}
+            role="status"
+          >
             {SAVE_LABELS[saveState]}
           </span>
           {page.status === 'published' && (
@@ -273,14 +326,32 @@ export function PageEditorPage() {
         />
       )}
 
-      {conflicted ? (
+      {failedSaveNote && (
         <div className="alert alert--warning" role="alert">
-          <strong>Someone else saved this page while you were editing.</strong> Your recent changes
-          have not been saved, so their work is intact.{' '}
-          <button className="button button--sm" type="button" onClick={() => window.location.reload()}>
-            Reload their version
+          <strong>Your last change to this page did not save.</strong> {failedSaveNote} What you see
+          below is the copy on the server, so anything typed after that is not in it.{' '}
+          <button
+            className="button button--sm"
+            type="button"
+            onClick={() => {
+              forgetFailedSave(id)
+              setFailedSaveNote(null)
+            }}
+          >
+            Dismiss
           </button>
         </div>
+      )}
+
+      {conflict ? (
+        <SaveConflict
+          kind="page"
+          savedBy={conflict.lastEditedBy.displayName}
+          savedAt={conflict.updatedAt}
+          myVersion={[page.title, '', page.body].join('\n').trim()}
+          onKeepMine={keepMyVersion}
+          onUseTheirs={useTheirVersion}
+        />
       ) : (
         <ErrorAlert error={saveError} />
       )}
@@ -376,6 +447,9 @@ export function PageEditorPage() {
                     </option>
                   ))}
                 </select>
+                {/* An empty list here is not "no categories", it is a failed
+                    request — and a page silently becomes a standalone article. */}
+                <ErrorAlert error={categoriesError} />
               </div>
 
               <label className="checkbox">

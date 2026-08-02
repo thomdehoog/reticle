@@ -39,14 +39,33 @@
   --warning-600: #9a6700;
   --warning-050: #fdf5e2;
 
-  --bullet-black: #1f2328;
-  --bullet-red: #d1242f;
-  --bullet-orange: #bc4c00;
-  --bullet-yellow: #9a6700;
-  --bullet-green: #1a7f37;
-  --bullet-light-blue: #0e7490;
-  --bullet-blue: #0969da;
-  --bullet-violet: #8250df;
+  /*
+   * The colour a shape is drawn in on a picture, and the colour of the bullet
+   * marker paired with it. These never follow the theme: the shape sits on a
+   * photograph, and a photograph is exactly as bright in a darkened live-cell
+   * room as it is in daylight. A marker that moved with the page would stop
+   * matching the shape it names. `domain/palette.ts` holds the same values for
+   * the SVG overlay, and `palette.test.ts` fails if the two disagree.
+   */
+  --shape-black: #1f2328;
+  --shape-red: #d1242f;
+  --shape-orange: #bc4c00;
+  --shape-yellow: #9a6700;
+  --shape-green: #1a7f37;
+  --shape-light-blue: #0e7490;
+  --shape-blue: #0969da;
+  --shape-violet: #8250df;
+
+  /* A bullet's *text* colour, which does follow the theme: it is words on a
+     page rather than ink on a photograph. */
+  --bullet-black: var(--shape-black);
+  --bullet-red: var(--shape-red);
+  --bullet-orange: var(--shape-orange);
+  --bullet-yellow: var(--shape-yellow);
+  --bullet-green: var(--shape-green);
+  --bullet-light-blue: var(--shape-light-blue);
+  --bullet-blue: var(--shape-blue);
+  --bullet-violet: var(--shape-violet);
 
   --radius-sm: 4px;
   --radius: 8px;
@@ -68,12 +87,15 @@
  * matter of taste — it costs them the adaptation they need to see the sample.
  * So the palette follows the machine's own setting rather than asking.
  *
- * The bullet colours are lifted rather than reused: the light-mode values are
- * chosen for contrast against white and several of them (the black bullet
- * above all) are unreadable on a dark surface. Their *identity* has to survive
- * the change, because a red bullet is paired with a red shape on the picture
- * beside it, so each one moves to the lightest version of itself that still
- * reads as that colour.
+ * The bullet *text* colours are lifted rather than reused: the light-mode
+ * values are chosen for contrast against white and several of them (the black
+ * bullet above all) are unreadable on a dark surface, so each moves to the
+ * lightest version of itself that still reads as that colour.
+ *
+ * The markers do not move with them. A bullet is paired to a shape drawn on a
+ * photograph, and that photograph does not know the page is dark — so the
+ * marker keeps the `--shape-*` value the shape itself is drawn in, and stays
+ * legible on a dark surface through the same white halo the shape carries.
  */
 @media (prefers-color-scheme: dark) {
   :root {
@@ -133,14 +155,14 @@
     --surface-sunken: #ffffff;
     --surface-raised: #ffffff;
     --border: #dde3ec;
-    --bullet-black: #1f2328;
-    --bullet-red: #d1242f;
-    --bullet-orange: #bc4c00;
-    --bullet-yellow: #9a6700;
-    --bullet-green: #1a7f37;
-    --bullet-light-blue: #0e7490;
-    --bullet-blue: #0969da;
-    --bullet-violet: #8250df;
+    --bullet-black: var(--shape-black);
+    --bullet-red: var(--shape-red);
+    --bullet-orange: var(--shape-orange);
+    --bullet-yellow: var(--shape-yellow);
+    --bullet-green: var(--shape-green);
+    --bullet-light-blue: var(--shape-light-blue);
+    --bullet-blue: var(--shape-blue);
+    --bullet-violet: var(--shape-violet);
   }
 }
 
@@ -1373,6 +1395,7 @@ a:hover {
  */
 .bullet {
   color: var(--bullet-black);
+  --marker-ink: var(--shape-black);
 }
 
 .bullet__marker {
@@ -1383,11 +1406,43 @@ a:hover {
   height: 1.55rem;
 }
 
+/**
+ * The white ring is the same halo the drawn shape wears, and it is here for the
+ * same reason: the marker is the shape's colour, and the near-black one on a
+ * dark page measures about 1.03:1 against it. On a light page the ring is white
+ * on white and simply is not seen.
+ */
 .bullet__dot {
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--marker-ink);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85);
+}
+
+/**
+ * The number the shape on the picture carries, repeated here.
+ *
+ * Colour on its own does not pair a bullet with its shape: orange and yellow
+ * are the same colour to a deuteranope, every colour is the same on a greyscale
+ * printout, and a screen reader is told nothing at all. The digit is small
+ * enough to stay out of the way of somebody reading normally and decisive for
+ * everyone else.
+ */
+.bullet__number {
+  display: grid;
+  place-items: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  background: var(--marker-ink);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85);
+  color: #ffffff;
+  font-size: 0.64rem;
+  font-weight: 700;
+  line-height: 1;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
 }
 
 .bullet__text {
@@ -1397,29 +1452,39 @@ a:hover {
   overflow-wrap: anywhere;
 }
 
+/* Two colours per bullet, and they are two different facts: the theme's version
+   of the colour for the words, the picture's version for the marker. */
 .bullet--color-black {
   color: var(--bullet-black);
+  --marker-ink: var(--shape-black);
 }
 .bullet--color-red {
   color: var(--bullet-red);
+  --marker-ink: var(--shape-red);
 }
 .bullet--color-orange {
   color: var(--bullet-orange);
+  --marker-ink: var(--shape-orange);
 }
 .bullet--color-yellow {
   color: var(--bullet-yellow);
+  --marker-ink: var(--shape-yellow);
 }
 .bullet--color-green {
   color: var(--bullet-green);
+  --marker-ink: var(--shape-green);
 }
 .bullet--color-light_blue {
   color: var(--bullet-light-blue);
+  --marker-ink: var(--shape-light-blue);
 }
 .bullet--color-blue {
   color: var(--bullet-blue);
+  --marker-ink: var(--shape-blue);
 }
 .bullet--color-violet {
   color: var(--bullet-violet);
+  --marker-ink: var(--shape-violet);
 }
 
 .bullet__text {
@@ -1628,6 +1693,9 @@ a:hover {
   padding: 0.5rem;
 }
 
+/* The bullet picker sets `--marker-ink`, the annotation picker sets `color`
+   from the same table; either way a swatch shows the colour the shape will be
+   drawn in, so the two pickers cannot offer different reds. */
 .swatch {
   width: 1.4rem;
   height: 1.4rem;
@@ -1635,7 +1703,7 @@ a:hover {
   border: 2px solid transparent;
   border-radius: 50%;
   cursor: pointer;
-  background: currentColor;
+  background: var(--marker-ink, currentColor);
 }
 
 .swatch[aria-pressed='true'] {
@@ -1857,6 +1925,39 @@ a:hover {
   color: var(--brand-800);
   background: var(--brand-050);
   border-color: var(--brand-100);
+}
+
+.alert p {
+  margin: 0 0 0.6rem;
+}
+
+.conflict__choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0;
+}
+
+/* A guide can run to thirty steps, so the author's own copy is scrollable
+   rather than pushing the choice off the bottom of the screen. */
+.conflict__mine pre {
+  max-height: 14rem;
+  overflow: auto;
+  margin: 0.5rem 0 0.8rem;
+  padding: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-900);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.conflict__mine summary {
+  cursor: pointer;
 }
 
 .spinner {

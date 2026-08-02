@@ -1,14 +1,25 @@
-"""Applying a whole guide document in one write.
+"""Saving a whole guide, or a whole wiki page, in one write.
 
-The editor holds the guide as one object and autosaves it as one object. That
-choice is what removes a per-field endpoint zoo and makes reordering a plain
-array move on the client, but it puts the entire burden of integrity here: this
-module is the only place that decides what a saved guide may look like.
+The editor does not save a step or a bullet; it sends the entire guide back
+every few seconds and this module makes the database match it. That is why there
+is no endpoint for "add a bullet" or "move step 3 above step 2" — reordering is
+an array move in the browser — and it is why **this file is the only thing
+standing between the editor and the database**. Everything a saved guide is
+allowed to be is decided here: which files it may show, which tags, whether the
+copy being saved is still current.
 
-Two rules drive the implementation. Identifiers the client minted are honoured
-so an optimistic UI does not have to reconcile keys after every save, and every
-deletion is flushed before any insertion, because the unit of work would
-otherwise order an insert ahead of the delete that frees its primary key.
+Two rules run through the implementation.
+
+*Identifiers the browser invented are kept.* The editor gives a new step an id
+immediately so it can draw it, and honouring that id means the browser does not
+have to go back and renumber everything after each save.
+
+*Every deletion is written out before any insertion.* This one is not obvious
+and it is the reason ``_sync_steps`` is shaped the way it is. SQLAlchemy batches
+the changes and decides their order itself, and left alone it will happily try
+to insert a row before deleting the one holding that id — so a save that merely
+rewrites a step fails on a duplicate key. Forcing the deletes out first (a
+``flush``) removes the choice.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
@@ -82,7 +93,7 @@ def apply_document(db: DbSession, guide: Guide, payload: GuideDocumentIn, actor:
         raise errors.validation_failed("That category does not exist.")
 
     tag_slugs = _validated_tags(payload.tags)
-    media_by_id = _validated_media(db, payload, settings.max_media_per_step)
+    media_by_id = _validated_media(db, guide, payload, settings.max_media_per_step)
     minimum, maximum = _validated_time_range(
         payload.time_required_min_minutes, payload.time_required_max_minutes
     )
@@ -240,48 +251,93 @@ def _sync_tags(db: DbSession, guide: Guide, slugs: list[str]) -> None:
         db.add(GuideTag(guide_id=guide.id, tag_id=tag.id, order_index=index))
 
 
-def _validated_media(db: DbSession, payload: GuideDocumentIn, cap: int) -> dict[str, Media]:
+def _validated_media(
+    db: DbSession, guide: Guide, payload: GuideDocumentIn, cap: int
+) -> dict[str, Media]:
     """Resolve every file the document references, and refuse the impossible ones.
+
+    Three things are refused here, and the second and third are the ones with
+    teeth.
 
     A video dropped into an image slot renders as a broken picture and an image
     in the video slot as a player that never starts. Both are silent until a
-    reader opens the step, so they are refused at the write.
+    reader opens the step.
+
+    **One file may appear once in the whole guide**, not once per step. The
+    shapes drawn on a picture and the alt text hang off the ``Media`` row, so
+    two steps showing the same file cannot hold different shapes for it — the
+    save would write one step's shapes and then overwrite them with the next's,
+    and only the last would survive.
+
+    **A file another guide displays is refused outright**, for the same reason
+    across a wider gap. Saving would replace that guide's shapes and its alt
+    text without touching its ``updated_at``, so its author gets no conflict and
+    no warning; the overlay simply disappears from a procedure they are not
+    editing. Duplicating the upload is cheap and is what the editor does.
     """
-    referenced: set[str] = set()
-    videos: set[str] = set()
+    image_ids: set[str] = set()
+    video_ids: set[str] = set()
     for step in payload.steps:
         if len(step.media) > cap:
             raise errors.validation_failed(f"A step may hold at most {cap} images.")
-        seen: set[str] = set()
         for item in step.media:
-            if item.id in seen:
-                raise errors.validation_failed("The same image is attached to a step twice.")
-            seen.add(item.id)
-            referenced.add(item.id)
+            _claim_file(item.id, image_ids, video_ids)
+            image_ids.add(item.id)
         if step.video is not None:
-            videos.add(step.video.id)
-            referenced.add(step.video.id)
+            _claim_file(step.video.id, image_ids, video_ids)
+            video_ids.add(step.video.id)
 
+    referenced = image_ids | video_ids
     if not referenced:
         return {}
 
     found = db.scalars(select(Media).where(Media.id.in_(referenced))).all()
     media_by_id = {item.id: item for item in found}
-    missing = referenced - media_by_id.keys()
-    if missing:
+    if referenced - media_by_id.keys():
         raise errors.validation_failed(
             "One or more files referenced by this guide no longer exist."
         )
 
     for media_id, media in media_by_id.items():
-        wanted = "video" if media_id in videos else "image"
+        wanted = "video" if media_id in video_ids else "image"
         if media.kind != wanted:
             raise errors.validation_failed(
                 "The file in a step's video slot is not a video."
                 if wanted == "video"
                 else "A video cannot be used as one of a step's images."
             )
+
+    if _displayed_by_another_guide(db, guide.id, referenced):
+        raise errors.validation_failed(
+            "One of these files is already part of another guide. Upload it again here, so each "
+            "guide keeps its own shapes and its own alt text."
+        )
     return media_by_id
+
+
+def _claim_file(media_id: str, image_ids: set[str], video_ids: set[str]) -> None:
+    if media_id in image_ids or media_id in video_ids:
+        raise errors.validation_failed(
+            "The same file appears twice in this guide. Upload a second copy to show it in more "
+            "than one place."
+        )
+
+
+def _displayed_by_another_guide(db: DbSession, guide_id: str, referenced: set[str]) -> bool:
+    """Both ways a step can show a file: the image strip and the video slot."""
+    as_an_image = db.scalars(
+        select(StepMedia.media_id)
+        .join(Step, Step.id == StepMedia.step_id)
+        .where(StepMedia.media_id.in_(referenced), Step.guide_id != guide_id)
+    ).first()
+    if as_an_image is not None:
+        return True
+    as_a_video = db.scalars(
+        select(Step.video_media_id).where(
+            Step.video_media_id.in_(referenced), Step.guide_id != guide_id
+        )
+    ).first()
+    return as_a_video is not None
 
 
 def _sync_annotations(db: DbSession, media: Media, item: MediaRefIn) -> None:
@@ -338,8 +394,20 @@ def _claim_id(
 def _sync_steps(
     db: DbSession, guide: Guide, steps_in: list[StepIn], media_by_id: dict[str, Media]
 ) -> None:
+    """Make the guide's steps, bullets and pictures match the document exactly.
+
+    Four passes, and the split is not tidiness — it is the rule in this module's
+    header. The whole plan is worked out first, then every deletion is issued
+    and flushed, and only then is anything written. Interleaving them lets the
+    unit of work order an insert ahead of the delete that frees its primary key,
+    and the save fails on a duplicate key for a row the author is replacing with
+    itself.
+    """
     existing_steps = {step.id: step for step in guide.steps}
 
+    # Pass 1: settle which identifier every step and bullet will have, before
+    # anything is written, so a clash is a readable error rather than a
+    # half-applied save.
     plan: list[tuple[str, StepIn]] = []
     claimed: set[str] = set()
     for step_in in steps_in:
@@ -363,6 +431,9 @@ def _sync_steps(
             entries.append((bullet_id, bullet_in))
         bullet_plan[step_id] = entries
 
+    # Pass 2: every deletion, and nothing else. Steps the document dropped,
+    # bullets it dropped, and all of the picture links — the links are rebuilt
+    # from scratch below because their order is part of what changed.
     for step_id, step in existing_steps.items():
         if step_id not in claimed:
             db.delete(step)
@@ -378,8 +449,11 @@ def _sync_steps(
         for link in list(step.media_links):
             db.delete(link)
 
+    # Pass 3: the flush that makes those deletions real in the database, so the
+    # keys they held are free before pass 4 asks for them again.
     db.flush()
 
+    # Pass 4: write the document.
     for index, (step_id, step_in) in enumerate(plan):
         step = existing_steps.get(step_id)
         if step is None:

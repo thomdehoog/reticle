@@ -14,7 +14,8 @@
 
 import type { ComponentType } from 'react'
 
-import type { Bullet, BulletIcon } from '../domain/types'
+import { numberShapeColors } from '../domain/guide'
+import type { Bullet, BulletIcon, Step } from '../domain/types'
 import { IconCaution, IconNote, IconReminder } from './icons'
 
 const ICON_COMPONENTS: Record<BulletIcon, ComponentType<{ size?: number }>> = {
@@ -46,8 +47,13 @@ const ICON_LABELS: Record<BulletIcon, string> = {
  * Bullet text is rendered as plain text, never as HTML. Guide content is
  * written by staff but read by everyone, and treating it as markup would turn
  * the editor into a stored-XSS vector for no editorial benefit.
+ *
+ * A bullet whose colour is drawn somewhere on the step's pictures shows that
+ * shape's number instead of a dot or a flag icon. Nothing is lost by replacing
+ * the icon: the flag says "CAUTION" in words beside the text, which is what a
+ * reader was relying on anyway.
  */
-function BulletItem({ bullet }: { bullet: Bullet }) {
+function BulletItem({ bullet, shapeNumber }: { bullet: Bullet; shapeNumber?: number }) {
   const Icon = bullet.icon ? ICON_COMPONENTS[bullet.icon] : null
 
   return (
@@ -63,7 +69,23 @@ function BulletItem({ bullet }: { bullet: Bullet }) {
         .join(' ')}
     >
       <span className="bullet__marker">
-        {Icon ? <Icon size={17} /> : <span className="bullet__dot" />}
+        {shapeNumber === undefined ? (
+          Icon ? (
+            <Icon size={17} />
+          ) : (
+            <span className="bullet__dot" />
+          )
+        ) : (
+          <>
+            <span className="bullet__number" aria-hidden="true">
+              {shapeNumber}
+            </span>
+            {/* The overlay itself is hidden from assistive technology - it is a
+                picture, not a document - so this is the only place a screen
+                reader can be told which shape the instruction is about. */}
+            <span className="visually-hidden">Marked {shapeNumber} on the picture: </span>
+          </>
+        )}
       </span>
       <span className="bullet__text">
         {bullet.icon && <span className="bullet__flag-label">{ICON_LABELS[bullet.icon]}</span>}
@@ -73,14 +95,21 @@ function BulletItem({ bullet }: { bullet: Bullet }) {
   )
 }
 
-export function BulletList({ bullets }: { bullets: Bullet[] }) {
-  const visible = bullets.filter((bullet) => bullet.text.trim() !== '')
+/**
+ * Takes the whole step rather than its bullets, because the numbers come from
+ * the shapes drawn on the step's pictures and a list of bullets cannot see
+ * them.
+ */
+export function BulletList({ step }: { step: Step }) {
+  const visible = step.bullets.filter((bullet) => bullet.text.trim() !== '')
   if (visible.length === 0) return null
+
+  const shapeNumbers = numberShapeColors(step)
 
   return (
     <ul className="bullets">
       {visible.map((bullet) => (
-        <BulletItem key={bullet.id} bullet={bullet} />
+        <BulletItem key={bullet.id} bullet={bullet}  />
       ))}
     </ul>
   )

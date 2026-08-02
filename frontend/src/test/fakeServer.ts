@@ -191,8 +191,6 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
   const requests: { method: string; path: string; body: unknown }[] = []
   let authenticated = true
   let saveCount = 0
-  /** Set by a test to make the next save look like a colleague got there first. */
-  let conflictOnNextSave = false
 
   function json(body: unknown, status = 200): Response {
     return new Response(JSON.stringify(body), {
@@ -323,11 +321,13 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       if (method === 'GET') return json(guide)
 
       if (method === 'PUT') {
-        if (conflictOnNextSave) {
-          conflictOnNextSave = false
+        const incoming = body as Guide & { expectedUpdatedAt: string }
+        /* The real server refuses a write whose timestamp is not the one it
+           holds, and the editor's whole conflict path hangs on that, so the
+           rule is applied here rather than faked with a flag. */
+        if (incoming.expectedUpdatedAt !== guide.updatedAt) {
           return error('conflict', 'Someone else saved this guide first.', 409)
         }
-        const incoming = body as Guide
         const saved: Guide = {
           ...guide,
           ...incoming,
@@ -420,11 +420,11 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       if (method === 'GET') return json(page)
 
       if (method === 'PUT') {
-        if (conflictOnNextSave) {
-          conflictOnNextSave = false
+        const incoming = body as Page & { expectedUpdatedAt: string }
+        if (incoming.expectedUpdatedAt !== page.updatedAt) {
           return error('conflict', 'Someone else saved this page first.', 409)
         }
-        const saved: Page = { ...page, ...(body as Page), updatedAt: nextTimestamp() }
+        const saved: Page = { ...page, ...incoming, updatedAt: nextTimestamp() }
         state.pages = state.pages.map((p) => (p.id === page.id ? saved : p))
         return json(saved)
       }
@@ -642,8 +642,23 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
     signOut() {
       authenticated = false
     },
-    failNextSaveWithConflict() {
-      conflictOnNextSave = true
+    /**
+     * A colleague saves every stored document, exactly as a second ZMB author
+     * at another bench would. Nothing else about them changes, so what a test
+     * observes afterwards is the editor's own handling of the refusal.
+     */
+    colleagueSavesFirst() {
+      const colleague = { id: 'u-eva', displayName: 'Eva Meier' }
+      state.guides = state.guides.map((guide) => ({
+        ...guide,
+        lastEditedBy: colleague,
+        updatedAt: nextTimestamp(),
+      }))
+      state.pages = state.pages.map((page) => ({
+        ...page,
+        lastEditedBy: colleague,
+        updatedAt: nextTimestamp(),
+      }))
     },
   }
 }

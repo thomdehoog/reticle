@@ -18,9 +18,10 @@ from sqlalchemy.orm import Session as DbSession
 
 from .. import audit, errors
 from ..auth import AdminUser, AnyUser, AuthorUser, DbDep, client_address
-from ..db import utcnow
+from ..db import escape_like, utcnow
 from ..documents import apply_document, next_updated_at, record_contribution
 from ..models import (
+    PUBLISHED,
     Bullet,
     Category,
     Guide,
@@ -47,13 +48,7 @@ from ..slugs import unique_slug
 
 router = APIRouter(prefix="/api/guides", tags=["guides"])
 
-READER_STATUS = "published"
-
 MAX_TAG_FILTER_TERMS = 20
-
-
-def _escape_like(term: str) -> str:
-    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def parse_tag_filter(raw: str | None) -> list[str]:
@@ -129,7 +124,7 @@ def _load_for(db: DbSession, user: User, key: str) -> Guide:
     guide = db.scalars(select(Guide).where(or_(Guide.id == key, Guide.slug == key))).one_or_none()
     if guide is None:
         raise errors.not_found("That guide does not exist.")
-    if user.role == "viewer" and guide.status != READER_STATUS:
+    if user.role == "viewer" and guide.status != PUBLISHED:
         raise errors.not_found("That guide does not exist.")
     return guide
 
@@ -160,7 +155,7 @@ def list_guides(
     statement = select(Guide, step_count.label("step_count"), thumbnail_subquery().label("thumb"))
 
     if user.role == "viewer":
-        statement = statement.where(Guide.status == READER_STATUS)
+        statement = statement.where(Guide.status == PUBLISHED)
 
     if status_filter is not None:
         statement = statement.where(Guide.status == status_filter)
@@ -173,7 +168,7 @@ def list_guides(
         statement = statement.where(Guide.author_id == author_id)
     statement = apply_tag_filter(statement, parse_tag_filter(tags))
     if q:
-        pattern = f"%{_escape_like(q.strip())}%"
+        pattern = f"%{escape_like(q.strip())}%"
         statement = statement.where(
             or_(Guide.title.ilike(pattern, escape="\\"), Guide.summary.ilike(pattern, escape="\\"))
         )
@@ -230,11 +225,11 @@ def create_guide(payload: GuideCreateIn, request: Request, db: DbDep, user: Auth
 @router.get("/{key}", response_model=GuideOut)
 def read_guide(key: str, db: DbDep, user: AnyUser) -> GuideOut:
     guide = _load_for(db, user, key)
-    _count_reading(db, guide, user)
+    count_reading(db, guide)
     return guide_out(guide)
 
 
-def _count_reading(db: DbSession, guide: Guide, user: User) -> None:
+def count_reading(db: DbSession, guide: Guide) -> None:
     """Count somebody opening a published guide.
 
     Only published guides count: an author refreshing their own draft forty
@@ -245,7 +240,7 @@ def _count_reading(db: DbSession, guide: Guide, user: User) -> None:
     edit, and moving the concurrency token would eject every editor who had the
     guide open.
     """
-    if guide.status != READER_STATUS:
+    if guide.status != PUBLISHED:
         return
     db.execute(update(Guide).where(Guide.id == guide.id).values(view_count=Guide.view_count + 1))
     db.commit()
@@ -282,7 +277,7 @@ def publish_guide(guide_id: str, request: Request, db: DbDep, user: AuthorUser) 
         raise errors.conflict("Restore this guide before publishing it.")
 
     now = utcnow()
-    guide.status = "published"
+    guide.status = PUBLISHED
     guide.version += 1
     guide.published_at = now
     guide.updated_at = next_updated_at(guide.updated_at)
@@ -314,7 +309,7 @@ def publish_guide(guide_id: str, request: Request, db: DbDep, user: AuthorUser) 
 @router.post("/{guide_id}/unpublish", response_model=GuideOut)
 def unpublish_guide(guide_id: str, request: Request, db: DbDep, user: AuthorUser) -> GuideOut:
     guide = _load_editable(db, guide_id)
-    if guide.status != READER_STATUS:
+    if guide.status != PUBLISHED:
         raise errors.conflict("Only a published guide can be unpublished.")
 
     guide.status = "draft"

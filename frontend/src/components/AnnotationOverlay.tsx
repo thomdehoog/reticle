@@ -11,7 +11,7 @@
  */
 
 import { BULLET_COLOR_HEX } from '../domain/palette'
-import type { Annotation } from '../domain/types'
+import type { Annotation, BulletColor } from '../domain/types'
 import { useElementSize } from '../hooks/useElementSize'
 
 /**
@@ -132,18 +132,38 @@ export function AnnotationShape({
 }
 
 /**
- * An image with its annotations drawn on top. Used by the reader; the editor
- * layers its own drawing surface over the same geometry.
+ * Where a shape's number is written.
+ *
+ * Above the top-left corner for a box or an ellipse, and at the tail of an
+ * arrow — never at the head, because the head is pointing at the thing the
+ * reader has been told to look at. Held inside the picture so a shape drawn
+ * against the top edge does not have its number cropped off.
+ */
+function numberPosition(annotation: Annotation, width: number, height: number) {
+  const x = annotation.x * width
+  const y = annotation.y * height
+  const left = annotation.shape === 'arrow' ? x : Math.min(x, x + annotation.width * width)
+  const top = annotation.shape === 'arrow' ? y : Math.min(y, y + annotation.height * height)
+
+  return { x: Math.max(left, 9), y: Math.max(top - 6, 14) }
+}
+
+/**
+ * An image with its annotations drawn on top, each carrying the number the
+ * bullets of that colour also carry. Used by the reader; the editor layers its
+ * own drawing surface over the same geometry.
  */
 export function AnnotatedImage({
   src,
   alt,
   annotations,
+  shapeNumbers,
   className,
 }: {
   src: string
   alt: string
   annotations: Annotation[]
+  shapeNumbers: Partial<Record<BulletColor, number>>
   className?: string
 }) {
   const { ref, size } = useElementSize<HTMLDivElement>()
@@ -166,6 +186,27 @@ export function AnnotatedImage({
               height={size.height}
             />
           ))}
+          {annotations.map((annotation) => {
+            const position = numberPosition(annotation, size.width, size.height)
+            return (
+              <text
+                key={`${annotation.id}-number`}
+                x={position.x}
+                y={position.y}
+                fill={ANNOTATION_COLORS[annotation.color]}
+                /* The same white halo the shapes wear, painted underneath the
+                   digit so it stays readable over a near-black screenshot. */
+                stroke={HALO_COLOR}
+                strokeWidth={3}
+                paintOrder="stroke"
+                fontSize={14}
+                fontWeight={700}
+                textAnchor="middle"
+              >
+                {shapeNumbers[annotation.color]}
+              </text>
+            )
+          })}
         </svg>
       )}
     </div>

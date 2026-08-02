@@ -1,16 +1,17 @@
 # One facility's vhost. Written by provision-facility.sh, which substitutes
-# {{SLUG}}, {{DOMAIN}} and {{PORT}}.
+# {{SLUG}}, {{DOMAIN}}, {{PORT}} and {{HEADERS}}.
 #
-# Every facility gets an identical file with three values changed. The frontend
+# Every facility gets an identical file with those values changed. The frontend
 # build is shared — one copy of the JavaScript on disk, served to all of them —
 # because nothing in it is facility-specific: the organisation's name arrives at
 # runtime from /api/config, which is exactly why that endpoint exists.
 #
-# The security headers are NOT in this file. They live in
-# /etc/nginx/snippets/reticle-{{SLUG}}-headers.conf and are included below once
-# per block. Read the comment at the top of that file before moving them back
-# here — nginx's add_header does not inherit into a block that sets one of its
-# own, and putting them in one place is what breaks the policy.
+# The security headers are NOT in this file. {{HEADERS}} is the path to this
+# facility's copy of nginx-security-headers.conf.template — normally
+# /etc/nginx/snippets/reticle-{{SLUG}}-headers.conf — and it is included once
+# per block below. Read the comment at the top of that template before moving
+# them back here: nginx's add_header does not inherit into a block that sets one
+# of its own, so writing them in one place is what breaks the policy.
 
 server {
     listen 80;
@@ -37,9 +38,9 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
 
-    # Covers responses nginx answers itself — a 404, a redirect, a TLS error
-    # page — which match no location below.
-    include /etc/nginx/snippets/reticle-{{SLUG}}-headers.conf;
+    # Covers responses nginx answers itself — a 404, a redirect, an error page —
+    # which match no location below.
+    include {{HEADERS}};
 
     # Uploads are capped in the application too; this stops a large body being
     # read into the proxy at all.
@@ -55,7 +56,7 @@ server {
         # reloading the page on /g/some-guide gives nginx's error page.
         try_files $uri $uri/ /index.html;
 
-        include /etc/nginx/snippets/reticle-{{SLUG}}-headers.conf;
+        include {{HEADERS}};
     }
 
     # Hashed asset filenames change whenever their contents do, so they can be
@@ -64,15 +65,16 @@ server {
     location /assets/ {
         expires 1y;
         add_header Cache-Control "public, immutable";
-        include /etc/nginx/snippets/reticle-{{SLUG}}-headers.conf;
+        include {{HEADERS}};
     }
 
     # try_files above and `index` both redirect internally to this exact path,
     # so this block — not `location /` — is what actually answers with the HTML
-    # document. It is the one response where the CSP matters most.
+    # document. It is the one response where the policy matters most, and the
+    # Cache-Control on the line below is precisely what would have discarded it.
     location = /index.html {
         add_header Cache-Control "no-cache";
-        include /etc/nginx/snippets/reticle-{{SLUG}}-headers.conf;
+        include {{HEADERS}};
     }
 
     location /api/ {
@@ -84,11 +86,13 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
 
         # Overwrite, never append. $proxy_add_x_forwarded_for keeps whatever
-        # the client sent and adds the real address after it, and the
-        # application reads the leftmost entry - so a client could choose the
+        # the client sent and adds the real address after it, and the leftmost
+        # entry is the one a client would then control - so it could choose the
         # address used for the per-IP login throttle and written into the audit
         # log. $remote_addr is the address nginx actually accepted the
-        # connection from, and a client cannot influence it.
+        # connection from, and a client cannot influence it. Do not change this
+        # line without also reading RETICLE_TRUST_FORWARDED_FOR in the
+        # facility's env file.
         proxy_set_header X-Forwarded-For   $remote_addr;
 
         # Passed through so Reticle's logs join up with the proxy's. The
@@ -104,6 +108,6 @@ server {
         # video would otherwise be written to the proxy's spool and read back.
         proxy_request_buffering off;
 
-        include /etc/nginx/snippets/reticle-{{SLUG}}-headers.conf;
+        include {{HEADERS}};
     }
 }

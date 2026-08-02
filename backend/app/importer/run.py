@@ -33,6 +33,7 @@ import argparse
 import hashlib
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,7 @@ from ..models import (
 from ..schemas import guide_document, page_document
 from ..settings import Settings, get_settings
 from ..slugs import unique_slug
+from ..storage import build_storage
 from .client import DozukiClient, MigrationError
 from .mapping import (
     MappedGuide,
@@ -265,7 +267,7 @@ class Importer:
 
         media_id = new_id()
         storage_path = images.relative_storage_path(media_id, normalised.extension)
-        images.write_file(self.settings.media_root, storage_path, normalised.payload)
+        build_storage(self.settings).write(storage_path, normalised.payload)
 
         media = Media(
             id=media_id,
@@ -335,7 +337,7 @@ class Importer:
 
         media_id = new_id()
         storage_path = images.relative_storage_path(media_id, identified.extension)
-        images.write_file(self.settings.media_root, storage_path, fetched.payload)
+        build_storage(self.settings).write(storage_path, fetched.payload)
 
         media = Media(
             id=media_id,
@@ -443,17 +445,51 @@ class Importer:
         guide.last_edited_by_id = self._author.id
         guide.updated_at = now
 
+        self._replace_tags(guide, mapped.tags)
+        self._replace_steps(guide, mapped, tally)
+
+        if not any(link.user_id == self._author.id for link in guide.contributor_links):
+            self.db.add(
+                GuideContributor(
+                    guide_id=guide.id,
+                    user_id=self._author.id,
+                    first_edited_at=now,
+                    last_edited_at=now,
+                )
+            )
+
+        self.db.flush()
+        self._set_published_state(guide, mapped.is_public, now)
+        self._remember("guide", mapped.source_id, guide.id, self._guide_url(mapped.source_id), "")
+        return guide
+
+    def _replace_tags(self, guide: Guide, slugs: list[str]) -> None:
         for link in list(guide.tag_links):
             self.db.delete(link)
         self.db.flush()
-        for index, slug in enumerate(mapped.tags):
+        for index, slug in enumerate(slugs):
             self.db.add(GuideTag(guide_id=guide.id, tag_id=self._tag(slug).id, order_index=index))
 
+    def _replace_steps(self, guide: Guide, mapped: MappedGuide, tally: GuideTally) -> None:
+        """Rebuild the guide's steps from scratch, counting everything written.
+
+        Replacing rather than merging, because a re-run is a re-import: the
+        source is the truth and matching up existing rows would mean guessing
+        which local step corresponds to which remote one. The tally is written
+        here rather than derived afterwards so that the reconciliation report
+        counts what actually reached the database.
+        """
         for step in list(guide.steps):
             self.db.delete(step)
         self.db.flush()
 
         for index, mapped_step in enumerate(mapped.steps):
+            if len(mapped_step.images) > self.settings.max_media_per_step:
+                raise MigrationError(
+                    f"Step {index + 1} has {len(mapped_step.images)} images, above the "
+                    f"configured maximum of {self.settings.max_media_per_step}."
+                )
+
             step = Step(guide_id=guide.id, order_index=index, title=mapped_step.title)
             self.db.add(step)
             self.db.flush()
@@ -475,58 +511,44 @@ class Importer:
             if self.options.skip_media:
                 continue
 
-            for position, image in enumerate(
-                mapped_step.images[: self.settings.max_media_per_step]
-            ):
+            for position, image in enumerate(mapped_step.images):
                 media, annotation_count = self._import_image(image)
                 self.db.add(StepMedia(step_id=step.id, media_id=media.id, order_index=position))
                 tally.imported_images += 1
                 tally.imported_annotations += annotation_count
 
-            if len(mapped_step.images) > self.settings.max_media_per_step:
-                raise MigrationError(
-                    f"Step {index + 1} has {len(mapped_step.images)} images, above the "
-                    f"configured maximum of {self.settings.max_media_per_step}."
-                )
-
             if mapped_step.video is not None:
                 step.video_media_id = self._import_video(mapped_step.video).id
                 tally.imported_videos += 1
 
-        if not any(link.user_id == self._author.id for link in guide.contributor_links):
+    def _set_published_state(self, guide: Guide, is_public: bool, now: datetime) -> None:
+        """The site's own visibility, and a first revision for what it published.
+
+        Publishing something that was private would be a disclosure; importing
+        everything as a draft would leave the institute with an empty-looking
+        library on the morning of the switch.
+        """
+        if not is_public:
+            guide.status = "draft"
+            self.db.flush()
+            return
+
+        guide.status = "published"
+        guide.published_at = guide.published_at or now
+        if guide.version == 0:
+            guide.version = 1
+            self.db.flush()
+            self.db.refresh(guide)
             self.db.add(
-                GuideContributor(
+                GuideRevision(
                     guide_id=guide.id,
-                    user_id=self._author.id,
-                    first_edited_at=now,
-                    last_edited_at=now,
+                    version=guide.version,
+                    published_at=now,
+                    published_by_id=self._author.id,
+                    document=guide_document(guide),
                 )
             )
-
         self.db.flush()
-
-        if mapped.is_public:
-            guide.status = "published"
-            guide.published_at = guide.published_at or now
-            if guide.version == 0:
-                guide.version = 1
-                self.db.flush()
-                self.db.refresh(guide)
-                self.db.add(
-                    GuideRevision(
-                        guide_id=guide.id,
-                        version=guide.version,
-                        published_at=now,
-                        published_by_id=self._author.id,
-                        document=guide_document(guide),
-                    )
-                )
-        else:
-            guide.status = "draft"
-
-        self.db.flush()
-        self._remember("guide", mapped.source_id, guide.id, self._guide_url(mapped.source_id), "")
-        return guide
 
     def _guide_url(self, source_id: str) -> str:
         return f"{self.client.base_url}/Guide/{source_id}"
@@ -536,40 +558,48 @@ class Importer:
 
     # -- wiki pages -------------------------------------------------------
 
-    def import_pages(self, namespaces: tuple[str, ...] = ("CATEGORY", "WIKI")) -> None:
-        for namespace in namespaces:
+    def import_pages(self) -> None:
+        """Both wiki namespaces: category landings first, then ordinary articles.
+
+        A namespace the site does not have is a note in the report rather than
+        the end of the run — ``CATEGORY`` and ``WIKI`` are what ZMB uses, and a
+        different installation of the same product may not have both.
+        """
+        for namespace in ("CATEGORY", "WIKI"):
             try:
                 listing = list(self.client.iter_wikis(namespace))
             except MigrationError as error:
                 self.report.skipped.append(f"Wiki namespace {namespace}: {error}")
                 continue
-
             for entry in listing:
                 self.report.pages_seen += 1
-                title = entry.get("title")
-                if not isinstance(title, str):
-                    self.report.skipped.append(f"A {namespace} entry had no title.")
-                    continue
-                try:
-                    payload = self.client.get_wiki(namespace, title)
-                except MigrationError as error:
-                    self.report.skipped.append(f"{namespace}/{title}: {error}")
-                    continue
+                self._import_one_page(namespace, entry.get("title"))
 
-                mapped, problems = map_page(payload)
-                self.report.unmapped.extend(problems)
-                if self.options.dry_run:
-                    self.report.pages_imported += 1
-                    continue
-                try:
-                    self._write_page(mapped)
-                    self.db.commit()
-                    self.report.pages_imported += 1
-                except Exception as error:
-                    self.db.rollback()
-                    self.report.skipped.append(
-                        f"{namespace}/{title}: {type(error).__name__}: {error}"
-                    )
+    def _import_one_page(self, namespace: str, title: object) -> None:
+        if not isinstance(title, str):
+            self.report.skipped.append(f"A {namespace} entry had no title.")
+            return
+        try:
+            payload = self.client.get_wiki(namespace, title)
+        except MigrationError as error:
+            self.report.skipped.append(f"{namespace}/{title}: {error}")
+            return
+
+        mapped, problems = map_page(payload)
+        self.report.unmapped.extend(problems)
+
+        if self.options.dry_run:
+            self.report.pages_imported += 1
+            return
+
+        try:
+            self._write_page(mapped)
+            self.db.commit()
+        except Exception as error:
+            self.db.rollback()
+            self.report.skipped.append(f"{namespace}/{title}: {type(error).__name__}: {error}")
+            return
+        self.report.pages_imported += 1
 
     def _write_page(self, mapped: MappedPage) -> Page:
         existing = self._existing("page", mapped.source_id)

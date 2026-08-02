@@ -1,9 +1,16 @@
 /**
- * The front page: the categories, as pictures.
+ * The front page: the sections, as pictures.
  *
- * The first screen after signing in. It shows the top-level categories with their
- * cover images rather than a list of links, because the fastest way to find the
- * confocal instructions is to recognise the confocal.
+ * The first screen after signing in. Somebody arriving here is looking for an
+ * instrument or a procedure they already have in mind, and they recognise it
+ * faster than they can read a list of titles — so this is a wall of tiles
+ * rather than a table of contents, and the words on each one are held to the
+ * name and a count. The description of a section belongs on the section, where
+ * somebody has decided to read.
+ *
+ * Surfacing an author's own drafts here is deliberate: a half-written guide
+ * nobody can see from the front page is a half-written guide that never gets
+ * finished.
  */
 
 import { useApi, useAuth } from '../auth/AuthContext'
@@ -12,32 +19,18 @@ import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
 import { browsableCategories, buildCategoryTree } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
-/**
- * The front door: the sections, as pictures.
- *
- * Somebody arriving here is looking for an instrument or a procedure they
- * already have in mind, and they recognise it faster than they can read a list
- * of titles — so this is a wall of tiles rather than a table of contents, and
- * the words on each one are held to the name and a count. The description of a
- * section belongs on the section, where somebody has decided to read.
- *
- * Surfacing an author's drafts here is deliberate: a half-written guide that
- * nobody can see from the front page is a half-written guide that never gets
- * finished.
- */
 export function HomePage() {
   const api = useApi()
   const { user, can } = useAuth()
   const authorId = can('author') ? (user?.id ?? null) : null
 
   /**
-   * Two narrow listings rather than one broad one. This screen used to pull
-   * every guide in the institute — drafts, other people's in-review work, the
-   * lot — to derive a count per card and to find the reader's own drafts. A
-   * viewer therefore downloaded the entire editorial pipeline to be shown eight
-   * numbers. The counts now come from published guides only, which is what the
-   * cards claim to count, and the drafts query is scoped to one author and only
-   * runs for someone who can write.
+   * Two narrow listings rather than one broad one. One listing of every guide
+   * in the institute would send a viewer the whole editorial pipeline — drafts
+   * and other people's in-review work included — to show them eight numbers.
+   * The counts come from published guides, which is what the cards claim to
+   * count, and the drafts query is scoped to one author and only runs for
+   * somebody who can write.
    */
   const { data, error, loading } = useAsync(
     async () => {
@@ -68,7 +61,7 @@ export function HomePage() {
    * "0 guides" card over a category full of them reads as a broken section.
    */
   const countIncludingChildren = (categoryId: string): number => {
-    const children = data.categories.filter((c) => c.parentId === categoryId)
+    const children = data.categories.filter((child) => child.parentId === categoryId)
     return (
       (publishedPerCategory.get(categoryId) ?? 0) +
       children.reduce((total, child) => total + countIncludingChildren(child.id), 0)
@@ -98,7 +91,9 @@ export function HomePage() {
               category={category}
               guideCount={countIncludingChildren(category.id)}
               childCount={
-                browsableCategories(data.categories).filter((c) => c.parentId === category.id).length
+                browsableCategories(data.categories).filter(
+                  (child) => child.parentId === category.id,
+                ).length
               }
             />
           ))}

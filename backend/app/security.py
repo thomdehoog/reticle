@@ -1,8 +1,28 @@
-"""Password hashing, session tokens and the login throttle.
+"""The three mechanisms that make signing in safe: hashing, tokens, throttling.
+
+**Hashing.** Passwords are never stored. What is stored is the output of running
+the password through Argon2, a calculation that is deliberately slow and
+memory-hungry and that cannot be run backwards. Checking a password means
+running the same calculation again and comparing. If the database is ever
+stolen, the thief has the answers to a very expensive question rather than a
+list of passwords — and since people reuse them, that difference is other
+systems too, not only this one.
+
+**Session tokens.** A signed-in browser holds a long random string. The database
+holds only a hash of it, for the same reason as above: read access to the
+sessions table must not be enough to impersonate everyone currently signed in.
+The token is random rather than derived from anything about the user, because
+anything derived can be guessed.
+
+**The login throttle.** Counting failed attempts and refusing after too many.
+The interesting part is *what* is counted — see ``login_is_throttled`` — because
+the obvious choice, counting per account, hands an attacker a way to lock any
+colleague out by guessing at them.
 
 Nothing here formats a response or touches the request object; the routers do
-that. Keeping the primitives separate is what makes the throttle testable and
-what keeps the "never log a password" rule enforceable by inspection.
+that. Keeping it separate is what makes the throttle testable on its own, and
+what makes "no password is ever logged" a property you can check by reading one
+file.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
@@ -223,10 +243,10 @@ def login_is_throttled(db: DbSession, email: str, ip_address: str | None) -> boo
     """Block the source that is guessing, not the account being guessed at.
 
     The decisive counter is per (account, source address). Counting wrong
-    guesses against the account alone — which is what this used to do — means
-    the counter the owner is measured against is the one an attacker fills, so
-    five requests lock a named colleague out and one request every three minutes
-    keeps them out indefinitely. Against an address published on the ZMB website
+    guesses against the account alone means the counter the owner is measured
+    against is the one an attacker fills, so five requests lock a named
+    colleague out and one request every three minutes keeps them out
+    indefinitely. Against an address published on the ZMB website
     that is not a theoretical attack, and Reticle holds instrument safety
     procedures that people need to reach.
 

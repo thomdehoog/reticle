@@ -14,6 +14,7 @@
 
 import { useRef, useState, type KeyboardEvent } from 'react'
 
+import { numberShapeColors } from '../domain/guide'
 import type { Media, Step } from '../domain/types'
 import { AnnotatedImage } from './AnnotationOverlay'
 import { IconPlay } from './icons'
@@ -137,6 +138,9 @@ export function StepGallery({ step }: { step: Step }) {
             src={selected.url}
             alt={selected.alt}
             annotations={selected.annotations}
+            /* Numbered across the whole step, not per picture: the bullets
+               beside the strip do not change when a thumbnail is swapped in. */
+            shapeNumbers={numberShapeColors(step)}
           />
         )}
       </div>

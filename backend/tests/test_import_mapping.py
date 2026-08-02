@@ -504,3 +504,19 @@ def test_an_unknown_field_on_a_step_or_a_bullet_is_reported_too():
 
     reported = {item.value for item in problems if item.kind == "unknown_field"}
     assert reported == {"gadget", "annotation_ref"}
+
+
+def test_a_guide_embed_is_left_as_literal_text():
+    """Reticle's embed selects guides by tag; the vendor's selects one guide by
+    numeric id, and nothing maps an id to a tag.
+
+    Translating it anyway would emit a ``guidelist`` keyed on "1234", which
+    renders as an empty list — the reader would see nothing where the source
+    showed a guide, and the reconciliation counts cannot detect that. Left as
+    text the marker is visible on the migrated page, so whoever reviews it can
+    put the right embed there. ``docs/MIGRATION.md`` says the same, and this is
+    what pins the two together.
+    """
+    source = "Intro\n[guide|1234|Align the laser]\nmore"
+
+    assert wiki_to_markdown(source) == source

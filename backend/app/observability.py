@@ -1,8 +1,8 @@
 """Logging, request correlation and the probes an orchestrator reads.
 
-The gap this closes: when somebody reports "it broke around eleven", the answer
-has to come from somewhere. Before this there was one logger, in ``auth``, and
-one warning in it — so the honest answer was "nothing was recorded".
+When somebody reports "it broke around eleven", the answer has to come from
+somewhere. This module is that somewhere: one line per request, one id per
+request, and the id printed in the response so the person reporting can quote it.
 
 Three decisions worth stating, because each has a tempting wrong version.
 
@@ -147,7 +147,7 @@ class RequestContextMiddleware:
         # A client-supplied id is echoed only if it looks like an id. It ends up
         # in log files, so an arbitrary string would let a caller inject
         # newlines and forge log entries.
-        identifier = incoming if incoming and _plausible(incoming) else uuid.uuid4().hex
+        identifier = incoming if incoming and _safe_to_log(incoming) else uuid.uuid4().hex
         token = request_id.set(identifier)
         started = time.perf_counter()
         status_holder = {"status": 500}
@@ -159,8 +159,8 @@ class RequestContextMiddleware:
                 status_holder["status"] = message["status"]
                 headers = message.setdefault("headers", [])
                 # Only if the response does not already carry one. Error
-                # responses set it themselves so it can also go in the body,
-                # and appending unconditionally produced a duplicate header —
+                # responses set the header themselves so the same id can also go
+                # in the body, and appending unconditionally sends it twice —
                 # which httpx joins into "id, id" and a client parses as one
                 # malformed value.
                 if not any(key == wanted for key, _ in headers):
@@ -168,15 +168,18 @@ class RequestContextMiddleware:
             await send(message)
 
         # Both log calls happen before the ContextVar is reset, because the
-        # formatter reads the id from it. Emitting the success line after the
-        # `finally` stamped every completed request with "-" — the id was in
-        # the response header and missing from the log line meant to match it.
+        # formatter reads the id from it. A line emitted after the `finally`
+        # carries "-" instead, which is the one case where the response header
+        # and the log line meant to match it disagree.
         try:
             await self.app(scope, receive, send_wrapper)
         except Exception:
             # Logged here and re-raised: this is the only place that sees both
-            # the failure and the request that caused it. Without it an
+            # the failure and the request that caused it, so without it an
             # unhandled error is a 500 with no record of what was being asked.
+            # `UnhandledErrorMiddleware` sits inside this one and normally turns
+            # the exception into a response first; this covers anything raised
+            # between the two.
             self.log.exception("request failed", extra=self._fields(scope, 500, started))
             raise
         else:
@@ -199,8 +202,16 @@ class RequestContextMiddleware:
         }
 
 
-def _plausible(value: str) -> bool:
-    return 8 <= len(value) <= 200 and all(c.isalnum() or c in "-_" for c in value)
+def _safe_to_log(value: str) -> bool:
+    """Whether a client-supplied id can be written into a log line as it stands.
+
+    Letters, digits, hyphen and underscore only, and a bounded length. Anything
+    else — a newline above all — would let a caller write their own log records
+    into the middle of ours.
+    """
+    return 8 <= len(value) <= 200 and all(
+        character.isalnum() or character in "-_" for character in value
+    )
 
 
 def _header(scope: Scope, name: str) -> str | None:
@@ -212,5 +223,13 @@ def _header(scope: Scope, name: str) -> str | None:
 
 
 def _client_ip(scope: Scope) -> str | None:
+    """The peer address, never ``X-Forwarded-For``.
+
+    A log line records what happened, so it records the connection this process
+    actually accepted. ``auth.client_address`` answers a different question —
+    which caller to hold responsible — and consults the forwarded header when
+    the operator has declared a proxy that rewrites it. Behind such a proxy this
+    field is the proxy, and that is the honest answer for a log.
+    """
     client = scope.get("client")
     return client[0] if client else None

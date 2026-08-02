@@ -8,11 +8,12 @@ import {
   insertStepAfter,
   moveStep,
   newId,
+  numberShapeColors,
   removeStep,
   renumberSteps,
   validateForPublish,
 } from './guide'
-import type { Guide, Media, Step } from './types'
+import type { Annotation, BulletColor, Guide, Media, Step } from './types'
 
 function stepWithTitle(title: string, orderIndex: number): Step {
   return createStep({ title, orderIndex })
@@ -246,5 +247,40 @@ describe('validateForPublish', () => {
       video: media('v1'),
     }
     expect(validateForPublish(guideFixture({ steps }))).toEqual([])
+  })
+})
+
+function shape(id: string, color: BulletColor): Annotation {
+  return { id, shape: 'rectangle', color, x: 0.1, y: 0.1, width: 0.2, height: 0.2 }
+}
+
+function imageWith(id: string, annotations: Annotation[]): Media {
+  return { ...media(id), annotations }
+}
+
+describe('numberShapeColors', () => {
+  it('numbers the shape colours in the order a reader meets them', () => {
+    const step = createStep({
+      media: [
+        imageWith('m1', [shape('a', 'red'), shape('b', 'green')]),
+        imageWith('m2', [shape('c', 'blue')]),
+      ],
+    })
+
+    expect(numberShapeColors(step)).toEqual({ red: 1, green: 2, blue: 3 })
+  })
+
+  it('gives one number to every shape of the same colour', () => {
+    /* Two red rectangles are both what the red bullet is pointing at, so a
+       second number would invent a second instruction. */
+    const step = createStep({
+      media: [imageWith('m1', [shape('a', 'red'), shape('b', 'red'), shape('c', 'yellow')])],
+    })
+
+    expect(numberShapeColors(step)).toEqual({ red: 1, yellow: 2 })
+  })
+
+  it('numbers nothing for a step whose pictures carry no shapes', () => {
+    expect(numberShapeColors(createStep({ media: [media('m1')] }))).toEqual({})
   })
 })

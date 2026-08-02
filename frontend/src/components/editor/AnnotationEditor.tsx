@@ -7,7 +7,12 @@
  * a large screen still lands on the right place on a phone.
  */
 
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 
 import { AnnotationShape, ANNOTATION_COLORS } from '../AnnotationOverlay'
 import { isMeaningfulDrag, normaliseAnnotation } from '../../domain/annotation'
@@ -43,22 +48,24 @@ export function AnnotationEditor({ media, onChange, onClose }: AnnotationEditorP
 
   const annotations = media.annotations
 
-  const removeSelected = useCallback(() => {
+  function removeSelected() {
     if (!selectedId) return
     onChange({ ...media, annotations: annotations.filter((item) => item.id !== selectedId) })
     setSelectedId(null)
-  }, [annotations, media, onChange, selectedId])
+  }
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedId) {
-        event.preventDefault()
-        removeSelected()
-      }
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [removeSelected, selectedId])
+  /**
+   * Bound to the drawing surface, not to the document. On the document,
+   * Backspace deletes the selected shape wherever the caret happens to be — so
+   * an author correcting a typo in a text field, here or on the page behind
+   * this dialog, silently loses an annotation instead of a character.
+   */
+  function onSurfaceKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'Delete' && event.key !== 'Backspace') return
+    if (!selectedId) return
+    event.preventDefault()
+    removeSelected()
+  }
 
   function fractionAt(event: ReactPointerEvent): { x: number; y: number } | null {
     const surface = surfaceRef.current
@@ -96,10 +103,10 @@ export function AnnotationEditor({ media, onChange, onClose }: AnnotationEditorP
        clamped to the image. What got stored was an invisible zero-size shape
        that counted towards the annotation badge and could not be clicked, so it
        could not be deleted from the drawing surface either. */
-    const shape = normaliseAnnotation(drawing)
-    if (isMeaningfulDrag(shape)) {
-      onChange({ ...media, annotations: [...annotations, shape] })
-      setSelectedId(shape.id)
+    const finished = normaliseAnnotation(drawing)
+    if (isMeaningfulDrag(finished)) {
+      onChange({ ...media, annotations: [...annotations, finished] })
+      setSelectedId(finished.id)
     }
     setDrawing(null)
   }
@@ -147,7 +154,17 @@ export function AnnotationEditor({ media, onChange, onClose }: AnnotationEditorP
           </button>
         </div>
 
-        <div className="annotate__surface" ref={surfaceRef}>
+        {/* Focusable so the keys above reach it, and focused by any touch or
+            click on the picture, which is how a shape gets selected anyway. */}
+        <div
+          className="annotate__surface"
+          ref={surfaceRef}
+          role="group"
+          aria-label="Drawing surface"
+          tabIndex={0}
+          onKeyDown={onSurfaceKeyDown}
+          onPointerDown={() => surfaceRef.current?.focus()}
+        >
           <div className="annotated" ref={ref}>
             <img src={media.url} alt={media.alt} draggable={false} />
             {size.width > 0 && (
@@ -191,7 +208,8 @@ export function AnnotationEditor({ media, onChange, onClose }: AnnotationEditorP
 
         <p className="field__hint">
           Drag on the image to draw. Use the colour of the bullet the shape belongs to, so the
-          instruction and the picture agree. Select a shape and press Delete to remove it.
+          instruction and the picture agree. Select a shape and press Delete or Backspace to remove
+          it.
         </p>
 
         <div className="page-actions">

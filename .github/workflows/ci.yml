@@ -79,9 +79,18 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: backend/requirements-dev.txt
+          cache-dependency-path: backend/requirements-dev.lock
 
-      - run: pip install -r requirements-dev.txt
+      # --require-hashes against the lock, exactly as the deploy installs.
+      # Ranges resolved fresh on each run mean CI and production test different
+      # dependency sets, and the one nobody tested is the one in production.
+      - run: pip install --require-hashes -r requirements-dev.lock
+
+      # A dependency added to requirements.txt without regenerating the lock
+      # would be installed by nothing and noticed by nobody until an import
+      # failed on the server.
+      - name: The locks cover what the requirements ask for
+        run: python ../.github/scripts/check_locks.py
 
       # The Python half of what ESLint does for the frontend. Catches unused
       # imports, undefined names, mutable defaults and the bandit checks worth
@@ -127,9 +136,9 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: backend/requirements-dev.txt
+          cache-dependency-path: backend/requirements-dev.lock
 
-      - run: pip install -r requirements-dev.txt
+      - run: pip install --require-hashes -r requirements-dev.lock
 
       # Migrations run against the real engine before the suite does, so a
       # migration that only works on SQLite fails here rather than on a
@@ -165,9 +174,9 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/requirements.lock
 
-      - run: pip install -r requirements.txt
+      - run: pip install --require-hashes -r requirements.lock
 
       - name: Seed a corpus
         env:
@@ -281,7 +290,9 @@ jobs:
         working-directory: backend
         run: |
           pip install pip-audit
-          pip-audit -r requirements.txt --desc
+          # The lock, not the ranges: this should report on the versions that
+          # actually get installed, down to the transitive ones.
+          pip-audit -r requirements.lock --desc
 
       - name: JavaScript dependencies
         working-directory: frontend
@@ -306,6 +317,9 @@ jobs:
       RETICLE_ADMIN_PASSWORD: ci-only-password-not-real
       RETICLE_E2E_EMAIL: ci@example.org
       RETICLE_E2E_PASSWORD: ci-only-password-not-real
+      # The browser talks to nginx, not to Vite. Everything below exists to
+      # make that origin as close to a facility's as a runner can get.
+      RETICLE_E2E_BASE: http://127.0.0.1:8080
     steps:
       - uses: actions/checkout@v4
 
@@ -321,11 +335,20 @@ jobs:
 
       - name: Install backend
         working-directory: backend
-        run: pip install -r requirements.txt
+        run: pip install --require-hashes -r requirements.lock
 
       - name: Install frontend
         working-directory: frontend
         run: npm ci
+
+      # The exact bytes the `frontend` job built and the deploy ships, rather
+      # than a second build that might differ. Without this the artifact is
+      # produced on every run and loaded by nothing.
+      - name: Take the production build from the frontend job
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
 
       - name: Seed the database
         working-directory: backend
@@ -341,15 +364,80 @@ jobs:
           done
           curl -sf http://127.0.0.1:8000/api/health
 
-      - name: Start the frontend
-        working-directory: frontend
+      # A single origin serving the built files and proxying /api, which is what
+      # a facility has. Against the Vite dev server instead, nothing ever loads
+      # the minified bundle and nothing is subject to the
+      # Content-Security-Policy — so a policy that blocks the application is
+      # discovered by a user.
+      - name: Serve the build behind nginx
         run: |
-          npm run dev -- --port 5173 &
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nginx-light
+
+          mkdir -p ci-nginx/tmp ci-nginx/logs
+
+          # The policy itself comes from the real template, so there is one copy
+          # of it and CI cannot enforce a policy no facility gets. MEDIA_ORIGIN
+          # is empty here, as it is for local-disk media.
+          sed -e 's|{{MEDIA_ORIGIN}}||g' \
+              -e 's|{{SLUG}}|ci|g' -e 's|{{DOMAIN}}|localhost|g' \
+              deploy/nginx-security-headers.conf.template > ci-nginx/headers.conf
+
+          sed -e "s|{{ROOT}}|$PWD/frontend/dist|g" \
+              -e "s|{{HEADERS}}|$PWD/ci-nginx/headers.conf|g" \
+              .github/workflows/nginx-ci.conf > ci-nginx/site.conf
+
+          cat > ci-nginx/nginx.conf <<CONF
+          worker_processes 1;
+          error_log $PWD/ci-nginx/logs/error.log;
+          pid $PWD/ci-nginx/nginx.pid;
+          events { worker_connections 64; }
+          http {
+            include /etc/nginx/mime.types;
+            access_log off;
+            client_body_temp_path $PWD/ci-nginx/tmp;
+            proxy_temp_path $PWD/ci-nginx/tmp/proxy;
+            fastcgi_temp_path $PWD/ci-nginx/tmp/fastcgi;
+            uwsgi_temp_path $PWD/ci-nginx/tmp/uwsgi;
+            scgi_temp_path $PWD/ci-nginx/tmp/scgi;
+            include $PWD/ci-nginx/site.conf;
+          }
+          CONF
+
+          # nginx workers run as www-data and have to read the build.
+          chmod -R a+rX "$PWD/frontend/dist" "$PWD/ci-nginx"
+
+          sudo nginx -t -c "$PWD/ci-nginx/nginx.conf"
+          sudo nginx -c "$PWD/ci-nginx/nginx.conf"
+
           for _ in $(seq 1 30); do
-            curl -sf http://127.0.0.1:5173/ >/dev/null && break
+            curl -sf http://127.0.0.1:8080/ >/dev/null && break
             sleep 1
           done
-          curl -sf http://127.0.0.1:5173/ >/dev/null
+          curl -sf http://127.0.0.1:8080/ >/dev/null
+          curl -sf http://127.0.0.1:8080/api/health
+
+      # nginx's add_header does not stack: a location that sets one of its own
+      # discards every header it would have inherited, and the location that
+      # answers with index.html sets a Cache-Control. Every security header
+      # therefore reached nothing that runs JavaScript. It is silent — no error,
+      # no log line, just a page with no policy — so it is asserted rather than
+      # reviewed.
+      - name: Every response carries the security headers
+        run: |
+          asset=$(basename "$(ls frontend/dist/assets/*.js | head -1)")
+          fail=0
+          for path in / /index.html /g/some-guide "/assets/$asset" /api/config; do
+            headers=$(curl -sI "http://127.0.0.1:8080$path")
+            for header in content-security-policy strict-transport-security \
+                          x-frame-options x-content-type-options referrer-policy; do
+              if ! printf '%s' "$headers" | grep -qi "^$header:"; then
+                echo "::error::$path is missing $header"
+                fail=1
+              fi
+            done
+          done
+          exit "$fail"
 
       - name: Install Chromium
         working-directory: frontend
@@ -375,3 +463,7 @@ jobs:
           name: smoke-screenshots
           path: frontend/e2e/shots
           retention-days: 7
+
+      - name: nginx log, if something went wrong
+        if: failure()
+        run: cat ci-nginx/logs/error.log || true

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from .. import audit, errors
 from ..auth import AdminUser, AnyUser, DbDep, client_address
-from ..models import Category, Guide, Media, Page
+from ..models import PUBLISHED, Category, Guide, Media, Page
 from ..schemas import (
     CategoryCreateIn,
     CategoryOut,
@@ -28,8 +28,6 @@ from ..schemas import (
 from ..slugs import unique_slug
 
 router = APIRouter(prefix="/api/categories", tags=["categories"])
-
-READER_STATUS = "published"
 
 
 def _load(db: DbSession, category_id: str) -> Category:
@@ -98,7 +96,7 @@ def read_landing_page(category_id: str, db: DbDep, user: AnyUser) -> PageOut | N
     _load(db, category_id)
     statement = select(Page).where(Page.category_id == category_id, Page.is_landing.is_(True))
     if user.role == "viewer":
-        statement = statement.where(Page.status == READER_STATUS)
+        statement = statement.where(Page.status == PUBLISHED)
     else:
         statement = statement.where(Page.status != "archived")
     page = db.scalars(statement).first()

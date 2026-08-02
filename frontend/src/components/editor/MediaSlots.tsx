@@ -12,7 +12,7 @@
 
 import { useRef, useState, type DragEvent } from 'react'
 
-import { MAX_MEDIA_PER_STEP, type Media } from '../../domain/types'
+import { MAX_MEDIA_PER_STEP, type BulletColor, type Media } from '../../domain/types'
 import { AnnotatedImage } from '../AnnotationOverlay'
 import { formatClipLength } from '../StepGallery'
 import { IconClose, IconImage, IconPalette } from '../icons'
@@ -21,6 +21,8 @@ import { AnnotationEditor } from './AnnotationEditor'
 interface MediaSlotsProps {
   media: Media[]
   video: Media | null
+  /** Which number each shape colour carries across the whole step. */
+  shapeNumbers: Partial<Record<BulletColor, number>>
   uploading: boolean
   onAdd: (files: File[]) => void
   onRemove: (mediaId: string) => void
@@ -37,16 +39,17 @@ const ACCEPTED_TYPES = 'image/png,image/jpeg,image/webp,image/gif,video/mp4,vide
  * screenshot straight from the desktop is how people actually add images, and
  * the file picker is the fallback rather than the main path.
  *
- * Each image carries its own alt field. It was previously impossible to set one
- * at all, which meant every step image in the system was announced as nothing:
- * a screen-reader user working through a procedure heard the bullets and was
- * told there was an unlabelled graphic where the annotated screenshot is. The
- * text saves with the document like any other edit, so there is no second
- * "save the alt text" step to forget.
+ * Each image carries its own alt field, beside the picture rather than behind a
+ * second dialog: an unlabelled screenshot is announced as nothing at all, so a
+ * screen-reader user working through a procedure hears the bullets and is told
+ * there is a graphic where the annotated screenshot should be. The text saves
+ * with the document like any other edit, so there is no separate "save the alt
+ * text" step to forget.
  */
 export function MediaSlots({
   media,
   video,
+  shapeNumbers,
   uploading,
   onAdd,
   onRemove,
@@ -88,7 +91,12 @@ export function MediaSlots({
       >
         {media.map((image, index) => (
           <div className="media-slot" key={image.id}>
-            <AnnotatedImage src={image.url} alt={image.alt} annotations={image.annotations} />
+            <AnnotatedImage
+              src={image.url}
+              alt={image.alt}
+              annotations={image.annotations}
+              shapeNumbers={shapeNumbers}
+            />
             <button
               type="button"
               className="media-slot__action media-slot__annotate"

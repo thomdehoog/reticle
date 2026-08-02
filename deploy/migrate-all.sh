@@ -19,7 +19,10 @@
 
 set -euo pipefail
 
-ROOT="${RETICLE_ROOT:-/opt/reticle}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=deploy/reticle-lib.sh
+. "$SCRIPT_DIR/reticle-lib.sh"
+
 DRY_RUN=false
 case "${1:-}" in
     "") ;;
@@ -35,33 +38,32 @@ case "${1:-}" in
 esac
 
 shopt -s nullglob
-FACILITIES=("$ROOT"/facilities/*/)
+FACILITIES=("$RETICLE_ROOT"/facilities/*/)
 if [[ ${#FACILITIES[@]} -eq 0 ]]; then
-    echo "No facilities under $ROOT/facilities." >&2
+    echo "No facilities under $RETICLE_ROOT/facilities." >&2
     exit 1
 fi
 
-STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-echo "==> ${#FACILITIES[@]} facilities, run $STAMP"
+ALEMBIC="$(reticle_venv_bin)/alembic"
+
+echo "==> ${#FACILITIES[@]} facilities"
 
 for dir in "${FACILITIES[@]}"; do
     slug="$(basename "$dir")"
     env_file="$dir/env"
 
-    if [[ ! -f "$env_file" ]]; then
+    # Asked as `reticle`, because the deploy account cannot see inside a
+    # facility directory at all — see run_as_reticle.
+    if ! run_as_reticle test -f "$env_file"; then
         echo "!! $slug has no env file; refusing to guess. Stopping." >&2
         exit 1
     fi
 
-    # pipefail inside the inner shell too. Without it the pipeline's exit
-    # status is tail's, so an unreachable database reported success with empty
-    # output - and --dry-run then showed "<none>", which reads as "needs
-    # migrating from scratch" rather than "cannot reach this database".
-    if ! current=$(sudo -u reticle bash -c "set -eo pipefail; set -a; . '$env_file'; set +a; cd '$ROOT/current/backend' && '$ROOT/current/venv/bin/alembic' current 2>/dev/null | tail -1"); then
+    if ! current=$(run_as_reticle --env "$env_file" "$ALEMBIC" current 2>/dev/null | tail -1); then
         echo "!! Cannot reach the database for '$slug'. Stopping." >&2
         exit 1
     fi
-    head=$(sudo -u reticle bash -c "set -eo pipefail; cd '$ROOT/current/backend' && '$ROOT/current/venv/bin/alembic' heads 2>/dev/null | tail -1")
+    head=$(run_as_reticle --env "$env_file" "$ALEMBIC" heads 2>/dev/null | tail -1)
 
     if [[ "$DRY_RUN" == true ]]; then
         printf '    %-20s at %-40s target %s\n' "$slug" "${current:-<none>}" "$head"
@@ -72,9 +74,9 @@ for dir in "${FACILITIES[@]}"; do
 
     # Back up before migrating, every time. This is what makes the migration
     # reversible, and it runs while the old code is still serving.
-    sudo -u reticle bash -c "set -a; . '$env_file'; set +a; cd '$ROOT/current/backend' && '$ROOT/current/venv/bin/python' -m app.portability export --archive '$dir/backups/pre-migrate-$STAMP.tar.gz'" >/dev/null
+    "$SCRIPT_DIR/backup-facility.sh" "$slug" pre-migrate
 
-    if ! sudo -u reticle bash -c "set -a; . '$env_file'; set +a; cd '$ROOT/current/backend' && '$ROOT/current/venv/bin/alembic' upgrade head"; then
+    if ! run_as_reticle --env "$env_file" "$ALEMBIC" upgrade head; then
         cat >&2 <<STOPPED
 
 !! Migration failed for '$slug'. Stopped here deliberately.
@@ -84,7 +86,8 @@ for dir in "${FACILITIES[@]}"; do
    for the un-migrated facilities, and the migrated ones can read it because
    migrations here are additive.
 
-   Its backup:  $dir/backups/pre-migrate-$STAMP.tar.gz
+   Its backups: ${dir%/}/backups/pre-migrate-*.dump   (pg_restore)
+                ${dir%/}/backups/pre-migrate-*.tar.gz (media, portable corpus)
    Its logs:    journalctl -u reticle@$slug
 
 STOPPED

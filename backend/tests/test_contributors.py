@@ -181,3 +181,36 @@ def test_a_contributor_reference_carries_nothing_beyond_a_name(author, category)
     created = create_guide(author, category.id)
 
     assert set(created["contributors"][0]) == {"id", "displayName"}
+
+
+def test_publishing_a_guide_credits_nobody_new(author, admin, category):
+    """Clicking Publish is not writing the document.
+
+    The by-line is permanent and is the answer to "who do I ask about this
+    procedure". An administrator who reviewed a colleague's guide and released
+    it has not written a word of it, and adding them says they did.
+    """
+    created = create_guide(author, category.id)
+
+    published = admin.post(f"/api/guides/{created['id']}/publish").json()
+
+    assert names(published) == ["Author"]
+
+
+def test_publishing_a_page_credits_nobody_new(author, admin, category):
+    """The wiki half of the same rule, which is where it was actually broken:
+    the page router credited the publisher and the guide router did not."""
+    created = create_page(author, category_id=category.id)
+
+    published = admin.post(f"/api/pages/{created['id']}/publish").json()
+
+    assert names(published) == ["Author"]
+
+
+def test_unpublishing_credits_nobody_new_either(author, admin, category):
+    created = create_page(author, category_id=category.id)
+    admin.post(f"/api/pages/{created['id']}/publish")
+
+    withdrawn = admin.post(f"/api/pages/{created['id']}/unpublish").json()
+
+    assert names(withdrawn) == ["Author"]

@@ -12,7 +12,7 @@
 
 import { useState, type DragEvent } from 'react'
 
-import { createBullet, indentBullet } from '../../domain/guide'
+import { createBullet, indentBullet, numberShapeColors } from '../../domain/guide'
 import type { Bullet, Media, Step } from '../../domain/types'
 import { IconChevronDown, IconChevronUp, IconDrag, IconPlus, IconTrash } from '../icons'
 import { BulletEditor } from './BulletEditor'
@@ -58,6 +58,10 @@ export function StepEditor({
   dropTarget,
 }: StepEditorProps) {
   const [draggable, setDraggable] = useState(false)
+
+  /* The author sees the same numbers the reader will, on the pictures and on
+     the bullets, so the pairing can be checked while it is being made. */
+  const shapeNumbers = numberShapeColors(step)
 
   function replaceBullet(index: number, bullet: Bullet) {
     const bullets = [...step.bullets]
@@ -158,6 +162,7 @@ export function StepEditor({
       <MediaSlots
         media={step.media}
         video={step.video}
+        shapeNumbers={shapeNumbers}
         uploading={uploading}
         onAdd={onUpload}
         onRemove={removeMedia}
@@ -178,6 +183,7 @@ export function StepEditor({
         <BulletEditor
           key={bullet.id}
           bullet={bullet}
+          shapeNumber={shapeNumbers[bullet.color]}
           autoFocus={bullet.id === focusBulletId}
           onChange={(updated) => replaceBullet(index, updated)}
           onSplit={() => splitAt(index)}

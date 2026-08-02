@@ -1,9 +1,21 @@
-"""The single error vocabulary the API contract defines.
+"""Every way a request can fail, and the exact shape the caller is told about it.
 
-Every failure leaves the application as an :class:`ApiError`, so there is one
-place that decides both the machine code and the HTTP status. Handlers in
-``main`` translate framework-raised failures into the same envelope, which is
-why a client never has to special-case FastAPI's native validation shape.
+When something goes wrong the browser gets one thing back, always:
+``{"error": {"code": …, "message": …}, "requestId": …}``. The *code* is a short
+word a program can branch on — ``not_found``, ``conflict`` — and the *message*
+is a sentence a person reads on screen. The list of codes is the table below,
+and it is the whole list; there is no other kind of error.
+
+This is its own file so that the codes and the HTTP status each one means are
+decided in one place instead of being invented at each ``raise``. Two endpoints
+answering the same failure with different words is how a frontend ends up with a
+special case per route.
+
+The non-obvious part: a lot of failures are not raised by this application at
+all. FastAPI refuses a malformed body, Starlette refuses an unknown path, and
+both have their own response shapes. ``main`` catches those and rewrites them
+into the envelope above, which is why a client never has to recognise anybody
+else's format. The ``requestId`` is added there too — see ``main._failure``.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """

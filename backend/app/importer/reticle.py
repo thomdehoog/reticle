@@ -52,7 +52,22 @@ from ..models import (
 )
 from ..security import hash_password
 from ..settings import Settings
+from ..slugs import slugify
+from ..storage import build_storage
 from .client import MigrationError
+
+
+def safe_slug(value: object, fallback: str) -> str:
+    """Put a slug out of an archive through the same rule the API applies.
+
+    Everything else in a restore is written by this application and can be
+    trusted to look like itself, but an archive is a file an administrator was
+    handed, and its slugs go straight into URLs and — in ``static_site`` — into
+    filenames. ``slug = "../../../../tmp/PWNED"`` in a hostile export would have
+    the snapshot generator write outside the destination directory. ``slugify``
+    emits only ``[a-z0-9-]``, so there is nothing left to traverse with.
+    """
+    return slugify(str(value or ""), fallback=fallback)
 
 
 @dataclass
@@ -271,7 +286,7 @@ def _restore_categories(db: DbSession, document: dict[str, Any], report: Restore
         db.add(
             Category(
                 id=entry["id"],
-                slug=entry["slug"],
+                slug=safe_slug(entry["slug"], "category"),
                 name=entry["name"],
                 description=entry["description"],
                 parent_id=None,
@@ -292,7 +307,7 @@ def _restore_categories(db: DbSession, document: dict[str, Any], report: Restore
 def _restore_tags(db: DbSession, document: dict[str, Any], report: RestoreReport) -> dict[str, Tag]:
     tags: dict[str, Tag] = {}
     for entry in document.get("tags", []):
-        tag = Tag(id=entry["id"], slug=entry["slug"], name=entry["name"])
+        tag = Tag(id=entry["id"], slug=safe_slug(entry["slug"], "tag"), name=entry["name"])
         db.add(tag)
         tags[tag.slug] = tag
         report.tags += 1
@@ -327,7 +342,7 @@ def _restore_media(
         if payload is not None and name:
             extension = Path(name).suffix.lstrip(".")
             storage_path = images.relative_storage_path(entry["id"], extension)
-            images.write_file(settings.media_root, storage_path, payload)
+            build_storage(settings).write(storage_path, payload)
 
         db.add(
             Media(
@@ -351,7 +366,7 @@ def _restore_media(
 def _restore_guide(db: DbSession, entry: dict[str, Any], tags_by_slug: dict[str, Tag]) -> None:
     guide = Guide(
         id=entry["id"],
-        slug=entry["slug"],
+        slug=safe_slug(entry["slug"], "guide"),
         title=entry["title"],
         summary=entry["summary"],
         category_id=entry["categoryId"],
@@ -373,7 +388,7 @@ def _restore_guide(db: DbSession, entry: dict[str, Any], tags_by_slug: dict[str,
     db.flush()
 
     for index, slug in enumerate(entry.get("tags", [])):
-        tag = tags_by_slug.get(slug)
+        tag = tags_by_slug.get(safe_slug(slug, "tag"))
         if tag is not None:
             db.add(GuideTag(guide_id=guide.id, tag_id=tag.id, order_index=index))
 
@@ -440,7 +455,7 @@ def _restore_annotations(db: DbSession, item: dict[str, Any]) -> None:
 def _restore_page(db: DbSession, entry: dict[str, Any]) -> None:
     page = Page(
         id=entry["id"],
-        slug=entry["slug"],
+        slug=safe_slug(entry["slug"], "page"),
         title=entry["title"],
         summary=entry["summary"],
         category_id=entry["categoryId"],

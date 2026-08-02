@@ -10,8 +10,6 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, File, Form, Request, UploadFile, status
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from sqlalchemy import func, select
@@ -19,11 +17,10 @@ from sqlalchemy.orm import Session as DbSession
 
 from .. import audit, errors, images, videos
 from ..auth import AnyUser, AuthorUser, DbDep, client_address
-from ..models import Guide, Media, Page, Step, StepMedia, new_id
+from ..models import PUBLISHED, Guide, Media, Page, Step, StepMedia, User, new_id
 from ..schemas import MediaOut, media_out
-from ..settings import get_settings
-from ..storage import get_storage
-from .guides import READER_STATUS
+from ..settings import Settings, get_settings
+from ..storage import build_storage
 
 router = APIRouter(prefix="/api/media", tags=["media"])
 
@@ -40,23 +37,33 @@ def upload_media(
 ) -> MediaOut:
     settings = get_settings()
 
+    # Which ceiling applies depends on whether this is a clip or a photograph,
+    # and that is decided by the first twelve bytes rather than by anything the
+    # caller declares. Sniffing before reading is what makes ``max_video_bytes``
+    # reachable at all: measuring the whole body against the image cap first
+    # refuses a 21 MB clip as an oversized *image*, which is exactly the file
+    # the video path exists to accept.
+    header = file.file.read(videos.HEADER_BYTES)
+    file.file.seek(0)
+    is_video = videos.looks_like_video(header)
+    cap = settings.max_video_bytes if is_video else settings.max_upload_bytes
+    noun = "Videos" if is_video else "Images"
+
     declared = request.headers.get("content-length")
     if declared is not None and declared.isdigit():
-        if int(declared) > settings.max_upload_bytes + MULTIPART_HEADROOM_BYTES:
-            raise errors.payload_too_large(
-                f"Images must be at most {settings.max_upload_bytes // (1024 * 1024)} MB."
-            )
+        if int(declared) > cap + MULTIPART_HEADROOM_BYTES:
+            raise errors.payload_too_large(f"{noun} must be at most {cap // (1024 * 1024)} MB.")
 
-    payload = images.read_within_limit(file.file, settings.max_upload_bytes)
+    payload = images.read_within_limit(file.file, cap, noun)
 
-    if videos.looks_like_video(payload):
+    if is_video:
         return _store_video(payload, request, db, user, alt, settings)
 
     normalised = images.normalise(payload, settings.max_image_dimension, settings.max_image_pixels)
 
     media_id = new_id()
     storage_path = images.relative_storage_path(media_id, normalised.extension)
-    get_storage().write(storage_path, normalised.payload)
+    build_storage(settings).write(storage_path, normalised.payload)
 
     media = Media(
         id=media_id,
@@ -93,26 +100,22 @@ def _store_video(
     payload: bytes,
     request: Request,
     db: DbSession,
-    user: Any,
+    user: User,
     alt: str,
-    settings: Any,
+    settings: Settings,
 ) -> MediaOut:
     """Persist a step video.
 
-    The size cap is its own setting rather than the image one: a fifteen-second
-    clip of a stage moving is an order of magnitude larger than any photograph,
-    and holding video to the image limit would reject exactly the files this
-    exists to accept.
+    The size cap is its own setting rather than the image one — a fifteen-second
+    clip of a stage moving is an order of magnitude larger than any photograph —
+    and it has already been applied by the time the bytes arrive here: the
+    caller sniffs the container first so that it can stream the body against
+    ``max_video_bytes`` instead of ``max_upload_bytes``.
     """
-    if len(payload) > settings.max_video_bytes:
-        raise errors.payload_too_large(
-            f"Videos must be at most {settings.max_video_bytes // (1024 * 1024)} MB."
-        )
-
     identified = videos.identify(payload)
     media_id = new_id()
     storage_path = images.relative_storage_path(media_id, identified.extension)
-    get_storage().write(storage_path, payload)
+    build_storage(settings).write(storage_path, payload)
 
     media = Media(
         id=media_id,
@@ -159,7 +162,7 @@ def _shown_by_a_published_guide(db: DbSession, media_id: str) -> bool:
         .select_from(StepMedia)
         .join(Step, Step.id == StepMedia.step_id)
         .join(Guide, Guide.id == Step.guide_id)
-        .where(StepMedia.media_id == media_id, Guide.status == READER_STATUS)
+        .where(StepMedia.media_id == media_id, Guide.status == PUBLISHED)
     )
     if in_a_step:
         return True
@@ -170,7 +173,7 @@ def _shown_by_a_published_guide(db: DbSession, media_id: str) -> bool:
         select(func.count())
         .select_from(Step)
         .join(Guide, Guide.id == Step.guide_id)
-        .where(Step.video_media_id == media_id, Guide.status == READER_STATUS)
+        .where(Step.video_media_id == media_id, Guide.status == PUBLISHED)
     )
     if as_a_video:
         return True
@@ -178,7 +181,7 @@ def _shown_by_a_published_guide(db: DbSession, media_id: str) -> bool:
     as_a_hero = db.scalar(
         select(func.count())
         .select_from(Page)
-        .where(Page.hero_media_id == media_id, Page.status == READER_STATUS)
+        .where(Page.hero_media_id == media_id, Page.status == PUBLISHED)
     )
     return bool(as_a_hero)
 
@@ -199,7 +202,7 @@ def read_media(media_id: str, db: DbDep, user: AnyUser) -> Response:
     if user.role == "viewer" and not _shown_by_a_published_guide(db, media_id):
         raise errors.not_found("That file does not exist.")
 
-    store = get_storage()
+    store = build_storage(get_settings())
     path = store.local_path(media.storage_path)
     if path is None:
         signed = store.signed_url(media.storage_path)

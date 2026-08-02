@@ -11,6 +11,7 @@ import { ulid } from 'ulid'
 
 import {
   type Bullet,
+  type BulletColor,
   type BulletLevel,
   type Difficulty,
   type Guide,
@@ -99,10 +100,42 @@ export function canAcceptMedia(step: Step): boolean {
   return step.media.length < MAX_MEDIA_PER_STEP
 }
 
+/** How deep a bullet may be indented. Levels 0, 1 and 2 are all in ZMB's corpus. */
+export const MAX_BULLET_LEVEL = 2
+
 /** Indent is clamped rather than rejected, so holding Tab cannot corrupt a bullet. */
 export function indentBullet(bullet: Bullet, delta: number): Bullet {
-  const level = Math.min(Math.max(bullet.level + delta, 0), 2) as BulletLevel
+  const level = Math.min(Math.max(bullet.level + delta, 0), MAX_BULLET_LEVEL) as BulletLevel
   return level === bullet.level ? bullet : { ...bullet, level }
+}
+
+/**
+ * Which number each shape colour carries within a step.
+ *
+ * A bullet is tied to a shape on the picture by colour and nothing else, and
+ * colour is a channel some readers do not have: orange and yellow here are one
+ * colour under deuteranopia, every colour is one colour on the greyscale
+ * photocopy taped to an instrument, and a screen reader is told nothing at all.
+ * So each shape is numbered and the bullets it belongs to carry the same
+ * number, and the pairing survives without it.
+ *
+ * A colour keeps one number however many shapes are drawn in it — two red
+ * rectangles are both "1", because both are what the red bullet is pointing at.
+ * Numbering runs over the step's images in the order a reader meets them. The
+ * video slot is skipped: there is no way to draw on a clip.
+ */
+export function numberShapeColors(step: Step): Partial<Record<BulletColor, number>> {
+  const numbers: Partial<Record<BulletColor, number>> = {}
+
+  for (const image of step.media) {
+    for (const annotation of image.annotations) {
+      if (numbers[annotation.color] === undefined) {
+        numbers[annotation.color] = Object.keys(numbers).length + 1
+      }
+    }
+  }
+
+  return numbers
 }
 
 export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
@@ -154,15 +187,15 @@ export interface ValidationIssue {
   message: string
 }
 
+/** The server's ceilings, mirrored so the editor can name the offending field. */
+export const MAX_TITLE_LENGTH = 240
+export const MAX_TAGS_PER_GUIDE = 40
+
 /**
  * Publish-time validation. Drafts are intentionally allowed to be incomplete —
  * an author must be able to save a half-written guide and come back tomorrow —
  * so these rules are applied when publishing, not when saving.
  */
-/** The server's ceilings, mirrored so the editor can name the offending field. */
-export const MAX_TITLE_LENGTH = 240
-export const MAX_TAGS_PER_GUIDE = 40
-
 export function validateForPublish(guide: Guide): ValidationIssue[] {
   const issues: ValidationIssue[] = []
 

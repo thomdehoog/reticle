@@ -30,14 +30,6 @@ function round(value: number): number {
 }
 
 /**
- * Rewrites a dragged shape into stored form.
- *
- * Rectangles and ellipses are stored with positive extents, so dragging up and
- * to the left produces the same shape as dragging down and to the right. An
- * arrow keeps its direction, because which end carries the head is the whole
- * point of it.
- */
-/**
  * Where a drag ended, held inside the image.
  *
  * A far corner that is not a finite number collapses onto the start rather than
@@ -45,13 +37,21 @@ function round(value: number): number {
  * which for a corner that was meant to be to the right of the start produces a
  * shape with a negative extent: a rectangle that the contract says cannot exist.
  * Collapsing to a zero-size shape instead leaves something `isMeaningfulDrag`
- * then discards, which is the outcome the guard was there to produce.
+ * then discards, which is the outcome the guard is there to produce.
  */
 function clampEnd(start: number, delta: number): number {
   const end = start + delta
   return Number.isFinite(end) ? clampFraction(end) : clampFraction(start)
 }
 
+/**
+ * Rewrites a dragged shape into stored form.
+ *
+ * Rectangles and ellipses are stored with positive extents, so dragging up and
+ * to the left produces the same shape as dragging down and to the right. An
+ * arrow keeps its direction, because which end carries the head is the whole
+ * point of it.
+ */
 export function normaliseAnnotation(annotation: Annotation): Annotation {
   const startX = clampFraction(annotation.x)
   const startY = clampFraction(annotation.y)

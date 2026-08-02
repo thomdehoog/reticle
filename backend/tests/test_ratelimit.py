@@ -148,25 +148,30 @@ def middleware():
 @pytest.mark.parametrize(
     ("path", "method", "expected"),
     [
-        ("/api/guides", "GET", 600),
-        ("/api/guides", "POST", 240),
-        ("/api/media", "POST", 60),
-        ("/api/media/01ABC", "GET", 600),
+        ("/api/guides", "GET", ("read", 600)),
+        ("/api/guides", "POST", ("write", 240)),
+        ("/api/media", "POST", ("upload", 60)),
+        ("/api/media/01ABC", "GET", ("read", 600)),
     ],
 )
 def test_an_upload_is_held_to_a_lower_ceiling_than_a_page_view(middleware, path, method, expected):
     """A guide's worth of photographs is tens of megabytes and every one is
     decoded and re-encoded. A limit generous enough for reads would let a loop
-    fill the disk."""
-    assert middleware._limit_for(path, method) == expected
+    fill the disk.
+
+    Bucket and limit come back together, so the pair can never disagree — a
+    request counted against the upload bucket but measured against the read
+    limit would be an upload ceiling that does not exist.
+    """
+    assert middleware._allowance(path, method) == expected
 
 
 def test_exhausting_one_allowance_does_not_close_the_others(middleware):
     """A reader who has hit the read ceiling must still be able to sign out."""
     buckets = {
-        middleware._bucket("/api/guides", "GET"),
-        middleware._bucket("/api/guides", "POST"),
-        middleware._bucket("/api/media", "POST"),
+        middleware._allowance("/api/guides", "GET")[0],
+        middleware._allowance("/api/guides", "POST")[0],
+        middleware._allowance("/api/media", "POST")[0],
     }
 
     assert buckets == {"read", "write", "upload"}
@@ -224,6 +229,25 @@ def test_a_caller_already_being_tracked_is_not_refused_by_the_cap(clock):
     window.check("10.0.0.2", limit=10, now=clock.now)
 
     assert window.check("10.0.0.1", limit=10, now=clock.advance(1)).allowed is True
+
+
+def test_a_full_table_evicts_the_stalest_key_rather_than_refusing_the_newcomer(clock):
+    """A newcomer is as likely to be a colleague as part of the flood.
+
+    Keys are ``address:bucket``, so one caller already inside the table holds up
+    to three of them — and the first save of the day asks for a bucket that
+    caller has never used. Refusing on a full table answered 429 to somebody who
+    had sent one request, which is an outage rather than a limit.
+    """
+    window = SlidingWindow(max_keys=2)
+    window.check("10.0.0.1:read", limit=10, now=clock.now)
+    window.check("10.0.0.1:write", limit=10, now=clock.advance(1))
+
+    arriving = window.check("10.0.0.2:read", limit=10, now=clock.advance(1))
+
+    assert arriving.allowed is True
+    assert len(window._hits) == 2
+    assert "10.0.0.1:read" not in window._hits  # the stalest, so the one evicted
 
 
 # --- through the real application ------------------------------------------

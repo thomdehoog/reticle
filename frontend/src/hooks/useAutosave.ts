@@ -16,7 +16,8 @@
  * changes" warning only fires when the whole tab is closing; clicking a link
  * inside the application does not close the tab, so without this, clicking
  * "Guides" in the breadcrumb after typing would throw the typing away with no
- * warning at all.
+ * warning at all. That save has no screen left to report a failure on, which is
+ * what the note at the bottom of this file is for.
  */
 
 import { useEffect, useRef } from 'react'
@@ -27,22 +28,14 @@ export const AUTOSAVE_MAX_WAIT_MS = 5000
 
 interface Options {
   /** Changes on every edit. A change restarts the pause timer. */
-  document: unknown
+  snapshot: unknown
   /** Whether there is anything worth saving right now. */
   isDirty: () => boolean
   /** Performs the save. Called at most once per pause. */
   save: () => void
-  pauseMs?: number
-  maxWaitMs?: number
 }
 
-export function useAutosave({
-  document,
-  isDirty,
-  save,
-  pauseMs = AUTOSAVE_PAUSE_MS,
-  maxWaitMs = AUTOSAVE_MAX_WAIT_MS,
-}: Options): void {
+export function useAutosave({ snapshot, isDirty, save }: Options): void {
   // Held in refs so that changing the save function - which happens on every
   // render, because it closes over the document - does not itself restart the
   // timer. Only a change to the document should do that.
@@ -69,24 +62,55 @@ export function useAutosave({
     if (unsavedSince.current === null) unsavedSince.current = Date.now()
 
     // Normally wait for a pause. But if edits have been arriving continuously
-    // for maxWaitMs, stop waiting for one that may never come.
+    // for AUTOSAVE_MAX_WAIT_MS, stop waiting for one that may never come.
     const waitedSoFar = Date.now() - unsavedSince.current
-    const wait = Math.max(0, Math.min(pauseMs, maxWaitMs - waitedSoFar))
+    const wait = Math.max(0, Math.min(AUTOSAVE_PAUSE_MS, AUTOSAVE_MAX_WAIT_MS - waitedSoFar))
 
     const timer = setTimeout(() => {
       unsavedSince.current = null
-      saveNow.current()
+      // Asked again rather than assumed from when the timer was set. Publishing
+      // takes the work first and clears the flag before it awaits; a timer that
+      // fired anyway would send a second write carrying the same
+      // expectedUpdatedAt, and the server answers the loser of that pair with a
+      // conflict - telling an author working alone that a colleague edited
+      // their guide.
+      if (dirty.current()) saveNow.current()
     }, wait)
 
     return () => clearTimeout(timer)
-  }, [document, pauseMs, maxWaitMs])
+  }, [snapshot])
 
   useEffect(() => {
-    // Runs when the editor closes. The request is sent and its answer is never
-    // read, because this component is going away - but the work reaches the
-    // server, which is the whole point.
+    // Runs when the editor closes, so the work reaches the server even though
+    // this component is going away.
     return () => {
       if (dirty.current()) saveNow.current()
     }
   }, [])
+}
+
+/**
+ * A note that a document's last write did not land.
+ *
+ * A save that fails while the editor is on screen says so on the screen. The
+ * save fired as the editor closes has nothing left to say it on, so the failure
+ * is written down here and the editor tells the author the next time they open
+ * that document. Without it, a guide typed and then navigated away from can be
+ * lost in complete silence.
+ *
+ * sessionStorage rather than localStorage: the note is about this sitting at
+ * this machine, and a stale one a fortnight later would only frighten somebody.
+ */
+const FAILED_SAVE_PREFIX = 'reticle.failed-save.'
+
+export function rememberFailedSave(documentId: string, message: string): void {
+  sessionStorage.setItem(FAILED_SAVE_PREFIX + documentId, message)
+}
+
+export function readFailedSave(documentId: string): string | null {
+  return sessionStorage.getItem(FAILED_SAVE_PREFIX + documentId)
+}
+
+export function forgetFailedSave(documentId: string): void {
+  sessionStorage.removeItem(FAILED_SAVE_PREFIX + documentId)
 }

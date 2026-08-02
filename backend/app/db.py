@@ -1,9 +1,26 @@
-"""Database engine, session lifecycle and the shared column types.
+"""The connection to the database, and the two column types everything reuses.
 
-SQLite is deliberate rather than a placeholder: Reticle serves one institute's
-staff, the write volume is a handful of autosaves per minute, and a single file
-is something ZMB's IT can back up without operating a database server. The ORM
-layer keeps that reversible.
+Three things live here, and a newcomer will not have met the first two.
+
+A **session** in this file is not a login — it is SQLAlchemy's word for one
+conversation with the database. A request opens one, does its reading and
+writing, and closes it at the end; ``get_db`` is what hands one to an endpoint
+and guarantees it is closed however the request ends.
+
+The **column types** are two small adapters used by nearly every table.
+``UtcDateTime`` makes sure every instant is stored and read back as UTC, because
+SQLite has no notion of a time zone and a value that comes back without one
+silently compares unequal to the one that went in — and instants are what decide
+whether an editor's copy of a guide is stale. ``JsonDocument`` stores a whole
+published snapshot as text, so an old revision still reads correctly after the
+schema around it has changed.
+
+**Either database works.** A single facility runs on SQLite: one file its IT can
+back up, no server to operate, which for a handful of autosaves a minute is the
+right answer. A multi-facility installation runs PostgreSQL, one database per
+facility, because that is what separate hosts and real concurrency need. The
+suite runs against both, and the SQLite-specific settings below are the price of
+supporting the first.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
@@ -70,6 +87,18 @@ class JsonDocument(TypeDecorator):
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def escape_like(term: str) -> str:
+    """Make a search term mean itself inside a ``LIKE`` pattern.
+
+    ``%`` and ``_`` are wildcards, so a reader searching for ``100_x`` would
+    otherwise match anything with ``100`` and one more character, and a search
+    for ``%`` would return the whole corpus. The backslash has to be escaped
+    first, because it is the escape character every caller passes as
+    ``escape="\\\\"``.
+    """
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def build_engine(url: str) -> Engine:

@@ -28,6 +28,7 @@ import {
   IconReminder,
   IconTrash,
 } from '../icons'
+import { MAX_BULLET_LEVEL } from '../../domain/guide'
 import type { Bullet, BulletIcon } from '../../domain/types'
 import { BULLET_COLOR_ORDER } from '../../domain/palette'
 
@@ -46,6 +47,8 @@ const ICON_CHOICES: {
 
 interface BulletEditorProps {
   bullet: Bullet
+  /** The shape on this step's pictures that this bullet's colour belongs to. */
+  shapeNumber?: number
   autoFocus: boolean
   onChange: (bullet: Bullet) => void
   onSplit: () => void
@@ -60,10 +63,17 @@ interface BulletEditorProps {
  * The keyboard contract matters more than the buttons here: an author writing a
  * protocol should be able to type the whole step without reaching for the
  * mouse. Enter starts the next bullet, Backspace in an empty one removes it,
- * and Tab changes indent rather than leaving the field.
+ * and Tab indents under the bullet above.
+ *
+ * Tab gives way once there is no indent left to change — outdenting a bullet
+ * already at the margin, or indenting one already at the deepest level. That is
+ * not a nicety: a Tab that is always swallowed means the caret can never leave
+ * the field by keyboard, and a guide could not be written without a mouse at
+ * all.
  */
 export function BulletEditor({
   bullet,
+  shapeNumber,
   autoFocus,
   onChange,
   onSplit,
@@ -97,6 +107,11 @@ export function BulletEditor({
       return
     }
     if (event.key === 'Tab') {
+      // At either end of the range the indent would not move, so the key is
+      // left to the browser and focus goes on to the next control.
+      const wanted = bullet.level + (event.shiftKey ? -1 : 1)
+      if (wanted < 0 || wanted > MAX_BULLET_LEVEL) return
+
       event.preventDefault()
       onIndent(event.shiftKey ? -1 : 1)
     }
@@ -113,7 +128,7 @@ export function BulletEditor({
           onClick={() => setPickerOpen((open) => !open)}
           style={{ marginLeft: `${bullet.level * 1.25}rem` }}
         >
-          <BulletPreview bullet={bullet} />
+          <BulletPreview bullet={bullet} shapeNumber={shapeNumber} />
         </button>
 
         {pickerOpen && (
@@ -167,7 +182,9 @@ export function BulletEditor({
   )
 }
 
-function BulletPreview({ bullet }: { bullet: Bullet }) {
+function BulletPreview({ bullet, shapeNumber }: { bullet: Bullet; shapeNumber?: number }) {
+  if (shapeNumber !== undefined) return <span className="bullet__number">{shapeNumber}</span>
+
   const choice = ICON_CHOICES.find((candidate) => candidate.value === bullet.icon)
   if (choice?.Icon) return <choice.Icon size={16} />
   return <span className="bullet__dot" />

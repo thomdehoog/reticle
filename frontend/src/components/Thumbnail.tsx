@@ -37,8 +37,6 @@ export interface ThumbnailProps {
   seed: string
   src?: string | null
   alt?: string
-  /** A short mark drawn over the figure, usually the first letters of the name. */
-  badge?: string
   className?: string
 }
 
@@ -110,13 +108,13 @@ export function DrawnFigure({ seed, label }: { seed: string; label?: string }) {
   )
 }
 
-export function Thumbnail({ seed, src, alt = '', badge, className }: ThumbnailProps) {
+export function Thumbnail({ seed, src, alt = '', className }: ThumbnailProps) {
   return (
     <span className={`thumb${className ? ` ${className}` : ''}`}>
       {src ? (
         <img className="thumb__image" src={src} alt={alt} loading="lazy" />
       ) : (
-        <DrawnFigure seed={seed} label={badge ?? monogram(seed)} />
+        <DrawnFigure seed={seed} label={monogram(seed)} />
       )}
     </span>
   )

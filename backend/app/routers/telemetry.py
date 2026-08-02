@@ -27,12 +27,15 @@ from fastapi import APIRouter, status
 from pydantic import BaseModel, Field
 
 from ..auth import AnyUser
-from ..observability import request_id
 
 router = APIRouter(prefix="/api/client-errors", tags=["telemetry"])
 
 logger = logging.getLogger("reticle.client")
 
+# The browser truncates to the same numbers before it sends, in
+# frontend/src/components/ErrorBoundary.tsx. Both sides cut, because the server
+# cannot trust the client to have done it and the client should not waste a
+# request body sending what will be thrown away.
 MAX_MESSAGE = 500
 MAX_STACK = 4000
 MAX_URL = 500
@@ -78,6 +81,5 @@ def report_client_error(report: ClientError, user: AnyUser) -> None:
             "componentStack": sanitised(report.componentStack, MAX_STACK),
             "clientUrl": sanitised(report.url, MAX_URL),
             "userId": user.id,
-            "requestId": request_id.get(),
         },
     )

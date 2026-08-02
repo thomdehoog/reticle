@@ -4,6 +4,10 @@
  * Somebody looking for "immersion oil" does not know or care whether the answer
  * was written as a step-by-step guide or as a page of explanation, and a search
  * that covered only one would send them to the one place the answer is not.
+ *
+ * The two kinds are shown in separate blocks rather than interleaved. Someone
+ * after a procedure and someone after reference material are asking different
+ * questions, and a merged relevance ranking would bury one behind the other.
  */
 
 import { useSearchParams } from 'react-router'
@@ -13,16 +17,6 @@ import { GuideCard, TileGrid, WikiCard } from '../components/BrowseCards'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
 import { useAsync } from '../hooks/useAsync'
 
-/** A wiki result. Labelled, because "guide" and "page" behave differently. */
-
-/**
- * Search spans both content types.
- *
- * Splitting guides from wiki pages rather than interleaving them is deliberate:
- * someone looking for a procedure and someone looking for reference material
- * are asking different questions, and a merged relevance ranking would bury one
- * behind the other.
- */
 export function SearchPage() {
   const [params] = useSearchParams()
   const query = params.get('q') ?? ''

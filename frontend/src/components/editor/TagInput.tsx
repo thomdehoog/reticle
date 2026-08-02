@@ -137,7 +137,17 @@ export function TagInput({ tags, onChange }: TagInputProps) {
   }
 
   return (
-    <div className="tag-input">
+    /* Committing on blur is what lets somebody type a tag and click straight
+       into the next field. It has to be the whole control that watches for it,
+       not the text field: focus moving from the field to a suggestion below it
+       is still inside this control, and committing there would clear the draft
+       and unmount the very suggestion being reached for. */
+    <div
+      className="tag-input"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) add(draft)
+      }}
+    >
       <div className="tag-input__chips">
         {tags.map((tag) => (
           <span className="tag" key={tag}>
@@ -163,7 +173,6 @@ export function TagInput({ tags, onChange }: TagInputProps) {
             setRefusal(null)
           }}
           onKeyDown={onKeyDown}
-          onBlur={() => add(draft)}
         />
       </div>
 
@@ -177,10 +186,19 @@ export function TagInput({ tags, onChange }: TagInputProps) {
         <ul className="tag-input__suggestions">
           {suggestions.map((tag) => (
             <li key={tag.id}>
+              {/* Both handlers, because neither covers both ways in. A mouse
+                  needs mousedown: click arrives after blur, and blur has by
+                  then committed the half-typed text and closed this list. A
+                  keyboard only ever produces click. A mouse fires both, which
+                  is harmless — `add` ignores a tag the guide already carries. */}
               <button
                 type="button"
                 onMouseDown={(event) => {
                   event.preventDefault()
+                  add(tag.slug)
+                  inputRef.current?.focus()
+                }}
+                onClick={() => {
                   add(tag.slug)
                   inputRef.current?.focus()
                 }}

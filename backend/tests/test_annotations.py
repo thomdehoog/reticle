@@ -332,3 +332,92 @@ def test_a_viewer_cannot_annotate(author, viewer, category):
     image = upload_media(author)
 
     assert save_annotations(viewer, created, image, annotation()).status_code == 403
+
+
+# --- one picture, one guide ------------------------------------------------
+
+
+def test_a_second_guide_cannot_take_over_a_picture_the_first_one_shows(
+    author, as_role, category
+):
+    """The shapes hang off the media row, so two guides cannot hold different
+    ones for the same file — the last save wins and the other guide loses its
+    overlay.
+
+    Worse than losing it: the losing guide's ``updatedAt`` never moves, so its
+    author gets no conflict, no warning and no reason to look. The only honest
+    answer is to refuse the second guide the file.
+    """
+    picture = upload_media(author)
+    first = create_guide(author, category.id, "Aligning the Confocal")
+    save_annotations(author, first, picture, annotation(shape="rectangle", color="red"))
+
+    colleague = as_role("author", "colleague@zmb.uzh.ch")
+    second = create_guide(colleague, category.id, "Shutting the Confocal Down")
+    response = colleague.put(
+        f"/api/guides/{second['id']}",
+        json=document_from(second, steps=[step("Reuse", media=[annotated(picture)])]),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+    assert [s["shape"] for s in stored(author.get(f"/api/guides/{first['id']}").json())] == [
+        "rectangle"
+    ]
+
+
+def test_a_guide_may_still_save_over_its_own_pictures(author, category):
+    """The refusal is about *another* guide. Re-saving the guide that already
+    shows the picture is the ordinary case and must stay untouched."""
+    picture = upload_media(author)
+    created = create_guide(author, category.id)
+    saved = save_annotations(author, created, picture, annotation(shape="arrow")).json()
+
+    again = save_annotations(author, saved, picture, annotation(shape="ellipse"))
+
+    assert again.status_code == 200
+    assert [s["shape"] for s in stored(again.json())] == ["ellipse"]
+
+
+def test_a_video_another_guide_uses_is_refused_too(author, as_role, category):
+    """The video slot is the second way a step displays a file, and alt text is
+    overwritten through it exactly as shapes are through the image slot."""
+    from .conftest import upload_video
+
+    clip = upload_video(author)
+    first = create_guide(author, category.id, "Stage Travel")
+    author.put(
+        f"/api/guides/{first['id']}",
+        json=document_from(first, steps=[step("Watch", video=clip)]),
+    )
+
+    colleague = as_role("author", "colleague@zmb.uzh.ch")
+    second = create_guide(colleague, category.id, "Stage Travel Again")
+    response = colleague.put(
+        f"/api/guides/{second['id']}",
+        json=document_from(second, steps=[step("Watch", video=clip)]),
+    )
+
+    assert response.status_code == 422
+
+
+def test_the_same_picture_on_two_steps_of_one_guide_is_refused(author, category):
+    """One media row cannot hold two sets of shapes, so a save listing it twice
+    writes one step's overlay and then overwrites it with the other's. Only the
+    last would survive, and nothing would say so."""
+    picture = upload_media(author)
+    created = create_guide(author, category.id)
+
+    response = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(
+            created,
+            steps=[
+                step("First", media=[annotated(picture, annotation(shape="arrow"))]),
+                step("Second", media=[annotated(picture, annotation(shape="ellipse"))]),
+            ],
+        ),
+    )
+
+    assert response.status_code == 422
+    assert "twice" in response.json()["error"]["message"]

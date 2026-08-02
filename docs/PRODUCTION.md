@@ -4,10 +4,11 @@ An honest inventory, written to be argued with. Everything marked ✅ has been
 run and verified in this repository rather than reasoned about; everything else
 says plainly what is missing and how much it matters.
 
-The short answer: **the stack is production ready for one facility, and about
-two thirds of the way to being ready to host as a service.** The gap is not
-quality — it is that a service needs a control plane and per-tenant
-provisioning, and neither exists yet.
+The short answer: **the stack is production ready, for one facility and for
+several on one host.** The tenancy model is settled and built — one subdomain,
+one database and one process per facility, from a single release
+(`MULTI_FACILITY.md`) — and provisioning is one command. What a *service* still
+lacks is a control plane: sign-up, per-facility administration, billing.
 
 ---
 
@@ -44,10 +45,12 @@ provisioning, and neither exists yet.
 
 | | |
 | --- | --- |
-| ✅ **716 backend tests** | Passing on SQLite and on PostgreSQL. |
-| ✅ **315 frontend tests** | Plus two browser suites: 18 checks across desktop, tablet and phone, and a 24-check authoring round trip that writes a guide and reads it back. |
+| ✅ **722 backend tests** | Passing on SQLite and on PostgreSQL. |
+| ✅ **315 frontend tests** | Plus two browser suites: 18 checks across desktop, tablet and phone, and a 24-check authoring round trip that writes a guide and reads it back. Both run against the **production build behind nginx**, not the dev server, so the minified bundle and the Content-Security-Policy are exercised on every run. |
 | ✅ **Linting, both halves** | ESLint (the `react-hooks` rules are the point) and ruff. Both found real defects. |
 | ✅ **Dependency audit** | `pip-audit` and `npm audit`. Zero vulnerabilities. |
+| ✅ **Dependencies pinned** | `requirements.lock` and `requirements-dev.lock`, `pip-compile --generate-hashes`. CI and the server install the same versions with `--require-hashes`, so a rollback rebuilds the environment it is rolling back to. A requirement added without regenerating the lock fails CI. |
+| ✅ **The security headers are asserted** | CI serves the build through the real headers snippet and fails if any of the five is missing from the HTML document, an asset or an API response. nginx's `add_header` does not stack across levels, so this is otherwise a silent loss. |
 | ✅ **Dependabot** | Weekly and grouped, so one maintainer does not learn to skim past it. |
 
 ### Getting it out again, and back
@@ -65,8 +68,10 @@ provisioning, and neither exists yet.
 | ✅ **CI on every push** | Frontend, backend, PostgreSQL, restore rehearsal, dependency audit, browser e2e. |
 | ✅ **A tag cannot skip the checks** | Deploy calls the CI workflow and will not build unless it passes. |
 | ✅ **Back up before migrating** | Automatic, before migrations run, while the old code is still serving. |
-| ✅ **Migrations run before traffic** | Explicitly, not left to startup, so a failure stops the deploy while the old release is live. |
-| ✅ **Automatic rollback** | To the release recorded *before* the symlink moved. Safe because the backup was taken first and migrations are additive. |
+| ✅ **Migrations run before traffic** | The deploy runs `alembic upgrade head` per facility while the old processes are still serving, so a failure stops the deploy with the old release live. `db.init_db` *also* runs pending migrations at start-up, which is the safety net for a deployment that skips the step — belt and braces, not one or the other. A destructive migration must not rely on the start-up path; see the warning in `db.init_db`. |
+| ✅ **Automatic rollback** | Moves the symlink back to the release recorded *before* it moved, and restarts every facility onto it — a symlink alone changes nothing, because each process loaded its code at start-up. Safe because every facility was backed up first and migrations are additive. |
+| ✅ **Provisioning** | `deploy/provision-facility.sh`: database, role, directories, environment, migrations, first administrator, service, readiness, vhost — one command. It undoes everything it created if any step fails, and refuses to touch a role or database that existed before it started. |
+| ✅ **Per-facility backups before every migration** | `pg_dump --format=custom` for the database and an `app.portability` archive for the media, both `0600` in a `0700` directory. |
 
 ---
 
@@ -96,23 +101,30 @@ claim about it.
 Two things are configured deliberately and not enforced, both documented at the
 point of decision:
 
-- **`ruff format`** would reformat 53 of 72 files. Adopt it in a quiet week, in
-  a commit that does nothing else.
-- **mypy** reports 48 errors, almost all type narrowing it cannot follow rather
-  than defects. A gate that red is a gate somebody turns off. Fix a file at a
-  time, then make it a gate.
+- **`ruff format`** is configured and not enforced. It currently reformats
+  nothing — `ruff format --check .` reports all 73 files already formatted — so
+  making it a gate is now a cheap change rather than one mechanical commit over
+  the whole tree. The comment in `pyproject.toml` still describes it as a large
+  diff and no longer matches the code.
+- **mypy** reports 100 errors across 15 files, almost all type narrowing it
+  cannot follow rather than defects. A gate that red is a gate somebody turns
+  off. Fix a file at a time, then make it a gate. Re-check with
+  `.venv/bin/mypy .` in `backend/` rather than trusting this number; it moves
+  with the code.
 
-### For hosting as a service — three things, in this order
+### For hosting as a service — two things, in this order
 
-1. **Provisioning.** Create facility → create database → migrate → seed admin →
-   certificate, as one command. Today this is a person following
-   `DEPLOYMENT.md`.
-2. **A control plane.** Sign-up, per-facility administration, billing. This is a
+Provisioning is done: `deploy/provision-facility.sh` creates the facility, the
+database, the directories and the vhost, migrates, seeds the first
+administrator, starts the service and waits for it to answer. DNS and the
+certificate stay manual on purpose, and a wildcard record with a wildcard
+certificate makes both a one-time job rather than a per-facility one.
+
+1. **A control plane.** Sign-up, per-facility administration, billing. This is a
    separate application; do not put it inside Reticle.
-3. **A container image.** The deploy ships a tarball and builds a virtualenv on
+2. **A container image.** The deploy ships a tarball and builds a virtualenv on
    the host, which is right for one server and wrong for ten. Not hard, but it
-   changes the deploy workflow, so it should follow the tenancy decision rather
-   than precede it.
+   changes the deploy workflow.
 
 ### Smaller, and worth knowing about
 
@@ -129,13 +141,14 @@ point of decision:
 
 ---
 
-## The decision still outstanding
+## The decision that was outstanding
 
-**Which tenancy model.** `ARCHITECTURE.md` recommends a database per facility
-on a shared cluster, and gives the reasons. It is not the cheapest and it is the
-one that lets you sleep: what Reticle holds is internal operating procedure, and
-the pooled alternative makes one forgotten `WHERE` clause into one institute
-reading another's documentation.
+**Which tenancy model — settled.** A database per facility, one process per
+facility, one release for all of them. `MULTI_FACILITY.md` is the whole
+argument; `ARCHITECTURE.md` gives the reasoning behind it.
 
-Implementing the alternative later is a migration of every table in the product.
-Settle it deliberately, before provisioning is built.
+It is not the cheapest and it is the one that lets you sleep: what Reticle holds
+is internal operating procedure, and the pooled alternative makes one forgotten
+`WHERE` clause into one institute reading another's documentation. The cost is
+stated plainly rather than hidden — 100–200 MB of memory per facility, and
+migrations as a loop rather than one command.

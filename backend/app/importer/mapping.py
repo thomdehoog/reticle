@@ -29,6 +29,8 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..slugs import NON_SLUG, TRANSLITERATIONS
+
 # ---------------------------------------------------------------------------
 # Vocabulary
 # ---------------------------------------------------------------------------
@@ -185,7 +187,6 @@ KNOWN_LINE_FIELDS = frozenset(
 )
 
 _TAG_SEPARATORS = re.compile(r"[,;]")
-_NON_SLUG = re.compile(r"[^a-z0-9]+")
 _WHITESPACE = re.compile(r"[ \t\r\f\v]+")
 _BLANK_LINES = re.compile(r"\n{3,}")
 
@@ -327,11 +328,12 @@ def strip_markup(source: str | None) -> str:
     return _BLANK_LINES.sub("\n\n", text).strip()
 
 
-TAG_TRANSLITERATIONS = str.maketrans(
-    {"ß": "ss", "æ": "ae", "œ": "oe", "ø": "o", "đ": "d", "ł": "l"}
-)
-
 MAX_TAG_LENGTH = 120
+"""Shorter than a document slug, which is 200 — see ``slugs.MAX_SLUG_LENGTH``.
+
+A tag is a chip in a row of chips rather than a URL anybody reads, and the input
+that suggests them has to show several across a line.
+"""
 
 
 def slugify_tag(value: str) -> str:
@@ -339,15 +341,18 @@ def slugify_tag(value: str) -> str:
 
     It has to be the same rule, or a tag typed by an author and the same tag
     arriving from the migration become two tags that look identical on screen.
+    That is why the transliteration table and the pattern come from ``slugs``
+    rather than being written out again here — the only thing that differs is
+    the length, and it differs on purpose.
 
     Accents transliterate rather than vanish, which matters most here: half of
     ZMB's vocabulary is German, and folding "Präparation" to "pr-paration"
     produces something nobody can read, guess, or match against the tag an
     author types tomorrow.
     """
-    lowered = value.strip().lower().translate(TAG_TRANSLITERATIONS)
+    lowered = value.strip().lower().translate(TRANSLITERATIONS)
     ascii_only = unicodedata.normalize("NFKD", lowered).encode("ascii", "ignore").decode("ascii")
-    return _NON_SLUG.sub("-", ascii_only).strip("-")[:MAX_TAG_LENGTH].rstrip("-")
+    return NON_SLUG.sub("-", ascii_only).strip("-")[:MAX_TAG_LENGTH].rstrip("-")
 
 
 # ---------------------------------------------------------------------------

@@ -261,7 +261,8 @@ def test_the_readiness_probe_reports_a_lost_database_without_describing_it(anon,
     """The failure path is the one that leaks, and it is never exercised by
     accident: a driver error message names the host, the database and often the
     user, and this endpoint needs no session to read."""
-    from app import main
+    from app.main import app
+    from app.routers import system
 
     class Unreachable:
         def __enter__(self):
@@ -272,12 +273,12 @@ def test_the_readiness_probe_reports_a_lost_database_without_describing_it(anon,
         def __exit__(self, *exc):
             return False
 
-    monkeypatch.setattr(main, "SessionLocal", lambda: Unreachable())
-    main.app.state.ready = True
+    monkeypatch.setattr(system, "SessionLocal", lambda: Unreachable())
+    app.state.ready = True
     try:
         response = anon.get("/api/ready")
     finally:
-        main.app.state.ready = False
+        app.state.ready = False
 
     assert response.status_code == 503
     assert response.json() == {"status": "database_unavailable"}

@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
-from pathlib import Path
 from typing import BinaryIO
 
 from PIL import Image
@@ -54,11 +53,15 @@ class NormalisedImage:
     height: int
 
 
-def read_within_limit(stream: BinaryIO, limit: int) -> bytes:
+def read_within_limit(stream: BinaryIO, limit: int, noun: str) -> bytes:
     """Read the body, refusing as soon as it passes the cap.
 
     Streaming the check means a hostile client cannot make the process hold an
     arbitrarily large buffer just by lying about ``Content-Length``.
+
+    The noun is "Images" or "Videos", because the two have separate ceilings and
+    an author whose 30 MB clip bounced needs to be told the video limit rather
+    than the image one.
     """
     chunks: list[bytes] = []
     total = 0
@@ -68,7 +71,7 @@ def read_within_limit(stream: BinaryIO, limit: int) -> bytes:
             break
         total += len(chunk)
         if total > limit:
-            raise errors.payload_too_large(f"Images must be at most {limit // (1024 * 1024)} MB.")
+            raise errors.payload_too_large(f"{noun} must be at most {limit // (1024 * 1024)} MB.")
         chunks.append(chunk)
     return b"".join(chunks)
 
@@ -143,27 +146,3 @@ def relative_storage_path(media_id: str, extension: str) -> str:
     every write contends on and that ``ls`` eventually cannot open.
     """
     return f"{media_id[:2]}/{media_id[2:4]}/{media_id}.{extension}"
-
-
-def write_file(media_root: Path, storage_path: str, payload: bytes) -> Path:
-    """Kept as a thin wrapper over ``LocalStorage``.
-
-    New code should take a ``Storage`` rather than a media root — see
-    ``app/storage.py``. This exists so the local path stays a single
-    implementation rather than two that can drift.
-    """
-    from .storage import LocalStorage
-
-    LocalStorage(media_root).write(storage_path, payload)
-    return media_root / storage_path
-
-
-def resolve_file(media_root: Path, storage_path: str) -> Path:
-    """Re-check containment on read as well as on write.
-
-    The stored path is generated, so this can only fire if the database has been
-    tampered with directly, which is exactly when a path check is worth having.
-    """
-    from .storage import LocalStorage
-
-    return LocalStorage(media_root).local_path_or_404(storage_path)

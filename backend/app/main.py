@@ -1,9 +1,25 @@
-"""The Reticle application: middleware, error translation and wiring.
+"""Where the application is assembled, and what every request passes through.
 
-Reticle is ZMB's self-hosted step-by-step guide platform. The whole application
-sits behind the login; only the health probe and the login endpoint itself are
-reachable without a session, and :func:`unauthenticated_routes` exists so that
-"only" can be asserted rather than assumed.
+Reticle is ZMB's self-hosted step-by-step guide platform. The endpoints
+themselves live in ``routers``; this file builds the application object out of
+them and wraps it in the layers that apply to everything.
+
+Those layers — middleware — are the substance of the file. Each one gets a look
+at every request on the way in and every response on the way out: adding the
+security headers, giving the request an id and logging it, refusing a body that
+is too large, refusing a caller going too fast, checking the CSRF header. The
+**order they are nested in is load-bearing**, and there is a diagram in
+``create_app`` explaining each position. Getting it wrong is not cosmetic and it
+is close to invisible: a refusal issued by an outer layer never reaches the
+inner one, so a rate-limited request can go out with no id and no headers.
+
+The other half of the file turns failures into the documented response shape.
+FastAPI, Starlette and any unhandled exception each fail in their own way, and
+the handlers below rewrite all of them into the one envelope ``errors`` defines.
+
+The whole application sits behind the login. ``PUBLIC_PATHS`` is the list of
+exceptions and :func:`unauthenticated_routes` walks the real routing table, so
+"only those" is something a test asserts rather than something anybody hopes.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 Licence: MIT
@@ -19,7 +35,6 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
-from sqlalchemy import text as sqlalchemy_text
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -28,14 +43,14 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from . import errors
 from .auth import SAFE_METHODS, get_session_row
-from .db import SessionLocal, init_db
+from .db import init_db
 from .observability import (
     REQUEST_ID_HEADER,
     RequestContextMiddleware,
     configure_logging,
     request_id,
 )
-from .ratelimit import RateLimitMiddleware
+from .ratelimit import UPLOAD_PATH, RateLimitMiddleware
 from .routers import (
     auth,
     categories,
@@ -44,6 +59,7 @@ from .routers import (
     guides,
     media,
     pages,
+    system,
     telemetry,
     users,
 )
@@ -53,8 +69,6 @@ from .settings import get_settings
 CSRF_EXEMPT_PATHS = frozenset({"/api/auth/login"})
 
 PUBLIC_PATHS = frozenset({"/api/health", "/api/ready", "/api/auth/login", "/api/config"})
-
-MULTIPART_PREFIX = "multipart/form-data"
 
 STATUS_TO_CODE = {401: "not_authenticated", 403: "forbidden", 404: "not_found", 405: "not_found"}
 
@@ -66,8 +80,8 @@ class RequestSizeLimitMiddleware:
     ``BaseHTTPMiddleware`` so that it decides before any part of the stack has a
     reason to buffer: what allocates the body is the endpoint reading it for
     validation, and on the login endpoint that allocation is performed on behalf
-    of a caller who has not authenticated and never will. A 210 MB login attempt
-    was held in memory in full and only then rejected as invalid.
+    of a caller who has not authenticated and never will. Without this, a 210 MB
+    login attempt is held in memory in full and only then rejected as invalid.
 
     Uploads get a larger cap rather than an exemption, and the body is counted
     as it arrives rather than trusted from its declared length - see
@@ -85,7 +99,7 @@ class RequestSizeLimitMiddleware:
             return
 
         headers = Headers(scope=scope)
-        cap = self._cap_for(headers)
+        cap = self._cap_for(scope)
 
         if self._declares_more_than(headers, cap):
             await self._refuse(cap, scope, receive, send)
@@ -128,15 +142,22 @@ class RequestSizeLimitMiddleware:
 
         await self.app(scope, counting_receive, guarded_send)
 
-    def _cap_for(self, headers: Headers) -> int:
+    def _cap_for(self, scope: Scope) -> int:
         """Uploads legitimately run to hundreds of megabytes; JSON does not.
 
-        Two caps rather than an exemption. The multipart route used to be let
-        through entirely, which meant any request could bypass the limit by
-        claiming to be an upload - including one aimed at the login endpoint,
-        which reads its whole body before it can tell that it is not JSON.
+        Two caps rather than an exemption, and the larger one is decided from
+        the **route**, not from the content type. Keying on the header hands the
+        choice to the caller: any request could take the 205 MB cap by writing
+        ``Content-Type: multipart/form-data``, including one aimed at the login
+        endpoint, which reads its whole body before it can tell that it is not
+        JSON and which is exempt from both the rate limiter and CSRF. The path
+        and the method are the parts of a request that the routing table, rather
+        than the sender, decides the meaning of.
         """
-        if headers.get("content-type", "").startswith(MULTIPART_PREFIX):
+        if (
+            scope.get("path", "").startswith(UPLOAD_PATH)
+            and scope.get("method") not in SAFE_METHODS
+        ):
             return self.upload_max_bytes
         return self.max_bytes
 
@@ -145,9 +166,55 @@ class RequestSizeLimitMiddleware:
         return bool(declared and declared.isdigit() and int(declared) > cap)
 
     async def _refuse(self, cap: int, scope: Scope, receive: Receive, send: Send) -> None:
-        failure = errors.payload_too_large(f"Requests must be at most {cap // (1024 * 1024)} MB.")
-        response = JSONResponse(status_code=failure.status_code, content=failure.body())
-        await response(scope, receive, send)
+        failure = errors.payload_too_large(f"Requests must be at most {_size_words(cap)}.")
+        await _failure(failure.status_code, failure.body())(scope, receive, send)
+
+
+class UnhandledErrorMiddleware:
+    """Turn any exception nobody anticipated into the documented 500 envelope.
+
+    This is middleware rather than an ``@app.exception_handler(Exception)``, and
+    the reason is where each one sits. Starlette runs that handler in
+    ``ServerErrorMiddleware``, which is the **outermost** layer of all — outside
+    the one that assigns the request id and outside the one that adds the
+    security headers. A 500 built there went out with ``requestId: "-"`` and no
+    ``X-Content-Type-Options``, ``X-Frame-Options``, ``Referrer-Policy`` or CORS
+    headers, so the one error a user is most likely to report was the one they
+    could not quote an id for.
+
+    Placed inside those two layers instead, the id is the real one and the
+    headers are added on the way out.
+
+    It re-raises once the response has begun, because at that point the status
+    line is already on the wire and a second one would corrupt the stream.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        started = False
+
+        async def watching_send(message: Message) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, watching_send)
+        except Exception:
+            if started:
+                raise
+            # Logged, never described. The message could name a table, echo
+            # submitted input, or quote a filesystem path.
+            logging.getLogger("reticle").exception("unhandled error")
+            failure = errors.ApiError("internal_error", "Something went wrong.")
+            await _failure(500, failure.body())(scope, receive, send)
 
 
 class CsrfMiddleware(BaseHTTPMiddleware):
@@ -253,15 +320,15 @@ def create_app() -> FastAPI:
     #
     # READ THIS BEFORE REORDERING. `add_middleware` inserts at the front, so
     # **the last one added is the outermost**, and the list below therefore
-    # reads inside-out. Getting this backwards is not cosmetic: it previously
-    # left every 429 and 413 with no log line, no request id and no security
-    # headers, because the layers that add those sat *inside* the layers that
-    # were rejecting.
+    # reads inside-out. Getting this backwards is not cosmetic: a refusal issued
+    # by an outer layer never reaches the inner ones, so putting the layers that
+    # add the id, the log line and the security headers *inside* the layers that
+    # reject leaves every 429 and 413 without any of them.
     #
     # The resulting chain, outermost first:
     #
-    #   CORS  →  SecurityHeaders  →  RequestContext  →  SizeLimit  →
-    #   RateLimit  →  CSRF  →  the route
+    #   CORS  →  SecurityHeaders  →  RequestContext  →  UnhandledError  →
+    #   SizeLimit  →  RateLimit  →  CSRF  →  the route
     #
     # Each position is load-bearing:
     #
@@ -273,6 +340,8 @@ def create_app() -> FastAPI:
     #                          route.
     #   RequestContext next    so every response has an id and every request is
     #                          logged - including the ones refused below it.
+    #   UnhandledError then    inside those two, so a 500 it builds carries the
+    #                          real id and the headers.
     #   SizeLimit then         refuses an over-long body before anything reads
     #                          it.
     #   RateLimit then         cheap, and before the body is parsed.
@@ -285,6 +354,7 @@ def create_app() -> FastAPI:
         # Headroom over the video cap for multipart framing and the file name.
         upload_max_bytes=settings.max_video_bytes + 5 * 1024 * 1024,
     )
+    application.add_middleware(UnhandledErrorMiddleware)
     application.add_middleware(RequestContextMiddleware)
     application.add_middleware(SecurityHeadersMiddleware)
     application.add_middleware(
@@ -295,92 +365,9 @@ def create_app() -> FastAPI:
         allow_headers=["Content-Type", CSRF_HEADER],
     )
 
-    @application.exception_handler(errors.ApiError)
-    async def handle_api_error(request: Request, exc: errors.ApiError) -> JSONResponse:
-        return _failure(exc.status_code, exc.body())
-
-    @application.exception_handler(RequestValidationError)
-    async def handle_validation_error(
-        request: Request, exc: RequestValidationError
-    ) -> JSONResponse:
-        failure = errors.validation_failed(_describe_validation(exc))
-        return _failure(failure.status_code, failure.body())
-
-    @application.exception_handler(StarletteHTTPException)
-    async def handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-        code = STATUS_TO_CODE.get(exc.status_code)
-        if code is None:
-            failure = errors.ApiError("validation_failed", str(exc.detail))
-            return _failure(exc.status_code, failure.body())
-        failure = errors.ApiError(code, str(exc.detail))
-        return _failure(exc.status_code, failure.body())
-
-    @application.exception_handler(Exception)
-    async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
-        """Anything not otherwise caught.
-
-        Two jobs. It keeps the error contract intact — a caller should not have
-        to parse a stack trace to find out a request failed — and it gives the
-        person reporting the failure a request id to quote, which is what turns
-        "it broke this morning" into one findable log line.
-
-        What it must never do is describe the exception. The message could name
-        a table, echo submitted input, or quote a filesystem path.
-        """
-        logging.getLogger("reticle").exception("unhandled error")
-        return _failure(500, errors.ApiError("internal_error", "Something went wrong.").body())
-
-    @application.get("/api/health", tags=["health"])
-    async def health() -> dict[str, str]:
-        """Liveness: is this process running?
-
-        Deliberately touches nothing. A liveness probe that checks the database
-        turns a database blip into a restart loop — every instance is killed
-        for a fault none of them can fix by restarting, and the restarts add
-        load to the thing that was already struggling.
-        """
-        return {"status": "ok"}
-
-    @application.get("/api/ready", tags=["health"])
-    async def ready() -> JSONResponse:
-        """Readiness: should this process be sent traffic?
-
-        A different question from liveness, and the reason for a second
-        endpoint. This one *does* check the database, because an instance that
-        cannot reach it should be taken out of the load balancer rather than
-        restarted, and it reports not-ready during startup migrations so no
-        request arrives before the schema is current.
-
-        Returns 503 when not ready. The status code is the part orchestrators
-        read; the body is for whoever is looking at it by hand.
-        """
-        if not getattr(application.state, "ready", False):
-            return JSONResponse(status_code=503, content={"status": "starting"})
-        try:
-            with SessionLocal() as session:
-                session.execute(sqlalchemy_text("SELECT 1"))
-        except Exception:
-            logging.getLogger("reticle").exception("readiness check failed")
-            return JSONResponse(status_code=503, content={"status": "database_unavailable"})
-        return JSONResponse(status_code=200, content={"status": "ready"})
-
-    @application.get("/api/config", tags=["config"])
-    async def configuration() -> dict[str, object]:
-        """Whose instance this is — needed before anyone has signed in.
-
-        Reachable without a session because the login screen has to say which
-        facility it belongs to, and because it discloses nothing: the name of
-        the institute running a server is already in the hostname pointing at
-        it. Everything else here stays behind the login.
-        """
-        current = get_settings()
-        return {
-            "organisation": {
-                "name": current.organisation_name,
-                "shortName": current.organisation_short_name,
-                "url": current.organisation_url,
-            }
-        }
+    application.add_exception_handler(errors.ApiError, handle_api_error)
+    application.add_exception_handler(RequestValidationError, handle_validation_error)
+    application.add_exception_handler(StarletteHTTPException, handle_http_exception)
 
     for module in (
         auth,
@@ -390,12 +377,49 @@ def create_app() -> FastAPI:
         guides,
         media,
         pages,
+        system,
         telemetry,
         users,
     ):
         application.include_router(module.router)
 
     return application
+
+
+async def handle_api_error(request: Request, exc: errors.ApiError) -> JSONResponse:
+    return _failure(exc.status_code, exc.body())
+
+
+async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    failure = errors.validation_failed(_describe_validation(exc))
+    return _failure(failure.status_code, failure.body())
+
+
+async def handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    """Whatever the framework itself raised, wearing the contract's envelope.
+
+    FastAPI raises its own ``HTTPException`` for things no handler sees — an
+    unparseable path parameter, a method the route does not accept — and its
+    native body has a ``detail`` key that leaks the raw validation structure.
+    A status this application has no code for is reported as a validation
+    failure, which is what every such case has actually been.
+    """
+    code = STATUS_TO_CODE.get(exc.status_code, "validation_failed")
+    return _failure(exc.status_code, errors.ApiError(code, str(exc.detail)).body())
+
+
+def _size_words(cap: int) -> str:
+    """Say a byte count the way the person reading the refusal thinks about it.
+
+    Whole megabytes below one megabyte round to "0 MB", which reads as a server
+    that accepts nothing — and small caps are exactly what a test or a locked
+    down deployment sets.
+    """
+    if cap >= 1024 * 1024:
+        return f"{cap // (1024 * 1024)} MB"
+    if cap >= 1024:
+        return f"{cap // 1024} KB"
+    return f"{cap} bytes"
 
 
 def _failure(status_code: int, body: dict) -> JSONResponse:
@@ -435,11 +459,12 @@ def _dependant_requires_auth(dependant) -> bool:
 def _all_routes() -> list[object]:
     """Every route the application will actually serve, wrappers expanded.
 
-    ``include_router`` no longer copies a router's routes into ``app.routes``;
-    it inserts one pathless wrapper that holds the original router. Walking
-    ``app.routes`` directly therefore saw exactly one endpoint — the health
-    probe — and skipped every wrapper as pathless, so the sweep below reported
-    no holes because it was inspecting nothing.
+    ``include_router`` does not copy a router's routes into ``app.routes``; it
+    inserts one pathless wrapper holding the original router. Walking
+    ``app.routes`` directly therefore sees a handful of endpoints and skips every
+    wrapper as pathless — so the sweep below would report no holes because it was
+    inspecting almost nothing. Expanding the wrappers is what makes the sweep an
+    assertion about the application rather than about one list.
     """
     flattened: list[object] = []
     pending = list(app.routes)

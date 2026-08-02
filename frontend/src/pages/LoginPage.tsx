@@ -7,7 +7,7 @@
  *
  * It never says whether an email address exists. "That did not work" is the same
  * answer for a wrong password and an unknown account, because a different answer
- * would let somebody discover who has an account here.
+ * would let somebody discover who has an account at ZMB.
  */
 
 import { useState, type FormEvent } from 'react'
@@ -16,13 +16,6 @@ import { ApiError } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { ReticleMark } from '../components/icons'
 
-/**
- * The only screen an unauthenticated visitor can reach.
- *
- * Failures are reported in the same words regardless of whether the address is
- * unknown or the password was wrong, so the form cannot be used to discover who
- * has an account at ZMB.
- */
 export function LoginPage() {
   const { login } = useAuth()
   const [email, setEmail] = useState('')

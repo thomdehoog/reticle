@@ -4,6 +4,10 @@
  * Deliberately small. This is the one screen every user reaches regardless of
  * role, so it does only what it says. Managing *other* people's accounts is a
  * different screen, for administrators.
+ *
+ * New colleagues are created with an initial password handed to them by an
+ * admin, so a place to change it is not optional — without one, that first
+ * shared secret stays valid indefinitely.
  */
 
 import { useState, type FormEvent } from 'react'
@@ -20,13 +24,6 @@ const ROLE_DESCRIPTIONS = {
   admin: 'You can write and publish guides, and manage people and categories.',
 } as const
 
-/**
- * A person's own account.
- *
- * New colleagues are created with an initial password handed to them by an
- * admin, so a place to change it is not optional — without one, that first
- * shared secret stays valid indefinitely.
- */
 export function AccountPage() {
   const api = useApi()
   const { user } = useAuth()

@@ -86,7 +86,9 @@ function CategoryDialog({
   if (category) {
     const collect = (id: string) => {
       descendants.add(id)
-      for (const child of categories.filter((c) => c.parentId === id)) collect(child.id)
+      for (const child of categories.filter((candidate) => candidate.parentId === id)) {
+        collect(child.id)
+      }
     }
     collect(category.id)
   }

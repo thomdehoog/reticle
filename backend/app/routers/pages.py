@@ -23,9 +23,9 @@ from sqlalchemy.orm import Session as DbSession
 
 from .. import audit, errors
 from ..auth import AdminUser, AnyUser, AuthorUser, DbDep, client_address
-from ..db import utcnow
+from ..db import escape_like, utcnow
 from ..documents import apply_page_document, next_updated_at, record_contribution
-from ..models import Category, Page, PageRevision, User
+from ..models import PUBLISHED, Category, Page, PageRevision, User
 from ..schemas import (
     PageCreateIn,
     PageDocumentIn,
@@ -41,14 +41,8 @@ from ..slugs import unique_slug
 
 router = APIRouter(prefix="/api/pages", tags=["pages"])
 
-READER_STATUS = "published"
 
-
-def _escape_like(term: str) -> str:
-    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
-def slug_taken(db: DbSession, slug: str) -> bool:
+def _slug_taken(db: DbSession, slug: str) -> bool:
     return db.scalar(select(func.count()).select_from(Page).where(Page.slug == slug)) > 0
 
 
@@ -56,7 +50,7 @@ def _load_for(db: DbSession, user: User, key: str) -> Page:
     page = db.scalars(select(Page).where(or_(Page.id == key, Page.slug == key))).one_or_none()
     if page is None:
         raise errors.not_found("That page does not exist.")
-    if user.role == "viewer" and page.status != READER_STATUS:
+    if user.role == "viewer" and page.status != PUBLISHED:
         raise errors.not_found("That page does not exist.")
     return page
 
@@ -69,8 +63,8 @@ def _load_editable(db: DbSession, page_id: str) -> Page:
 
 
 def count_reading(db: DbSession, page: Page) -> None:
-    """See ``guides._count_reading``: a bare UPDATE, and never on a draft."""
-    if page.status != READER_STATUS:
+    """See ``guides.count_reading``: a bare UPDATE, and never on a draft."""
+    if page.status != PUBLISHED:
         return
     db.execute(update(Page).where(Page.id == page.id).values(view_count=Page.view_count + 1))
     db.commit()
@@ -88,7 +82,7 @@ def list_pages(
     statement = select(Page)
 
     if user.role == "viewer":
-        statement = statement.where(Page.status == READER_STATUS)
+        statement = statement.where(Page.status == PUBLISHED)
     if status_filter is not None:
         statement = statement.where(Page.status == status_filter)
     elif user.role != "viewer":
@@ -97,7 +91,7 @@ def list_pages(
     if category_id is not None:
         statement = statement.where(Page.category_id == category_id)
     if q:
-        pattern = f"%{_escape_like(q.strip())}%"
+        pattern = f"%{escape_like(q.strip())}%"
         statement = statement.where(
             or_(
                 Page.title.ilike(pattern, escape="\\"),
@@ -132,7 +126,7 @@ def create_page(payload: PageCreateIn, request: Request, db: DbDep, user: Author
             raise errors.conflict("That category already has a landing page.")
 
     page = Page(
-        slug=unique_slug(title, lambda candidate: slug_taken(db, candidate), fallback="page"),
+        slug=unique_slug(title, lambda candidate: _slug_taken(db, candidate), fallback="page"),
         title=title,
         category_id=category_id,
         is_landing=payload.is_landing,
@@ -196,7 +190,7 @@ def publish_page(page_id: str, request: Request, db: DbDep, user: AuthorUser) ->
     # document, so an admin clicking Publish on a colleague's page must not be
     # added to it — see ``documents.record_contribution`` and the guide half,
     # which does the same.
-    page.status = READER_STATUS
+    page.status = PUBLISHED
     page.version += 1
     page.published_at = now
     page.updated_at = next_updated_at(page.updated_at)
@@ -228,7 +222,7 @@ def publish_page(page_id: str, request: Request, db: DbDep, user: AuthorUser) ->
 @router.post("/{page_id}/unpublish", response_model=PageOut)
 def unpublish_page(page_id: str, request: Request, db: DbDep, user: AuthorUser) -> PageOut:
     page = _load_editable(db, page_id)
-    if page.status != READER_STATUS:
+    if page.status != PUBLISHED:
         raise errors.conflict("Only a published page can be unpublished.")
 
     page.status = "draft"

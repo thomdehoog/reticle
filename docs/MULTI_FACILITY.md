@@ -133,10 +133,15 @@ sudo ./deploy/provision-facility.sh irchel "Irchel Imaging Core" admin@irchel.ex
 ```
 
 That script creates the database and a role that can reach nothing else,
-creates the directories, writes an environment file, runs the migrations, seeds
-the first administrator, starts `reticle@irchel`, waits for `/api/ready`, and
-writes the nginx vhost. It prints the bootstrap password once and removes it
-from the environment file, so it is not left on disk.
+creates the directories, allocates a port, writes an environment file, runs the
+migrations, seeds the first administrator, starts `reticle@irchel`, waits for
+`/api/ready`, and writes the nginx vhost. It prints the bootstrap password once
+and removes it from the environment file, so it is not left on disk.
+
+If any step fails it undoes everything it created — role, database, directory,
+vhost — and says so, so the fix is to fix the cause and run it again. It refuses
+to start at all if the role or the database already exists, which is what makes
+that cleanup safe: everything it drops is something it made.
 
 Two things are still done by hand, and deliberately: DNS and the certificate. A
 wildcard record and a wildcard certificate for `*.reticle.ch` make both a
@@ -165,9 +170,14 @@ The important part is the failure behaviour. It **stops at the first failure**
 rather than continuing and reporting a tally, because the dangerous outcome is
 facilities one to six on a new schema while seven to twelve are not, with nobody
 sure which is which. When it stops it says where, points at that facility's
-pre-migration backup, and tells you not to switch the release symlink — the old
+pre-migration backups, and tells you not to switch the release symlink — the old
 code is still correct for the un-migrated facilities, and the migrated ones can
 read it because migrations here are additive.
+
+Moving the symlink is also not the end of an update. Each facility is a
+long-running process that loaded its code at start-up, so `restart-facilities.sh`
+restarts each one and waits for it to answer on its own port. The rollback runs
+the same script, for the same reason in reverse.
 
 ---
 
@@ -177,6 +187,13 @@ Each facility backs up independently, into its own `backups/` directory, and
 each backup is a complete corpus that restores on its own. This falls out of the
 model rather than being built: there is no step that extracts one facility's
 rows from a shared backup, because there is no shared backup.
+
+`sudo ./deploy/backup-facility.sh irchel` writes two files, because neither
+contains the other: a `pg_dump --format=custom` of the database — sequences,
+grants and the `alembic_version` row included, but no media, since the pictures
+are files — and an `app.portability` archive holding the media and the same
+content as documented JSON. Both land `0600` in a `0700` directory, because a
+dump is every password hash in the facility.
 
 It is also what makes leaving easy, which for this project is the argument
 rather than an embarrassment. Reticle exists because ZMB's documentation was

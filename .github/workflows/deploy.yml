@@ -6,8 +6,13 @@ name: Deploy
 # server.
 #
 # Required repository VARIABLES (Settings -> Secrets and variables -> Actions):
-#   DEPLOY_HOST     e.g. reticle.zmb.uzh.ch
-#   DEPLOY_USER     the service account that owns /opt/reticle
+#   DEPLOY_HOST     the server, e.g. reticle-host.zmb.uzh.ch. This is the box,
+#                   not a facility: facilities are {slug}.reticle.ch and the
+#                   deploy never visits one over the public internet.
+#   DEPLOY_USER     the account that receives the deploy. NOT the account the
+#                   application runs as — see deploy/reticle-deploy.sudoers,
+#                   which is the only privilege this account has and has to be
+#                   installed on the host before the first deploy.
 #   DEPLOY_PATH     e.g. /opt/reticle
 # Required repository SECRETS:
 #   DEPLOY_SSH_KEY  private key for DEPLOY_USER
@@ -61,8 +66,31 @@ jobs:
           rm -rf bundle/backend/tests bundle/backend/.pytest_cache
           find bundle/backend -name '__pycache__' -type d -prune -exec rm -rf {} +
           cp -r frontend/dist bundle/static
+
+          # The deploy scripts ship WITH the release and are run from it. The
+          # release being deployed is migrated by its own migrate-all.sh, not by
+          # whatever version happens to be on the server, because a migration
+          # step has to match the migrations it is running.
+          cp -r deploy bundle/deploy
+          # Executable only where there is a shebang. reticle-lib.sh is sourced,
+          # never run, and marking it runnable invites somebody to run it.
+          for script in bundle/deploy/*.sh; do
+            if head -1 "$script" | grep -q '^#!'; then
+              chmod +x "$script"
+            fi
+          done
+
           cp README.md LICENSE NOTICE.md bundle/
           tar -czf reticle-${{ github.ref_name }}.tar.gz -C bundle .
+
+          # Read the mode back out of the archive rather than trusting the
+          # chmod: a release whose scripts arrive non-executable dies at the
+          # migration step, on the server, halfway through.
+          tar -tvzf reticle-${{ github.ref_name }}.tar.gz ./deploy/migrate-all.sh \
+            | grep -q '^-rwx' || {
+              echo "::error::deploy scripts are not executable in the bundle"
+              exit 1
+            }
 
       - uses: actions/upload-artifact@v4
         with:
@@ -71,7 +99,7 @@ jobs:
           retention-days: 30
 
   deploy:
-    name: Deploy to ZMB
+    name: Deploy to the facility host
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: build
@@ -89,11 +117,11 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
 
-      # The database and the media store live outside the release directory, so
-      # a bad release is rolled back by pointing the symlink at the previous
-      # one. That is only true while migrations stay additive — see
-      # MAINTENANCE.md. A destructive migration breaks rollback, which is why
-      # the backup below is taken before anything runs and not after.
+      # The databases and the media stores live outside the release directory,
+      # so a bad release is rolled back by pointing the symlink at the previous
+      # one and restarting. That is only true while migrations stay additive —
+      # see MAINTENANCE.md. A destructive migration breaks rollback, which is
+      # why the backups below are taken before anything runs and not after.
       - name: Ship, back up, migrate, switch
         env:
           HOST: ${{ vars.DEPLOY_HOST }}
@@ -105,72 +133,79 @@ jobs:
           scp "$BUNDLE" "$USER@$HOST:/tmp/$BUNDLE"
           ssh "$USER@$HOST" bash -euo pipefail <<EOF
             RELEASE_DIR="$PATH_ON_HOST/releases/$RELEASE"
-            SHARED="$PATH_ON_HOST/shared"
 
             # What the symlink points at right now, recorded before it moves.
             # This is what the rollback step below returns to, and reading it
-            # afterwards would read the release that just failed.
+            # afterwards would read the release that just failed. It is kept
+            # beside the releases rather than in /tmp, which anything on the
+            # machine may clear between two steps of the same run.
             PREVIOUS=\$(readlink -f "$PATH_ON_HOST/current" || true)
-            echo "\$PREVIOUS" > /tmp/reticle-previous-release
+            printf '%s\n' "\$PREVIOUS" > "$PATH_ON_HOST/releases/.previous"
 
             mkdir -p "\$RELEASE_DIR"
             tar -xzf "/tmp/$BUNDLE" -C "\$RELEASE_DIR"
             rm "/tmp/$BUNDLE"
 
+            # 3.12 to match CI and the lock file, which is resolved for one
+            # interpreter version.
             python3 -m venv "\$RELEASE_DIR/venv"
-            "\$RELEASE_DIR/venv/bin/pip" install --quiet -r "\$RELEASE_DIR/backend/requirements.txt"
-            ln -sfn "\$SHARED/.env" "\$RELEASE_DIR/backend/.env"
 
-            # Every facility on this host. One process per facility, all
-            # running the same release - so the symlink moves once and each
-            # facility is migrated and restarted in turn.
-            FACILITIES=\$(ls -1 "$PATH_ON_HOST/facilities" 2>/dev/null || true)
-            if [ -z "\$FACILITIES" ]; then
-              echo "No facilities under $PATH_ON_HOST/facilities. Run provision-facility.sh first." >&2
-              exit 1
-            fi
+            # --require-hashes against the lock, not the ranges in
+            # requirements.txt. Resolving on the host would install whatever is
+            # newest that minute, so production would run a dependency set CI
+            # never saw, and a rollback would rebuild a different virtualenv
+            # than the release it is rolling back to.
+            "\$RELEASE_DIR/venv/bin/pip" install --quiet --require-hashes \
+              -r "\$RELEASE_DIR/backend/requirements.lock"
 
+            # The release has to be readable by the service account, which is a
+            # different account from this one.
+            chmod -R a+rX "\$RELEASE_DIR"
+
+            # There is no shared .env. Configuration is per facility, in
+            # /opt/reticle/facilities/<slug>/env, read by systemd through
+            # EnvironmentFile= — so the release directory holds no
+            # configuration at all and every facility reads its own.
+
+            # Every facility on this host runs this one release, so the symlink
+            # moves once and each facility is migrated and restarted in turn.
             ln -sfn "\$RELEASE_DIR" "$PATH_ON_HOST/current"
 
-            # Backs up each facility, then migrates it, and stops at the first
-            # failure rather than leaving some facilities on a new schema and
-            # some not. The old code is still serving at this point.
+            # Backs up each facility — a pg_dump and a media archive — then
+            # migrates it, stopping at the first failure rather than leaving
+            # some facilities on a new schema and some not. The old processes
+            # are still serving at this point.
             "\$RELEASE_DIR/deploy/migrate-all.sh"
 
-            for facility in \$FACILITIES; do
-              sudo systemctl restart "reticle@\$facility"
-
-              # Readiness, not liveness, and the facility's own port. The
-              # process answers /api/health before it can reach the database,
-              # so waiting on that would call a release good while it is
-              # still broken.
-              PORT=\$(sed -n "s/^RETICLE_PORT='\\?\\([0-9]*\\)'\\?\$/\\1/p" \
-                "$PATH_ON_HOST/facilities/\$facility/env")
-              ready=false
-              for attempt in \$(seq 1 30); do
-                if curl -sf "http://127.0.0.1:\$PORT/api/ready" >/dev/null; then
-                  ready=true
-                  break
-                fi
-                sleep 2
-              done
-              if [ "\$ready" != true ]; then
-                echo "\$facility never became ready on port \$PORT" >&2
-                exit 1
-              fi
-              echo "\$facility ready"
-            done
+            # Now they are not. Each facility restarts onto the new release and
+            # has to answer /api/ready on its own port before the next one is
+            # touched.
+            "\$RELEASE_DIR/deploy/restart-facilities.sh"
           EOF
 
-      - name: Verify the public site answers
-        run: |
-          curl -sf "https://${{ vars.DEPLOY_HOST }}/api/ready"
-          curl -sf "https://${{ vars.DEPLOY_HOST }}/api/health"
+      # There is deliberately no step here that curls the site from the runner.
+      # The readiness check that matters already ran above, on the host, against
+      # every facility's own port, and it is the one that can fail the deploy.
+      #
+      # A public check cannot replace it and would not be honest if it tried.
+      # There is no page at https://$DEPLOY_HOST: that name is the machine, and
+      # every vhost answers to {slug}.reticle.ch, so the bare host matches no
+      # server_name at all. The host is also inside the university network,
+      # which a GitHub runner is not on. A check like that fails on a healthy
+      # deploy, and a check that fails on a healthy deploy triggers the rollback
+      # below and takes a working release down.
 
       # Release directories each carry their own virtualenv, so without this a
       # host fills up on a schedule. Five is enough to roll back further than
       # anybody ever does.
-      - name: Prune old releases and backups
+      #
+      # Per-facility backups are NOT pruned here. They live under
+      # /opt/reticle/facilities, which is 0750 and owned by the service account,
+      # so a `find` run by this account exits non-zero on the first directory,
+      # and under `set -e` that fails a deploy which has already succeeded.
+      # backup-facility.sh prunes its own output as the account that can read
+      # it.
+      - name: Prune old releases
         if: success()
         env:
           HOST: ${{ vars.DEPLOY_HOST }}
@@ -179,32 +214,60 @@ jobs:
         run: |
           ssh "$USER@$HOST" bash -euo pipefail <<EOF
             cd "$PATH_ON_HOST/releases"
-            ls -1dt */ | tail -n +6 | xargs -r rm -rf
-            find "$PATH_ON_HOST/facilities" -name 'pre-migrate-*.tar.gz' -mtime +30 -delete
+
+            # Never the live one, and never the one a rollback returns to.
+            # Pruning by modification time alone deletes the running code after
+            # a rollback, because the release that was rolled back TO is by
+            # then one of the oldest directories on disk.
+            LIVE=\$(basename "\$(readlink -f "$PATH_ON_HOST/current")")
+            PREVIOUS=\$(basename "\$(cat .previous 2>/dev/null || echo none)")
+
+            ls -1dt -- */ | sed 's#/\$##' | tail -n +6 | while read -r old; do
+              if [ "\$old" = "\$LIVE" ] || [ "\$old" = "\$PREVIOUS" ]; then
+                continue
+              fi
+              echo "pruning \$old"
+              rm -rf -- "\$old"
+            done
           EOF
 
       # Only on failure, and only back to the release that was live before this
-      # run. An automatic rollback is safe here precisely because the database
+      # run. An automatic rollback is safe here precisely because every facility
       # was backed up first and migrations are additive: the previous code can
       # read the new schema.
+      #
+      # Moving the symlink is not a rollback on its own. Each facility is a
+      # long-running process that loaded its code at start-up, so until they are
+      # restarted they are all still executing the release that just failed.
       - name: Roll back
         if: failure()
         env:
           HOST: ${{ vars.DEPLOY_HOST }}
           USER: ${{ vars.DEPLOY_USER }}
           PATH_ON_HOST: ${{ vars.DEPLOY_PATH }}
+          RELEASE: ${{ github.ref_name }}
         run: |
           ssh "$USER@$HOST" bash -euo pipefail <<EOF
-            PREVIOUS=\$(cat /tmp/reticle-previous-release 2>/dev/null || true)
+            PREVIOUS=\$(cat "$PATH_ON_HOST/releases/.previous" 2>/dev/null || true)
             if [ -z "\$PREVIOUS" ] || [ ! -d "\$PREVIOUS" ]; then
               echo "no previous release recorded; leaving the server as it is" >&2
               exit 1
             fi
             ln -sfn "\$PREVIOUS" "$PATH_ON_HOST/current"
-            for attempt in \$(seq 1 30); do
-              curl -sf http://127.0.0.1:8000/api/ready >/dev/null && exit 0
-              sleep 2
-            done
-            echo "rolled back and it is still not ready - this needs a person" >&2
-            exit 1
+
+            # The same script the forward path uses, so the rollback cannot
+            # drift away from it: restart every facility, wait for each on its
+            # own port. It reads only the facility env files and the symlink,
+            # never the release it happens to sit in, so the new release's copy
+            # is fine and is the one certain to exist.
+            RESTART="$PATH_ON_HOST/releases/$RELEASE/deploy/restart-facilities.sh"
+            [ -x "\$RESTART" ] || RESTART="\$PREVIOUS/deploy/restart-facilities.sh"
+            if [ ! -x "\$RESTART" ]; then
+              echo "symlink moved to \$PREVIOUS, but no restart script exists on" >&2
+              echo "this host. Restart each facility by hand:" >&2
+              echo "  for f in \$(ls $PATH_ON_HOST/facilities); do sudo systemctl restart reticle@\\\$f; done" >&2
+              exit 1
+            fi
+            "\$RESTART"
+            echo "rolled back to \$PREVIOUS"
           EOF

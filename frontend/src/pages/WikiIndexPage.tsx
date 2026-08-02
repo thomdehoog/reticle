@@ -1,5 +1,13 @@
 /**
- * All the wiki pages, in one place.
+ * Every wiki page in one list.
+ *
+ * The wiki's own front door, and the only listing of it. A wiki page is not a
+ * procedure, so it does not appear among a category's guides, and without this
+ * screen one is reachable only from search or from a link somebody remembered
+ * to write — which makes a page nobody linked to as good as deleted the day it
+ * was published. Each card names the category its page belongs to, because a
+ * landing page is normally read from the category rather than from here, and
+ * two pages can carry near-identical titles under different instruments.
  */
 
 import { Link } from 'react-router'
@@ -11,14 +19,6 @@ import type { PageSummary } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 import { useCategories } from '../hooks/useCategories'
 
-/**
- * Every wiki page in one list.
- *
- * Without it, a page was reachable only from search or from a link somebody
- * remembered to write, so a page that nobody linked to was effectively deleted
- * the day it was published. Landing pages are marked because they belong to a
- * category and are usually read from there instead.
- */
 export function WikiIndexPage() {
   const api = useApi()
   const { can } = useAuth()

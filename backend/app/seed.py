@@ -13,6 +13,8 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 
 from __future__ import annotations
 
+from io import BytesIO
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
@@ -308,9 +310,10 @@ def _seed_categories(db: DbSession) -> dict[str, Category]:
 def _seed_example_image(db: DbSession, author: User, step: Step) -> None:
     """A picture with shapes on it, so a fresh install shows what a guide is.
 
-    The example guide claimed to demonstrate the annotation vocabulary and had
-    no images at all, which meant the one thing a new installation showed was
-    the one thing Reticle does that a text document does not.
+    The example guide is there to demonstrate the annotation vocabulary, and an
+    example with no image demonstrates nothing: coloured shapes paired with
+    coloured bullets are the one thing Reticle does that a text document does
+    not, so the example has to have one.
 
     The image is drawn here rather than shipped as a file. A binary in the
     repository is a licence question and a merge conflict waiting to happen,
@@ -332,7 +335,9 @@ def _seed_example_image(db: DbSession, author: User, step: Step) -> None:
     pen.rounded_rectangle((170, 420, 300, 470), radius=8, fill=(70, 82, 100))
     pen.rounded_rectangle((660, 420, 790, 470), radius=8, fill=(70, 82, 100))
 
-    payload = _png_bytes(canvas)
+    buffer = BytesIO()
+    canvas.save(buffer, format="PNG", optimize=True)
+    payload = buffer.getvalue()
     media = Media(
         id=new_id(),
         storage_path="",
@@ -374,14 +379,6 @@ def _seed_example_image(db: DbSession, author: User, step: Step) -> None:
                 height=height,
             )
         )
-
-
-def _png_bytes(image) -> bytes:
-    from io import BytesIO
-
-    buffer = BytesIO()
-    image.save(buffer, format="PNG", optimize=True)
-    return buffer.getvalue()
 
 
 def _seed_example_guide(db: DbSession, author: User, category: Category) -> None:
