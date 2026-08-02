@@ -485,9 +485,11 @@ def step(
     media: list[dict] | None = None,
     step_id: str | None = None,
     video: dict | None = None,
+    kind: str = "step",
 ) -> dict:
     entry: dict[str, Any] = {
         "title": title,
+        "kind": kind,
         "orderIndex": 99,
         "bullets": bullets or [],
         "media": media or [],

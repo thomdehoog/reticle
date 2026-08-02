@@ -89,6 +89,19 @@ def build_corpus(admin, category) -> dict:
                     ],
                 ),
                 step("Acquire and shut down", bullets=[bullet("Save to the group folder.")]),
+                # One of each other kind, so the field-for-field comparison
+                # below actually covers them. A boolean or an enum that is the
+                # default on both sides round-trips even when it is dropped.
+                step(
+                    "This room is shared - knock first",
+                    kind="pinned",
+                    bullets=[bullet("Live-cell work runs in the dark.", color="red")],
+                ),
+                step(
+                    "Where the reception desk is",
+                    kind="info",
+                    bullets=[bullet("Ground floor, past the lifts.")],
+                ),
             ],
         ),
     )
@@ -142,7 +155,11 @@ def test_the_shapes_drawn_on_a_picture_survive(admin, category, db_session):
     """The half of a step that a naive export loses without anyone noticing."""
     build_corpus(admin, category)
 
-    shapes = export_of(db_session)["guides"][0]["steps"][0]["media"][0]["annotations"]
+    # Found by what it holds rather than by position: a pinned block sorts to
+    # the front, so the index of the step carrying pictures is not fixed.
+    steps = export_of(db_session)["guides"][0]["steps"]
+    with_pictures = next(entry for entry in steps if entry["media"])
+    shapes = with_pictures["media"][0]["annotations"]
 
     assert [shape["shape"] for shape in shapes] == ["rectangle", "arrow"]
     assert [shape["color"] for shape in shapes] == ["red", "blue"]

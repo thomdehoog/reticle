@@ -392,6 +392,21 @@ def _claim_id(
     return candidate
 
 
+def _pinned_first(steps_in: list[StepIn]) -> list[StepIn]:
+    """Move the pinned blocks to the front, keeping everything else in order.
+
+    A pinned block is the thing a reader must see before starting - "this room
+    is shared, knock first" - so where it sits in the document is not the
+    author's decision to get wrong. Enforcing it here rather than trusting the
+    editor to send them first means it also holds for an import, a restore and
+    anything else that writes a whole document.
+
+    Sorting on the kind alone would be enough, but ``sorted`` is stable, so the
+    author's order survives within each group.
+    """
+    return sorted(steps_in, key=lambda step: 0 if step.kind == "pinned" else 1)
+
+
 def _sync_steps(
     db: DbSession, guide: Guide, steps_in: list[StepIn], media_by_id: dict[str, Media]
 ) -> None:
@@ -405,6 +420,7 @@ def _sync_steps(
     itself.
     """
     existing_steps = {step.id: step for step in guide.steps}
+    steps_in = _pinned_first(steps_in)
 
     # Pass 1: settle which identifier every step and bullet will have, before
     # anything is written, so a clash is a readable error rather than a
@@ -461,6 +477,7 @@ def _sync_steps(
             step = Step(id=step_id, guide_id=guide.id)
             db.add(step)
         step.order_index = index
+        step.kind = step_in.kind
         step.title = step_in.title
 
         existing_bullets = (

@@ -301,10 +301,38 @@ class GuideContributor(Base):
 
 
 class Step(Base):
+    """One block of a guide.
+
+    ``kind`` says which: ``step`` is a numbered instruction, ``info`` is context
+    that is not one — "here is the building, here is the reception desk" — and
+    ``pinned`` is the optional highlighted block at the top. The vocabulary is
+    refused at the boundary by the ``StepKind`` literal in ``schemas``.
+
+    The three are one table because they are one thing. An info block showing
+    the reception desk needs the same pictures, the same shapes drawn over them,
+    the same coloured bullets and the same ordering as a step describing how to
+    start a laser, and the only difference is whether a reader sees a number
+    beside it. A separate table would have meant a second set of media links and
+    a second set of annotations, and every rule that already holds for a step —
+    the media cap, the one-file-per-guide rule, the whole-document save, the
+    export — would have had to be written a second time and kept in agreement.
+
+    Two rules follow from the kind, and both are enforced when a document is
+    saved rather than when one is read, so ``order_index`` always means the
+    order a reader sees:
+
+    *Only ``step`` is numbered.* Numbering counts real steps, so an info block
+    between steps 2 and 3 does not make the next one 4.
+
+    *A ``pinned`` block is first.* ``documents._pinned_first`` moves it there as
+    the order indices are assigned.
+    """
+
     __tablename__ = "steps"
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
     guide_id: Mapped[str] = mapped_column(ForeignKey("guides.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(8), default="step")
     order_index: Mapped[int] = mapped_column(Integer, default=0)
     title: Mapped[str] = mapped_column(String(400), default="")
     video_media_id: Mapped[str | None] = mapped_column(ForeignKey("media.id"), nullable=True)

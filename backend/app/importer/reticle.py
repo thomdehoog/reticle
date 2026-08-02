@@ -404,6 +404,10 @@ def _restore_guide(db: DbSession, entry: dict[str, Any], tags_by_slug: dict[str,
             id=step_entry["id"],
             guide_id=guide.id,
             order_index=position,
+            # `.get` because an archive written before blocks had a kind carries
+            # the same format version and simply has no such key; everything in
+            # one of those is a numbered step.
+            kind=step_entry.get("kind", "step"),
             title=step_entry["title"],
             video_media_id=(step_entry.get("video") or {}).get("id"),
         )

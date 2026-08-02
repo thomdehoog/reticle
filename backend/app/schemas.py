@@ -38,6 +38,11 @@ BulletIcon = Literal["note", "caution", "reminder"]
 BulletLevel = Literal[0, 1, 2]
 AnnotationShape = Literal["rectangle", "ellipse", "arrow"]
 MediaKind = Literal["image", "video"]
+StepKind = Literal["step", "info", "pinned"]
+"""What a block inside a guide is.
+
+Only ``step`` is numbered, and the client is what numbers it — see ``StepOut``.
+"""
 
 MAX_STEPS_PER_GUIDE = 200
 MAX_BULLETS_PER_STEP = 200
@@ -177,7 +182,18 @@ class BulletOut(Wire):
 
 
 class StepOut(Wire):
+    """One block of a guide, in the order a reader sees it.
+
+    There is no number on the wire, and deliberately so: the reader and the
+    editor already number from the position in this array, and a second number
+    served alongside it would be a second answer to the same question. The rule
+    the client applies is that **only ``kind == "step"`` is counted** — an info
+    block between steps 2 and 3 does not make the next one 4 — and ``pinned``
+    blocks are already sorted to the front of ``steps``.
+    """
+
     id: str
+    kind: StepKind
     order_index: int
     title: str
     bullets: list[BulletOut]
@@ -372,7 +388,10 @@ class MediaRefIn(Document):
 
 
 class StepIn(Document):
-    """One step.
+    """One block, whichever of the three kinds it is.
+
+    A document may put its ``pinned`` blocks anywhere in ``steps``; the save
+    moves them to the front — see ``documents._pinned_first``.
 
     ``media`` carries no schema-level cap because its limit is operator-owned:
     ``documents`` rejects anything over ``max_media_per_step`` so that raising
@@ -381,6 +400,7 @@ class StepIn(Document):
     """
 
     id: str | None = None
+    kind: StepKind = "step"
     title: str = Field(default="", max_length=400)
     bullets: list[BulletIn] = Field(default_factory=list, max_length=MAX_BULLETS_PER_STEP)
     media: list[MediaRefIn] = Field(default_factory=list)
@@ -488,6 +508,7 @@ def bullet_out(bullet: models.Bullet) -> BulletOut:
 def step_out(step: models.Step) -> StepOut:
     return StepOut(
         id=step.id,
+        kind=step.kind,
         order_index=step.order_index,
         title=step.title,
         bullets=[bullet_out(bullet) for bullet in step.bullets],

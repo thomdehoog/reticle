@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.models import Guide, Step
 
-from .conftest import bullet, create_guide, document_from, step
+from .conftest import bullet, create_guide, document_from, step, upload_media
 
 
 def test_author_creates_a_draft_with_sane_defaults(author, category):
@@ -455,3 +455,129 @@ def test_an_archived_guide_is_invisible_to_viewers(author, admin, viewer, catego
 def test_guide_endpoints_require_a_session(anon, category):
     assert anon.get("/api/guides").status_code == 401
     assert anon.get("/api/guides/anything").status_code == 401
+
+
+# --------------------------------------------------------------- block kinds
+
+
+def test_a_step_is_a_numbered_step_unless_it_says_otherwise(author, category):
+    """The default has to be the common case.
+
+    Every guide written before blocks had a kind, and every client that does not
+    send one, must keep producing numbered steps.
+    """
+    created = create_guide(author, category.id)
+
+    assert created["steps"][0]["kind"] == "step"
+
+
+def test_an_info_block_keeps_its_kind_through_a_save(author, category):
+    created = create_guide(author, category.id)
+    saved = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(
+            created,
+            steps=[
+                step("Start the laser"),
+                step("Where the reception desk is", kind="info"),
+            ],
+        ),
+    ).json()
+
+    assert [entry["kind"] for entry in saved["steps"]] == ["step", "info"]
+
+
+def test_an_info_block_carries_bullets_and_pictures_like_any_other_block(author, category):
+    """The whole argument for one table rather than three.
+
+    If an info block could not hold what a step holds, the saving in code would
+    have been paid for in capability.
+    """
+    picture = upload_media(author)
+    created = create_guide(author, category.id)
+    saved = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(
+            created,
+            steps=[
+                step(
+                    "Finding the building",
+                    kind="info",
+                    bullets=[bullet("The entrance is on Winterthurerstrasse.", color="red")],
+                    media=[{"id": picture["id"], "alt": "The main entrance"}],
+                )
+            ],
+        ),
+    ).json()
+
+    block = saved["steps"][0]
+    assert block["kind"] == "info"
+    assert block["bullets"][0]["color"] == "red"
+    assert [item["id"] for item in block["media"]] == [picture["id"]]
+
+
+def test_a_pinned_block_is_moved_to_the_front_wherever_the_author_left_it(author, category):
+    """Position is not the author's decision to get wrong.
+
+    A pinned block is what a reader has to see before starting, so the save puts
+    it first rather than trusting every client that ever writes a document to
+    have sent it first.
+    """
+    created = create_guide(author, category.id)
+    saved = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(
+            created,
+            steps=[
+                step("Power up"),
+                step("Book the room"),
+                step("This room is shared - knock first", kind="pinned"),
+            ],
+        ),
+    ).json()
+
+    assert [entry["title"] for entry in saved["steps"]] == [
+        "This room is shared - knock first",
+        "Power up",
+        "Book the room",
+    ]
+    assert [entry["orderIndex"] for entry in saved["steps"]] == [0, 1, 2]
+
+
+def test_the_order_the_author_chose_survives_within_each_group(author, category):
+    """Only the pinned blocks move. Sorting has to be stable, or an author's
+    ordering is silently rearranged every time they save."""
+    created = create_guide(author, category.id)
+    saved = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(
+            created,
+            steps=[
+                step("First"),
+                step("Pinned A", kind="pinned"),
+                step("Second"),
+                step("Pinned B", kind="pinned"),
+                step("Third"),
+            ],
+        ),
+    ).json()
+
+    assert [entry["title"] for entry in saved["steps"]] == [
+        "Pinned A",
+        "Pinned B",
+        "First",
+        "Second",
+        "Third",
+    ]
+
+
+def test_a_block_of_an_invented_kind_is_refused(author, category):
+    """The vocabulary is closed. Anything else would reach the reader as a
+    block it does not know how to draw."""
+    created = create_guide(author, category.id)
+    response = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, steps=[step("Sideways", kind="sideways")]),
+    )
+
+    assert response.status_code == 422
