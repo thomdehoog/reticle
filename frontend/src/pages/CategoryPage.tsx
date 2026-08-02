@@ -23,6 +23,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
+import { Banner } from '../components/Banner'
 import { CategoryTile, GuideRow, GuideRows, TileGrid, WikiCard } from '../components/BrowseCards'
 import { IconEdit, IconPlus } from '../components/icons'
 import { MarkdownBody } from '../components/MarkdownBody'
@@ -97,11 +98,7 @@ export function CategoryPage() {
 
   return (
     <>
-      <div className="page-header">
-        <div className="page-header__text">
-          <h1>{category.name}</h1>
-        </div>
-      </div>
+      <Banner title={category.name} line={category.description} src={category.imageUrl} />
 
       <ErrorAlert error={createError} />
 

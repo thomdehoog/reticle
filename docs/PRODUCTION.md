@@ -19,10 +19,9 @@ lacks is a control plane: sign-up, per-facility administration, billing.
 | | |
 | --- | --- |
 | ✅ **Migrations** | Alembic. Three tests fail the moment a model is edited without generating one, verified by editing a model and watching them go red. `create_all` never altered an existing table, and that had already bitten once. |
-| ✅ **PostgreSQL** | The whole suite runs on either engine; CI runs it against PostgreSQL 16. Migrations produce a schema with zero drift on both. |
-| ✅ **Foreign keys enforced** | SQLite has them off by default. Proved by inserting an orphan row and requiring the `IntegrityError`. |
-| ✅ **WAL journal** | Without it an autosave locks out every reader while somebody types. |
-| ✅ **Non-ASCII text** | German, Greek, Cyrillic and emoji asserted identical through a round trip, on both engines. Two real bugs were found this way — see below. |
+| ✅ **PostgreSQL, and only PostgreSQL** | One engine, in development, in CI and in production. `RETICLE_DATABASE_URL` has no default, so a misconfigured server stops at start-up instead of serving an empty library. Migrations produce a schema with zero drift from the models. |
+| ✅ **Foreign keys enforced** | Proved by inserting an orphan row and requiring the `IntegrityError`, because every `ondelete="CASCADE"` in the models is worth what the database enforces and nothing more. |
+| ✅ **Non-ASCII text** | German, Greek, Cyrillic and emoji asserted identical through a round trip, and German titles asserted findable in whatever case the reader types. Two real bugs were found this way — see below. |
 
 ### Running it
 
@@ -45,7 +44,7 @@ lacks is a control plane: sign-up, per-facility administration, billing.
 
 | | |
 | --- | --- |
-| ✅ **722 backend tests** | Passing on SQLite and on PostgreSQL. |
+| ✅ **758 backend tests** | Every one of them against PostgreSQL 16, which is what production is. |
 | ✅ **315 frontend tests** | Plus two browser suites: 18 checks across desktop, tablet and phone, and a 24-check authoring round trip that writes a guide and reads it back. Both run against the **production build behind nginx**, not the dev server, so the minified bundle and the Content-Security-Policy are exercised on every run. |
 | ✅ **Linting, both halves** | ESLint (the `react-hooks` rules are the point) and ruff. Both found real defects. |
 | ✅ **Dependency audit** | `pip-audit` and `npm audit`. Zero vulnerabilities. |
@@ -80,13 +79,16 @@ lacks is a control plane: sign-up, per-facility administration, billing.
 Worth listing, because they are the argument for the tooling rather than a
 claim about it.
 
-1. **German search returned nothing.** SQLite's `lower()` folds A–Z and stops,
-   and every search is an `ilike`. Searching *Präparation* in the case it
-   appears in a title matched nothing, against a corpus half of which is
-   German. Found by reading the compiled SQL.
-2. **Every login would have failed on PostgreSQL.** The throttle key joined two
-   fields with a NUL byte, which a PostgreSQL text column cannot hold. SQLite
-   stored it silently. Found on the first run of the PostgreSQL job.
+1. **German search returned nothing.** Every search is an `ilike`, and the
+   engine it was written against rendered that with a `lower()` that folds A–Z
+   and stops. Searching *Präparation* in the case it appears in a title matched
+   nothing, against a corpus half of which is German. Found by reading the
+   compiled SQL. `ILIKE` on PostgreSQL folds by collation, so the workaround
+   that fixed it has since been deleted and the tests still pass.
+2. **Every login would have failed.** The throttle key joined two fields with a
+   NUL byte, which a PostgreSQL text column cannot hold. The engine used in
+   development stored it silently. Found on the first run against PostgreSQL,
+   which is now the only engine anything runs against.
 3. **The importer would fetch `file://` URLs.** Image addresses come out of the
    *source system's* payloads, so a hostile source could have had a local file
    read, stored as media, and served back. Found by ruff's bandit rules.

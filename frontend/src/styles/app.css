@@ -3157,6 +3157,103 @@ a:hover {
   }
 }
 
+/* ------------------------------------------------------------------ banner */
+
+/*
+ * The picture across the top of the front page and of every category. It says
+ * where you are with a photograph instead of a paragraph, and carries the title
+ * and at most one line under it.
+ */
+
+.banner {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  min-height: 176px;
+  margin-bottom: 1.6rem;
+  background: var(--brand-900);
+  border-radius: var(--radius-lg);
+}
+
+/* Taller at the front, because arriving at the facility is the one moment worth
+   a whole screen; two levels down the reader wants the guides. */
+.banner--facility {
+  min-height: 210px;
+}
+
+.banner__art {
+  position: absolute;
+  inset: 0;
+}
+
+.banner__image,
+.banner__art .thumb__figure {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* A gradient rather than a flat tint. The words have to stay legible wherever
+   the photograph happens to be bright, and these are the facility's own
+   micrographs — dimming all of them evenly to protect one line of text throws
+   away the reason for showing them. */
+.banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(4, 12, 22, 0.2) 0%, rgba(4, 12, 22, 0.78) 100%);
+}
+
+.banner__text {
+  position: relative;
+  z-index: 1;
+  max-width: 46rem;
+  padding: 1.6rem 1.9rem 1.5rem;
+  color: #fff;
+}
+
+.banner__title {
+  margin: 0;
+  font-size: 1.7rem;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+
+.banner--facility .banner__title {
+  font-size: 1.95rem;
+}
+
+.banner__line {
+  margin: 0.55rem 0 0;
+  font-size: 0.95rem;
+  color: #dbe6f4;
+}
+
+@media (max-width: 640px) {
+  .banner,
+  .banner--facility {
+    min-height: 168px;
+    margin-bottom: 1.25rem;
+  }
+
+  .banner__text {
+    padding: 1.1rem 1rem 1rem;
+  }
+
+  .banner__title,
+  .banner--facility .banner__title {
+    font-size: 1.4rem;
+  }
+
+  .banner__line {
+    margin-top: 0.45rem;
+    font-size: 0.87rem;
+  }
+}
+
 /* ------------------------------------------------------------ visual index */
 
 /*

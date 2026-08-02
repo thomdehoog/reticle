@@ -193,7 +193,7 @@ def test_the_organisation_is_configuration_rather_than_source(anon, monkeypatch)
 
     assert response.status_code == 200
     organisation = response.json()["organisation"]
-    assert set(organisation) == {"name", "shortName", "url"}
+    assert set(organisation) == {"name", "shortName", "url", "tagline", "heroImageUrl"}
     assert organisation["shortName"]
 
 

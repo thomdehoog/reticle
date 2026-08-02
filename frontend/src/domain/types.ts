@@ -289,6 +289,10 @@ export interface Organisation {
   name: string
   shortName: string
   url: string | null
+  /** One line under the name on the front page's banner. */
+  tagline: string | null
+  /** The photograph behind it. A drawn figure stands in when there is none. */
+  heroImageUrl: string | null
 }
 
 export interface AppConfig {

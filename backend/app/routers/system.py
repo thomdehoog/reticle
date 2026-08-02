@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text as sqlalchemy_text
 
 from ..db import SessionLocal
+from ..schemas import media_url
 from ..settings import get_settings
 
 router = APIRouter(tags=["system"])
@@ -74,5 +75,11 @@ async def configuration() -> dict[str, object]:
             "name": settings.organisation_name,
             "shortName": settings.organisation_short_name,
             "url": settings.organisation_url,
+            "tagline": settings.organisation_tagline,
+            "heroImageUrl": (
+                media_url(settings.organisation_hero_media_id)
+                if settings.organisation_hero_media_id
+                else None
+            ),
         }
     }

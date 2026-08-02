@@ -135,6 +135,8 @@ class Settings(BaseSettings):
     organisation_name: str = "Center for Microscopy and Image Analysis"
     organisation_short_name: str = "ZMB"
     organisation_url: str | None = None
+    organisation_tagline: str | None = None
+    organisation_hero_media_id: str | None = None
     """Whose instance this is.
 
     Configuration rather than source, because one Reticle per facility is the
@@ -142,6 +144,11 @@ class Settings(BaseSettings):
     media store, and the only thing that differs is whose name is on it. A
     facility should not have to fork the software to put its own name in the
     header.
+
+    The tagline and the hero picture are what the front page's banner shows
+    under and behind the name. Both are optional: with no tagline the banner
+    shows the name alone rather than an empty line, and with no picture it
+    falls back to the drawn cover the section tiles already use.
     """
 
     admin_email: str = "admin@zmb.uzh.ch"

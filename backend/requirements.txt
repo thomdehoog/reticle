@@ -34,12 +34,11 @@ sqlalchemy~=2.0
 # reaches a database that already exists.
 alembic~=1.18
 
-# The PostgreSQL driver. Production is one database per facility on PostgreSQL,
-# and `provision-facility.sh` writes `postgresql+psycopg://…` into every
-# facility's environment file — so this is a runtime dependency, not a test one.
-# Without it here the first provisioning run stops at the migration step, after
-# the role and the database already exist.
-# SQLite needs nothing extra; it is part of Python.
+# The PostgreSQL driver, and the only one. Every installation is one database
+# per facility on PostgreSQL, and `provision-facility.sh` writes
+# `postgresql+psycopg://…` into every facility's environment file — so this is a
+# runtime dependency, not a test one. Without it here the first provisioning run
+# stops at the migration step, after the role and the database already exist.
 psycopg[binary]~=3.2
 
 # The [email] extra pulls in email-validator, which pydantic's EmailStr needs at

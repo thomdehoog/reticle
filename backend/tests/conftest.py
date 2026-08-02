@@ -167,9 +167,13 @@ def database() -> Iterator[Engine]:
     """
     engine = create_engine(TEST_DATABASE_URL)
     with engine.connect() as connection:
-        existing = connection.execute(
-            text("SELECT tablename FROM pg_tables WHERE schemaname = current_schema()")
-        ).scalars().all()
+        existing = (
+            connection.execute(
+                text("SELECT tablename FROM pg_tables WHERE schemaname = current_schema()")
+            )
+            .scalars()
+            .all()
+        )
         for table in existing:
             connection.execute(text(f'DROP TABLE "{table}" CASCADE'))
         connection.commit()
@@ -237,9 +241,7 @@ def scratch_engine(database: Engine) -> Iterator[Callable[[str], Engine]]:
             connection.execute(text(f'DROP SCHEMA IF EXISTS "{name}" CASCADE'))
             connection.execute(text(f'CREATE SCHEMA "{name}"'))
             connection.commit()
-        engine = create_engine(
-            TEST_DATABASE_URL, connect_args={"options": f"-csearch_path={name}"}
-        )
+        engine = create_engine(TEST_DATABASE_URL, connect_args={"options": f"-csearch_path={name}"})
         created.append((name, engine))
         return engine
 

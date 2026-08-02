@@ -43,7 +43,7 @@ everyone aligns to.
 reticle/
 ├── docs/API.md        the HTTP contract — the single source of truth
 ├── frontend/          React 19 + TypeScript + Vite
-└── backend/           FastAPI + SQLAlchemy + SQLite
+└── backend/           FastAPI + SQLAlchemy + PostgreSQL
 ```
 
 `docs/API.md` is the contract both halves are written against. Changing it means
@@ -142,9 +142,9 @@ and videos. Nothing uploaded ever reaches the repository — `.gitignore` exclud
 both, deliberately.
 
 `docs/ARCHITECTURE.md` covers that in full, and sets out what running Reticle as
-a hosted service for several facilities would take: PostgreSQL instead of
-SQLite, object storage instead of local disk, a database per facility rather
-than a shared one, and the order to do it in.
+a hosted service for several facilities would take: object storage instead of
+local disk, a database per facility rather than a shared one, and the order to
+do it in.
 
 ## Licence and provenance
 

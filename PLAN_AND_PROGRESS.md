@@ -129,7 +129,7 @@ reticle/
 ├── docs/NEXT_SESSION.md the brief for the session that has the live site
 ├── docs/ARCHITECTURE.md where the data lives, and what hosting it as a service takes
 ├── frontend/            React 19 + TypeScript + Vite
-└── backend/             FastAPI + SQLAlchemy + SQLite
+└── backend/             FastAPI + SQLAlchemy + PostgreSQL
     └── app/importer/    the migration tool; nothing in app imports it
 ```
 
@@ -182,7 +182,7 @@ Decisions worth not re-litigating:
       with validation that names the offending step
 - [x] People management, self-service password change
 - [x] Responsive down to 360 px; hover-only controls made permanent on touch
-- [x] FastAPI backend, SQLite, publish history, audit trail
+- [x] FastAPI backend, PostgreSQL, publish history, audit trail
 - [x] CI (GitHub Actions): typecheck, both test suites, coverage gate, browser
       smoke test with screenshots kept on failure
 - [x] Deployment pipeline: tagged release, symlink switch, inert until configured

@@ -19,16 +19,16 @@ program, not a library of guides.
 
 | What | Where | Contains |
 | --- | --- | --- |
-| `reticle.db` | `/opt/reticle/shared/reticle.db` | Every guide, wiki page, step, bullet, tag, account, publish snapshot and audit entry — all the text and structure |
-| `media/` | `/opt/reticle/shared/media/` | The actual image and video files, one per upload |
+| The database | PostgreSQL, one per facility, named in that facility's `RETICLE_DATABASE_URL` | Every guide, wiki page, step, bullet, tag, account, publish snapshot and audit entry — all the text and structure |
+| `media/` | `/opt/reticle/facilities/<slug>/media/` | The actual image and video files, one per upload |
 
 Nothing else survives a deployment. `releases/` is code, `static/` is the built
 frontend; both are replaced on every update.
 
-`.gitignore` excludes `*.db` and `backend/media/`, and `git ls-files` returns
-nothing matching either. That is not a convention — a repository is a filing
-cabinet for source, and putting a facility's photographs in one means every
-clone carries them forever, including the ones taken by mistake.
+`.gitignore` excludes `backend/media/`, and `git ls-files` returns nothing
+matching it. That is not a convention — a repository is a filing cabinet for
+source, and putting a facility's photographs in one means every clone carries
+them forever, including the ones taken by mistake.
 
 ### What happens when somebody uploads a picture
 
@@ -73,51 +73,57 @@ imaginary ones.
 
 ### The three storage decisions
 
-#### 1. SQLite → PostgreSQL
+The first of them has since been taken and is recorded here as such; the other
+two are still proposals.
 
-SQLite is the right choice for one facility: one file, no daemon, backed up by
-copying it. It is the wrong choice for a hosted service, and for concrete
-reasons rather than snobbery. It permits one writer at a time, so it cannot be
-served by more than one process. It lives on one machine's disk, so the machine
-is the durability story. And its recovery model is "restore last night's file",
-which loses a day.
+#### 1. PostgreSQL, and nothing else — decided
 
+This one is not a proposal. **Reticle runs on PostgreSQL, one database per
+facility, and speaks no other engine.** `provision-facility.sh` creates the role
+and the database and writes the URL into the facility's environment file, and
+`RETICLE_DATABASE_URL` has no default — a server that has not been told where
+its database is refuses to start rather than quietly creating an empty one and
+serving a library with nothing in it.
+
+The project began on a single-file embedded database, which is a genuinely good
+answer for one facility: one file, no daemon, backed up by copying it. It is the
+wrong answer for a hosted service, and for concrete reasons rather than
+snobbery. It permits one writer at a time, so it cannot be served by more than
+one process. It lives on one machine's disk, so the machine is the durability
+story. And its recovery model is "restore last night's file", which loses a day.
 PostgreSQL gives concurrent writers, replication, and point-in-time recovery
-measured in seconds. Every managed provider offers it, in Switzerland and in the
+measured in seconds; every managed provider offers it, in Switzerland and in the
 EU, which matters here — see *Residency* below.
 
-A worked example of the difference, found in this codebase rather than imagined.
-Every search in the application is an `ilike`. SQLAlchemy renders that on SQLite
-as `lower(a) LIKE lower(b)`, and **SQLite's `lower()` folds A–Z and stops** —
-full Unicode folding would drag ICU into a library that fits on a
-microcontroller. Against a corpus half of which is German, searching
-*Präparation* in the case it appears in the title returned nothing. The fix was
-to override a built-in C function on every connection (`app/db.py`). On
-PostgreSQL the bug does not exist: `ILIKE` is a real operator that folds by
-collation. That is the shape of the whole trade — SQLite makes you hand-build
-what PostgreSQL already has, and each hand-built piece is one nobody else
-maintains.
+What settled it was not that list but two bugs, both found in this codebase
+rather than imagined, and both of a kind that only exists when development and
+production run different engines.
 
-The code is SQLAlchemy throughout and does not depend on SQLite. Both things
-that had to be dealt with first are **done**:
+- Every search in the application is an `ilike`, which the embedded engine
+  rendered as `lower(a) LIKE lower(b)` — and its `lower()` folds A–Z and stops.
+  Against a corpus half of which is German, searching *Präparation* in the case
+  it appears in the title returned nothing. Keeping it working meant overriding
+  a built-in C function on every connection. `ILIKE` on PostgreSQL is a real
+  operator that folds by collation, so that code is gone and the German search
+  tests pass with nothing standing behind them.
+- The login throttle joined two fields with a NUL byte, which a PostgreSQL text
+  column cannot hold at all. It stored happily in development. Every login on
+  the deployed system would have failed, on the first day, for everybody.
 
-- **Migrations. Done.** Alembic is in `backend/migrations/` and runs on
-  start-up, handling an empty database, one that predates migrations, and one
-  already stamped. `deploy/migrate-all.sh` is the multi-facility equivalent.
-  This was a prerequisite rather than an improvement: a PostgreSQL database
-  whose schema cannot be evolved is strictly worse than a SQLite file that can
-  be deleted and reseeded.
-- **The suite runs against both. Done.** Setting `RETICLE_TEST_DATABASE_URL`
-  points the whole suite at a real server, and CI runs a PostgreSQL job. It is
-  not a formality: SQLite accepts things PostgreSQL rejects, so a suite that has
-  only ever run on SQLite is evidence about SQLite.
+Both prerequisites are done:
 
-**On timing**, since it is the part that is easy to get wrong. Migrating a
-facility *after* its corpus is loaded means moving tens of gigabytes rather than
-an empty schema, so the window is before the first real corpus lands. What
-softens that is `portability export` followed by `restore` into a PostgreSQL
-instance, which is already the migration path, and the suite proves that round
-trip on every run.
+- **Migrations.** Alembic is in `backend/migrations/` and runs on start-up,
+  handling an empty database, one that predates migrations, and one already
+  stamped. `deploy/migrate-all.sh` is the multi-facility equivalent.
+- **The suite runs on the engine production runs**, and only on it. There is no
+  second engine to fall back to, which is the whole point: a green run is
+  evidence about PostgreSQL. Every CI job that touches a database — the backend
+  suite, the restore rehearsal and the browser smoke test — brings up a
+  `postgres:16` service.
+
+Moving a corpus between databases, if a facility ever needs to, is
+`portability export` followed by `restore`; that round trip is rehearsed on
+every CI run rather than described here and hoped for.
 
 #### 2. Local disk → object storage
 

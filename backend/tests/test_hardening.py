@@ -292,7 +292,13 @@ def test_the_public_config_endpoint_carries_nothing_but_the_name(anon):
     body = anon.get("/api/config").json()
 
     assert set(body) == {"organisation"}
-    assert set(body["organisation"]) == {"name", "shortName", "url"}
+    assert set(body["organisation"]) == {
+        "name",
+        "shortName",
+        "url",
+        "tagline",
+        "heroImageUrl",
+    }
 
 
 def test_every_readable_endpoint_on_the_new_surface_refuses_an_anonymous_caller(anon):

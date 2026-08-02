@@ -57,7 +57,8 @@ on port 5173 and the API on 8000.
 
 **The database is PostgreSQL, one per facility.** That is the isolation
 decision: a query that forgets its filter cannot reach another facility's data,
-because the connection does not contain it. SQLite is for development.
+because the connection does not contain it. PostgreSQL is the only engine
+Reticle supports, in development as well as here.
 
 **Ports are allocated, not chosen.** `provision-facility.sh` takes the first
 free port from 8000 upwards and writes it into the facility's environment file.

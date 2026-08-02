@@ -15,6 +15,7 @@
  */
 
 import { useApi, useAuth } from '../auth/AuthContext'
+import { Banner } from '../components/Banner'
 import { CategoryTile, GuideCard, TileGrid } from '../components/BrowseCards'
 import { QuickLinks } from '../components/QuickLinks'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
@@ -57,11 +58,12 @@ export function HomePage() {
 
   return (
     <>
-      <div className="page-header">
-        <div className="page-header__text">
-          <h1>{organisation?.name ?? 'Guides'}</h1>
-        </div>
-      </div>
+      <Banner
+        variant="facility"
+        title={organisation?.name ?? 'Guides'}
+        line={organisation?.tagline}
+        src={organisation?.heroImageUrl}
+      />
 
       {roots.length === 0 ? (
         <EmptyState>No categories yet.</EmptyState>

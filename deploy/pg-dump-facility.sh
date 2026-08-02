@@ -27,14 +27,6 @@ if [[ -z "$URL" ]]; then
     exit 64
 fi
 
-# SQLite is a file; copying it is the backup, and there is no pg_dump for it.
-# Saying so and exiting 0 keeps this usable on a development box without
-# turning a missing dump into a failed deploy.
-if [[ "$URL" == sqlite* ]]; then
-    echo "    (SQLite — no pg_dump; the file itself is the backup)"
-    exit 0
-fi
-
 # postgresql[+driver]://user:password@host[:port]/database
 #
 # The password is picked out and handed over in the environment rather than on

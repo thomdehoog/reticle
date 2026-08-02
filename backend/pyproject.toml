@@ -41,6 +41,10 @@ ignore = [
 # are the point of the test, asserts everywhere, private attributes reached
 # into deliberately.
 "tests/**" = ["S101", "S105", "S106", "S311", "SLF001"]
+# conftest has to set the environment before anything imports `app`, because
+# `Settings` is read at import time; and it builds its DELETE statement from
+# SQLAlchemy's own table names, which no caller can influence.
+"tests/conftest.py" = ["S101", "S105", "S106", "S311", "SLF001", "E402", "S608"]
 # Alembic's generated env.py imports after a sys.path insert, which it has to.
 "migrations/env.py" = ["E402"]
 # The importer opens URLs by design; the scheme is validated in

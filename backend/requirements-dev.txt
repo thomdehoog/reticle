@@ -6,11 +6,10 @@ pytest~=9.1
 pytest-cov~=7.1
 httpx~=0.28
 
-# The PostgreSQL driver lives in requirements.txt, because production runs on
-# PostgreSQL. The CI job that runs the whole suite against a real server gets it
-# from there. SQLite accepts things PostgreSQL rejects - a NUL byte in a text
-# column was found exactly this way - so a suite that has only run on SQLite is
-# evidence about SQLite.
+# The PostgreSQL driver lives in requirements.txt rather than here, because
+# production runs on PostgreSQL and so does the suite - there is no second
+# engine to fall back to, which is how a NUL byte in a text column was found
+# before it reached a facility.
 
 # pip-tools, which compiles the two lock files, is deliberately NOT listed
 # here. It depends on pip and setuptools themselves, so a lock generated with it

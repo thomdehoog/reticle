@@ -140,8 +140,8 @@ curl -sf https://zmb.reticle.ch/api/health
 Other facilities keep serving throughout. That is the model working.
 
 To *test* a restore without touching production, copy the `.tar.gz` to your
-laptop, `python -m app.portability restore --from …` into an empty SQLite
-database, start the app, and log in. That is the whole drill. Put it in your
+laptop, `createdb reticle_drill`, `python -m app.portability restore --from …`
+into it, start the app, and log in. That is the whole drill. Put it in your
 calendar twice a year. CI rehearses the same round trip on every run, but CI is
 not your data.
 
