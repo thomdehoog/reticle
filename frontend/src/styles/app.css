@@ -1085,8 +1085,8 @@ a:hover {
    class here loses to it and lets the picture eat the title. */
 .guide-row > .guide-row__thumb {
   flex: 0 0 auto;
-  width: 112px;
-  height: 72px;
+  width: 184px;
+  height: 116px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -2456,6 +2456,13 @@ a:hover {
    */
   .editor__sidebar {
     position: static;
+  }
+
+  /* A tablet row is about half the width of a desktop one, so the picture takes
+     the middle step down rather than jumping straight to the phone size. */
+  .guide-row > .guide-row__thumb {
+    width: 136px;
+    height: 86px;
   }
 }
 
