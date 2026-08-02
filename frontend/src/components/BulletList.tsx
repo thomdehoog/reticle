@@ -16,6 +16,7 @@ import type { ComponentType } from 'react'
 
 import { numberShapeColors } from '../domain/guide'
 import type { Bullet, BulletIcon, Step } from '../domain/types'
+import { RichInline } from './RichText'
 import { IconCaution, IconNote, IconReminder } from './icons'
 
 const ICON_COMPONENTS: Record<BulletIcon, ComponentType<{ size?: number }>> = {
@@ -44,9 +45,11 @@ const ICON_LABELS: Record<BulletIcon, string> = {
  * it disappears for a colour-blind reader, in a greyscale photocopy taped to an
  * instrument, and at arm's length on a phone. "CAUTION" survives all three.
  *
- * Bullet text is rendered as plain text, never as HTML. Guide content is
- * written by staff but read by everyone, and treating it as markup would turn
- * the editor into a stored-XSS vector for no editorial benefit.
+ * Bullet text goes through `RichInline`: bold, italic and links, and nothing
+ * else. Markdown is rendered to React elements rather than to an HTML string,
+ * so raw HTML in a bullet is ignored rather than escaped-and-hopefully-caught.
+ * Guide content is written by staff but read by everyone, and treating it as
+ * markup would otherwise turn the editor into a stored-XSS vector.
  *
  * A bullet whose colour is drawn somewhere on the step's pictures shows that
  * shape's number instead of a dot or a flag icon. Nothing is lost by replacing
@@ -89,7 +92,7 @@ function BulletItem({ bullet, shapeNumber }: { bullet: Bullet; shapeNumber?: num
       </span>
       <span className="bullet__text">
         {bullet.icon && <span className="bullet__flag-label">{ICON_LABELS[bullet.icon]}</span>}
-        {bullet.text}
+        <RichInline text={bullet.text} />
       </span>
     </li>
   )

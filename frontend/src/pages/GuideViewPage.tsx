@@ -18,6 +18,7 @@ import { Link, useParams } from 'react-router'
 import { useApi, useAuth } from '../auth/AuthContext'
 import { BulletList } from '../components/BulletList'
 import { Revision } from '../components/Revision'
+import { RichText } from '../components/RichText'
 import { SectionNav } from '../components/SectionNav'
 import { StepGallery } from '../components/StepGallery'
 import { IconEdit, IconPrint } from '../components/icons'
@@ -171,7 +172,11 @@ export function GuideViewPage() {
         />
       </div>
 
-      {guide.introduction && <p className="guide__intro">{guide.introduction}</p>}
+      {guide.introduction && (
+        <div className="guide__intro">
+          <RichText text={guide.introduction} />
+        </div>
+      )}
 
       {guide.steps.map((step) => (
         <StepBlock key={step.id} step={step} number={numbers.get(step.id) ?? null} />

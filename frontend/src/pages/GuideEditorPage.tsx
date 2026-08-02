@@ -625,6 +625,14 @@ export function GuideEditorPage() {
                     mutate((current) => ({ ...current, introduction: event.target.value }))
                   }
                 />
+                {/* Said once, here, rather than in every bullet's placeholder.
+                    The same formatting works in the points on every step, and
+                    an author who has read it once does not need telling
+                    again. */}
+                <p className="field__hint">
+                  <strong>**bold**</strong>, <em>_italic_</em> and [text](/g/slug) work here and
+                  in every point.
+                </p>
               </div>
 
             </div>
