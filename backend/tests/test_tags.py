@@ -123,7 +123,7 @@ def test_forty_tags_fit_and_a_forty_first_does_not(author, category):
     forty = [f"tag-{index}" for index in range(40)]
 
     accepted = save_tags(author, guide, forty)
-    refused = save_tags(author, accepted.json(), forty + ["tag-40"])
+    refused = save_tags(author, accepted.json(), [*forty, "tag-40"])
 
     assert accepted.status_code == 200
     assert accepted.json()["tags"] == forty

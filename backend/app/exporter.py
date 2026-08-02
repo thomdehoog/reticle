@@ -37,7 +37,7 @@ import io
 import json
 import tarfile
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -172,7 +172,7 @@ def build_document(db: DbSession, settings: Settings) -> dict[str, Any]:
     return {
         "reticleExport": {
             "formatVersion": FORMAT_VERSION,
-            "exportedAt": iso_utc(datetime.now(timezone.utc)),
+            "exportedAt": iso_utc(datetime.now(UTC)),
             "application": "Reticle",
             "documentation": "docs/EXPORT.md",
             "counts": {

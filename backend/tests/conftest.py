@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Iterator
+from datetime import datetime
 from io import BytesIO
 from typing import Any
 
@@ -334,14 +335,13 @@ def create_page(
     return response.json()
 
 
-def instant(value: str) -> "datetime":
+def instant(value: str) -> datetime:
     """Parse a wire timestamp.
 
     Wire timestamps must be compared as instants, never as strings: pydantic
     omits a zero microsecond field, so ``...:00Z`` and ``...:00.000001Z`` sort
     the wrong way round lexicographically.
     """
-    from datetime import datetime
 
     assert value.endswith("Z"), value
     return datetime.fromisoformat(value[:-1] + "+00:00")

@@ -20,9 +20,9 @@ from alembic import context
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app import models  # noqa: E402,F401  -- importing registers every mapper
-from app.db import Base, build_engine  # noqa: E402
-from app.settings import get_settings  # noqa: E402
+from app import models  # noqa: F401  -- importing registers every mapper
+from app.db import Base, build_engine
+from app.settings import get_settings
 
 config = context.config
 
@@ -56,12 +56,12 @@ def database_url() -> str:
 # The two ``compare_*`` flags only affect autogenerate, and they are on because
 # the alternative is autogenerate quietly omitting a changed column type and the
 # difference being discovered later by a query returning the wrong thing.
-OPTIONS = dict(
-    target_metadata=target_metadata,
-    render_as_batch=True,
-    compare_type=True,
-    compare_server_default=True,
-)
+OPTIONS = {
+    "target_metadata": target_metadata,
+    "render_as_batch": True,
+    "compare_type": True,
+    "compare_server_default": True,
+}
 
 
 def run_migrations_offline() -> None:

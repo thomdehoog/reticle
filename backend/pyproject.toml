@@ -1,0 +1,74 @@
+[tool.ruff]
+# Matches the formatting already in the codebase rather than reflowing it.
+# A linter whose first commit rewrites every file makes `git blame` useless for
+# the history that existed before it.
+line-length = 100
+target-version = "py311"
+exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes - unused imports and names, undefined names
+    "I",    # import sorting
+    "UP",   # pyupgrade - constructs superseded by the target Python
+    "B",    # bugbear - mutable defaults, loop-variable capture, and friends
+    "S",    # bandit - the security checks worth having at lint level
+    "C4",   # comprehension rewrites
+    "SIM",  # obvious simplifications
+    "RUF",  # ruff's own
+]
+ignore = [
+    "E501",    # line length is enforced by the formatter, not twice
+    "B008",    # FastAPI's Depends()/File() in defaults is the framework's idiom
+    "SIM108",  # a ternary is not always clearer than an if
+    # Collapsing two ifs is not always clearer: several here read as "is this
+    # the right kind of thing" then "is it in the right state", and merging
+    # them into one condition loses that.
+    "SIM102",
+    # This codebase writes prose in its docstrings and uses real typography -
+    # en dashes, arrows, curly quotes. These rules exist to catch a homoglyph
+    # smuggled into an identifier, which is a different problem from a dash in
+    # a sentence, and firing on every paragraph would train people to ignore
+    # the linter.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert on things a linter reads as smells: hard-coded passwords that
+# are the point of the test, asserts everywhere, private attributes reached
+# into deliberately.
+"tests/**" = ["S101", "S105", "S106", "S311", "SLF001"]
+# Alembic's generated env.py imports after a sys.path insert, which it has to.
+"migrations/env.py" = ["E402"]
+# The importer opens URLs by design; the scheme is validated in
+# `_refuse_unless_http` before anything is fetched, with a test that tries
+# file://, ftp:// and gopher://.
+"app/importer/client.py" = ["S310"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# `ruff format` is configured but NOT enforced in CI, and that is a decision
+# rather than an omission. Running it today reformats 53 of 72 files, which
+# would bury this codebase's real history under one mechanical commit and make
+# `git blame` useless for every line it touched. The linter catches defects;
+# the formatter would only settle arguments nobody is having. Adopt it at a
+# moment when a large diff costs nothing - a quiet week, not before a launch -
+# and in a commit that does nothing else.
+
+[tool.mypy]
+python_version = "3.11"
+# Deliberately not strict. Turning everything on at once against an existing
+# codebase produces hundreds of errors nobody reads, and a check nobody reads
+# is a check that is switched off. These are the settings that catch real
+# mistakes without demanding annotations everywhere first.
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unreachable = true
+no_implicit_optional = true
+check_untyped_defs = true
+ignore_missing_imports = true
+exclude = ["migrations/versions", "tests"]

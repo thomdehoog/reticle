@@ -15,6 +15,7 @@ require that it is named precisely enough to go and look at.
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import select
 
 from app.importer.run import Importer
@@ -23,8 +24,6 @@ from app.models import Bullet, Guide, Step
 from app.settings import get_settings
 
 from .test_import_run import FakeDozuki, _guide, _options
-
-import pytest
 
 
 @pytest.fixture()

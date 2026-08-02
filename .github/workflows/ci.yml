@@ -75,6 +75,13 @@ jobs:
 
       - run: pip install -r requirements-dev.txt
 
+      # The Python half of what ESLint does for the frontend. Catches unused
+      # imports, undefined names, mutable defaults and the bandit checks worth
+      # having at lint level - one of which found that the importer would
+      # happily fetch a file:// URL out of a source payload.
+      - name: Lint
+        run: ruff check .
+
       - name: Tests with coverage
         run: pytest --cov=app --cov-report=term-missing --cov-fail-under=85
 

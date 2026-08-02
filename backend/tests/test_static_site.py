@@ -18,8 +18,8 @@ strings and a bullet containing a ``<`` would otherwise take the page with it.
 
 from __future__ import annotations
 
-from app.static_site import annotation_overlay, duration, esc, publish
 from app.settings import get_settings
+from app.static_site import annotation_overlay, duration, esc, publish
 
 from .conftest import (
     annotated,

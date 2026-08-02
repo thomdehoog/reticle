@@ -28,7 +28,7 @@ import pytest
 from app import exporter
 from app.importer.client import MigrationError
 from app.importer.reticle import read_export, restore
-from app.models import Annotation, Category, Guide, Media, Page, Step, Tag, User
+from app.models import Media, User
 from app.settings import get_settings
 
 from .conftest import (

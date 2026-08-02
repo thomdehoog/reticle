@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session as DbSession
 
 from . import errors
 from .db import get_db
-from .models import ROLE_RANK, Session as SessionRow, User
+from .models import ROLE_RANK, User
+from .models import Session as SessionRow
 from .security import CSRF_COOKIE, SESSION_COOKIE, constant_time_equals, resolve_session
 from .settings import get_settings
 

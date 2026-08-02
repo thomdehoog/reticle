@@ -11,3 +11,12 @@ httpx~=0.28
 # column was found exactly this way - so a suite that has only run on SQLite is
 # evidence about SQLite.
 psycopg[binary]~=3.2
+
+# Linting. `ruff format` is deliberately not enforced - see pyproject.toml.
+ruff~=0.15
+
+# Configured in pyproject.toml but not a CI gate yet: it reports 48 errors
+# against the current code, almost all of them type-narrowing it cannot follow
+# rather than defects. A gate that red is a gate somebody turns off. Run it
+# locally, fix a file at a time, then make it a gate.
+mypy~=1.18

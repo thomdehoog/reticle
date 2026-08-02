@@ -160,8 +160,8 @@ def test_the_wiki_and_discovery_routes_are_inside_the_authentication_sweep():
     api_routes = [route for route in _all_routes() if isinstance(route, APIRoute)]
     guarded = {route.path for route in api_routes if _dependant_requires_auth(route.dependant)}
 
-    assert NEW_SURFACE <= {route.path for route in api_routes}
-    assert NEW_SURFACE <= guarded
+    assert {route.path for route in api_routes} >= NEW_SURFACE
+    assert guarded >= NEW_SURFACE
     assert unauthenticated_routes() == []
 
 

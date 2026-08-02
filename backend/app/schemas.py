@@ -12,7 +12,7 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, PlainSerializer, model_validator
@@ -62,7 +62,7 @@ disagree in the database."""
 
 
 def iso_utc(value: datetime) -> str:
-    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 Instant = Annotated[datetime, PlainSerializer(iso_utc, return_type=str, when_used="json")]
@@ -332,7 +332,7 @@ class AnnotationIn(Document):
     height: float = Field(default=0.0, ge=-1.0 - EDGE_TOLERANCE, le=1.0 + EDGE_TOLERANCE)
 
     @model_validator(mode="after")
-    def _is_a_shape_the_reader_can_be_shown(self) -> "AnnotationIn":
+    def _is_a_shape_the_reader_can_be_shown(self) -> AnnotationIn:
         if self.shape != "arrow" and (self.width < 0 or self.height < 0):
             raise ValueError("only an arrow may have a negative extent")
         lower, upper = -EDGE_TOLERANCE, 1.0 + EDGE_TOLERANCE

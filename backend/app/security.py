@@ -16,13 +16,14 @@ from datetime import datetime, timedelta
 from functools import lru_cache
 
 from argon2 import PasswordHasher
-from argon2.exceptions import InvalidHashError, VerifyMismatchError, VerificationError
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from argon2.low_level import Type
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session as DbSession
 
 from .db import utcnow
-from .models import LoginAttempt, Session as SessionRow, User
+from .models import LoginAttempt, User
+from .models import Session as SessionRow
 from .settings import Settings, get_settings
 
 SESSION_COOKIE = "reticle_session"

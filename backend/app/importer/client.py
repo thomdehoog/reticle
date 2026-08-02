@@ -39,6 +39,30 @@ class MigrationError(RuntimeError):
     """A failure that must stop the run rather than be worked around."""
 
 
+ALLOWED_SCHEMES = frozenset({"http", "https"})
+
+
+def _refuse_unless_http(url: str) -> None:
+    """Refuse anything that is not an HTTP(S) fetch.
+
+    ``urlopen`` handles ``file://`` as readily as ``https://``, and not every
+    URL that reaches here is one the operator typed: image and video addresses
+    come out of the source system's own payloads. A migration source that
+    returned ``file:///etc/passwd`` as an image URL would have had it fetched,
+    stored as media and served back through Reticle - a local file read
+    triggered by a remote document, which is the shape of the bug worth
+    preventing rather than reasoning about.
+
+    ``ftp://`` and the rest go the same way. Nothing legitimate here needs
+    them, so the list is what is allowed rather than what is denied.
+    """
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme not in ALLOWED_SCHEMES:
+        raise MigrationError(
+            f"Refusing to fetch {url!r}: only http and https are allowed, not {scheme or 'a relative URL'!r}."
+        )
+
+
 @dataclass
 class FetchedFile:
     payload: bytes
@@ -72,6 +96,7 @@ class DozukiClient:
     # -- plumbing ---------------------------------------------------------
 
     def _request(self, url: str) -> tuple[bytes, str]:
+        _refuse_unless_http(url)
         headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
         if self.token:
             headers["Authorization"] = f"api {self.token}"

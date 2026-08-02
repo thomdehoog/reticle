@@ -19,6 +19,9 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 import pytest
 
 from app import errors
@@ -64,7 +67,7 @@ class _Body:
 
 class Settings:
     def __init__(self, **fields):
-        self.media_root = fields.pop("media_root", "/tmp/reticle-test")
+        self.media_root = fields.pop("media_root", Path(tempfile.gettempdir()) / "reticle-test")
         self.storage_backend = fields.pop("storage_backend", "local")
         self.s3_bucket = fields.pop("s3_bucket", "")
         self.s3_prefix = fields.pop("s3_prefix", "")

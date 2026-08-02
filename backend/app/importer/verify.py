@@ -216,7 +216,13 @@ def compare(source: MappedGuide, stored: dict[str, Any], verdict: GuideVerdict) 
             difference
         )
 
-    for index, (source_step, stored_step) in enumerate(zip(source_steps, stored_steps), start=1):
+    # strict=False is deliberate: a count mismatch has just been recorded
+    # above as drift or invention, and this loop's job is to compare the steps
+    # that do line up. Raising here would abandon the comparison at the first
+    # length difference and report nothing about the rest.
+    for index, (source_step, stored_step) in enumerate(
+        zip(source_steps, stored_steps, strict=False), start=1
+    ):
         where = f"step {index}"
         _scalar(verdict, f"{where} title", source_step.title, stored_step["title"])
 
@@ -233,7 +239,7 @@ def compare(source: MappedGuide, stored: dict[str, Any], verdict: GuideVerdict) 
             ).append(difference)
 
         for position, (source_bullet, stored_bullet) in enumerate(
-            zip(source_bullets, stored_bullets), start=1
+            zip(source_bullets, stored_bullets, strict=False), start=1
         ):
             label = f"{where} bullet {position}"
             _scalar(verdict, f"{label} text", source_bullet.text, stored_bullet["text"])
@@ -257,7 +263,7 @@ def _compare_media(verdict: GuideVerdict, where: str, source_step, stored_step) 
         )
 
     for position, (source_image, stored_image) in enumerate(
-        zip(source_images, stored_images), start=1
+        zip(source_images, stored_images, strict=False), start=1
     ):
         label = f"{where} image {position}"
         source_shapes = source_image.annotations
@@ -272,7 +278,7 @@ def _compare_media(verdict: GuideVerdict, where: str, source_step, stored_step) 
             ).append(difference)
 
         for order, (source_shape, stored_shape) in enumerate(
-            zip(source_shapes, stored_shapes), start=1
+            zip(source_shapes, stored_shapes, strict=False), start=1
         ):
             marker = f"{label} shape {order}"
             _scalar(verdict, f"{marker} kind", source_shape.shape, stored_shape["shape"])

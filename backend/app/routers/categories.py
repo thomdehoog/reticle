@@ -17,7 +17,14 @@ from sqlalchemy.orm import Session as DbSession
 from .. import audit, errors
 from ..auth import AdminUser, AnyUser, DbDep, client_address
 from ..models import Category, Guide, Media, Page
-from ..schemas import CategoryCreateIn, CategoryOut, CategoryPatchIn, PageOut, category_out, page_out
+from ..schemas import (
+    CategoryCreateIn,
+    CategoryOut,
+    CategoryPatchIn,
+    PageOut,
+    category_out,
+    page_out,
+)
 from ..slugs import unique_slug
 
 router = APIRouter(prefix="/api/categories", tags=["categories"])

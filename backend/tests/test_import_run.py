@@ -70,18 +70,18 @@ class FakeDozuki:
 
 
 def _options(**overrides) -> Options:
-    defaults = dict(
-        base_url="https://example.test",
-        token=None,
-        include_private=False,
-        limit=None,
-        allow_unmapped=False,
-        dry_run=False,
-        skip_media=False,
-        report_path=None,
-        json_report_path=None,
-        author_email="admin@zmb.uzh.ch",
-    )
+    defaults = {
+        "base_url": "https://example.test",
+        "token": None,
+        "include_private": False,
+        "limit": None,
+        "allow_unmapped": False,
+        "dry_run": False,
+        "skip_media": False,
+        "report_path": None,
+        "json_report_path": None,
+        "author_email": "admin@zmb.uzh.ch",
+    }
     defaults.update(overrides)
     return Options(**defaults)
 

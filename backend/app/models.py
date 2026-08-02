@@ -81,7 +81,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, onupdate=utcnow)
 
-    sessions: Mapped[list["Session"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    sessions: Mapped[list[Session]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class Session(Base):
@@ -151,9 +151,9 @@ class Category(Base):
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, onupdate=utcnow)
 
-    children: Mapped[list["Category"]] = relationship(back_populates="parent")
-    parent: Mapped["Category | None"] = relationship(back_populates="children", remote_side=[id])
-    guides: Mapped[list["Guide"]] = relationship(back_populates="category")
+    children: Mapped[list[Category]] = relationship(back_populates="parent")
+    parent: Mapped[Category | None] = relationship(back_populates="children", remote_side=[id])
+    guides: Mapped[list[Guide]] = relationship(back_populates="category")
 
 
 class Guide(Base):
@@ -181,22 +181,22 @@ class Guide(Base):
     category: Mapped[Category] = relationship(back_populates="guides")
     author: Mapped[User] = relationship(foreign_keys=[author_id])
     last_edited_by: Mapped[User] = relationship(foreign_keys=[last_edited_by_id])
-    steps: Mapped[list["Step"]] = relationship(
+    steps: Mapped[list[Step]] = relationship(
         back_populates="guide",
         cascade="all, delete-orphan",
         order_by="Step.order_index",
     )
-    tag_links: Mapped[list["GuideTag"]] = relationship(
+    tag_links: Mapped[list[GuideTag]] = relationship(
         back_populates="guide",
         cascade="all, delete-orphan",
         order_by="GuideTag.order_index",
     )
-    contributor_links: Mapped[list["GuideContributor"]] = relationship(
+    contributor_links: Mapped[list[GuideContributor]] = relationship(
         back_populates="guide",
         cascade="all, delete-orphan",
         order_by="GuideContributor.first_edited_at",
     )
-    revisions: Mapped[list["GuideRevision"]] = relationship(
+    revisions: Mapped[list[GuideRevision]] = relationship(
         back_populates="guide",
         cascade="all, delete-orphan",
         order_by="GuideRevision.version.desc()",
@@ -207,7 +207,7 @@ class Guide(Base):
         return [link.tag.slug for link in self.tag_links]
 
     @property
-    def contributors(self) -> list["User"]:
+    def contributors(self) -> list[User]:
         return [link.user for link in self.contributor_links]
 
 
@@ -228,7 +228,7 @@ class Tag(Base):
     name: Mapped[str] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
 
-    guide_links: Mapped[list["GuideTag"]] = relationship(back_populates="tag", cascade="all, delete-orphan")
+    guide_links: Mapped[list[GuideTag]] = relationship(back_populates="tag", cascade="all, delete-orphan")
 
 
 class GuideTag(Base):
@@ -277,20 +277,20 @@ class Step(Base):
     video_media_id: Mapped[str | None] = mapped_column(ForeignKey("media.id"), nullable=True)
 
     guide: Mapped[Guide] = relationship(back_populates="steps")
-    video: Mapped["Media | None"] = relationship(foreign_keys=[video_media_id], lazy="joined")
-    bullets: Mapped[list["Bullet"]] = relationship(
+    video: Mapped[Media | None] = relationship(foreign_keys=[video_media_id], lazy="joined")
+    bullets: Mapped[list[Bullet]] = relationship(
         back_populates="step",
         cascade="all, delete-orphan",
         order_by="Bullet.order_index",
     )
-    media_links: Mapped[list["StepMedia"]] = relationship(
+    media_links: Mapped[list[StepMedia]] = relationship(
         back_populates="step",
         cascade="all, delete-orphan",
         order_by="StepMedia.order_index",
     )
 
     @property
-    def media(self) -> list["Media"]:
+    def media(self) -> list[Media]:
         return [link.media for link in self.media_links]
 
 
@@ -332,8 +332,8 @@ class Media(Base):
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
 
     uploaded_by: Mapped[User] = relationship()
-    poster: Mapped["Media | None"] = relationship(remote_side=[id])
-    annotations: Mapped[list["Annotation"]] = relationship(
+    poster: Mapped[Media | None] = relationship(remote_side=[id])
+    annotations: Mapped[list[Annotation]] = relationship(
         back_populates="media",
         cascade="all, delete-orphan",
         order_by="Annotation.order_index",
@@ -444,19 +444,19 @@ class Page(Base):
     hero_media: Mapped[Media | None] = relationship()
     author: Mapped[User] = relationship(foreign_keys=[author_id])
     last_edited_by: Mapped[User] = relationship(foreign_keys=[last_edited_by_id])
-    contributor_links: Mapped[list["PageContributor"]] = relationship(
+    contributor_links: Mapped[list[PageContributor]] = relationship(
         back_populates="page",
         cascade="all, delete-orphan",
         order_by="PageContributor.first_edited_at",
     )
-    revisions: Mapped[list["PageRevision"]] = relationship(
+    revisions: Mapped[list[PageRevision]] = relationship(
         back_populates="page",
         cascade="all, delete-orphan",
         order_by="PageRevision.version.desc()",
     )
 
     @property
-    def contributors(self) -> list["User"]:
+    def contributors(self) -> list[User]:
         return [link.user for link in self.contributor_links]
 
 

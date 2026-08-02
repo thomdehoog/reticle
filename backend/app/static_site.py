@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select
@@ -167,7 +167,7 @@ def _page_shell(title: str, organisation: str, body: str, depth: int = 1) -> str
 <body>
 <header class="site-header">
   <a class="site-brand" href="{root}index.html">{esc(organisation)}</a>
-  <span class="site-note">Offline copy · {datetime.now(timezone.utc).strftime('%Y-%m-%d')}</span>
+  <span class="site-note">Offline copy · {datetime.now(UTC).strftime('%Y-%m-%d')}</span>
 </header>
 <main>
 {body}

@@ -6,8 +6,8 @@ import pytest
 from sqlalchemy import select
 
 from app.models import Bullet, Category, Guide, GuideRevision, Page, PageRevision, Step, Tag, User
-from app.seed import ZMB_CATEGORIES, SeedError, seed
 from app.security import verify_password
+from app.seed import ZMB_CATEGORIES, SeedError, seed
 from app.settings import get_settings
 
 SEED_PASSWORD = "Bootstrap-Admin-Passphrase-2"

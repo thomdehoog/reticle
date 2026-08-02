@@ -21,7 +21,6 @@ from sqlalchemy import case, func, or_, select
 
 from ..auth import AnyUser, DbDep
 from ..models import Bullet, Guide, GuideTag, Page, Step, Tag
-from .guides import thumbnail_subquery
 from ..schemas import (
     GuideHitOut,
     PageHitOut,
@@ -31,6 +30,7 @@ from ..schemas import (
     page_summary_out,
     tag_out,
 )
+from .guides import thumbnail_subquery
 
 router = APIRouter(prefix="/api", tags=["discovery"])
 

@@ -16,7 +16,7 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
@@ -64,7 +64,7 @@ def next_updated_at(previous: datetime) -> datetime:
 
 
 def assert_not_stale(record: Guide | Page, client_seen: datetime, noun: str = "guide") -> None:
-    seen = client_seen if client_seen.tzinfo is not None else client_seen.replace(tzinfo=timezone.utc)
+    seen = client_seen if client_seen.tzinfo is not None else client_seen.replace(tzinfo=UTC)
     if record.updated_at > seen:
         raise errors.conflict(
             f"This {noun} changed after you opened it. "

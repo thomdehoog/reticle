@@ -347,7 +347,7 @@ def map_time_required(raw: Any, where: str) -> tuple[int | None, int | None, lis
         return None, None, [Unmapped("time_required", repr(raw), where)]
 
     if isinstance(raw, (int, float)):
-        minutes = int(round(float(raw) / 60))
+        minutes = round(float(raw) / 60)
         return (minutes or None), None, []
 
     if isinstance(raw, dict):
@@ -358,7 +358,7 @@ def map_time_required(raw: Any, where: str) -> tuple[int | None, int | None, lis
             if value is None:
                 continue
             if isinstance(value, (int, float)) and not isinstance(value, bool):
-                minutes = int(round(float(value) / 60))
+                minutes = round(float(value) / 60)
                 if target == "low":
                     low = minutes
                 else:
@@ -432,7 +432,7 @@ def _minutes_from(part: str, fallback_unit: float) -> int | None:
             total += amount * _UNITS_IN_MINUTES[unit.lower()]
         else:
             return None
-    return int(round(total))
+    return round(total)
 
 
 def map_difficulty(raw: Any, where: str) -> tuple[str, list[Unmapped]]:
@@ -461,7 +461,7 @@ def map_tags(raw: Any, where: str) -> tuple[list[str], list[Unmapped]]:
 
     values: list[str]
     if isinstance(raw, str):
-        values = [part for part in _TAG_SEPARATORS.split(raw)]
+        values = list(_TAG_SEPARATORS.split(raw))
     elif isinstance(raw, (list, tuple)):
         values = []
         for item in raw:

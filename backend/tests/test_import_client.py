@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import urllib.error
 from io import BytesIO
+from typing import ClassVar
 
 import pytest
 
@@ -193,3 +194,59 @@ def test_every_request_identifies_itself():
     client, opener, _ = _client([_json_response([])])
     list(client.iter_guides())
     assert "Reticle-Migration" in opener.headers[0].get("User-agent", "")
+
+
+# --- what the client refuses to fetch --------------------------------------
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "file:///etc/passwd",
+        "file://localhost/etc/shadow",
+        "ftp://internal.example.org/backup.tar",
+        "gopher://127.0.0.1:11211/",
+        "/etc/passwd",
+    ],
+)
+def test_only_http_urls_are_fetched(hostile):
+    """Not every URL reaching the client is one the operator typed.
+
+    Image and video addresses come out of the source system's own payloads, so
+    a migration source returning ``file:///etc/passwd`` as an image URL would
+    have had it read, stored as media and served back through Reticle — a local
+    file read triggered by a remote document.
+    """
+    opened = []
+
+    def opener(request, timeout=None):  # pragma: no cover - must never run
+        opened.append(request)
+        raise AssertionError("the client tried to open a non-HTTP URL")
+
+    client = DozukiClient("https://example.invalid", opener=opener, sleep=lambda _: None)
+
+    with pytest.raises(MigrationError, match="only http and https"):
+        client.download(hostile)
+
+    assert opened == []
+
+
+def test_https_is_still_fetched_normally():
+    """The guard must not be so eager that it blocks the actual migration."""
+    class Response:
+        headers: ClassVar[dict[str, str]] = {"Content-Type": "image/png"}
+
+        def read(self):
+            return b"payload"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    client = DozukiClient(
+        "https://example.invalid", opener=lambda request, timeout=None: Response()
+    )
+
+    assert client.download("https://example.invalid/a.png").payload == b"payload"

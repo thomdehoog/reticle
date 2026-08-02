@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+
 import pytest
 from sqlalchemy import select
 
 from app.models import Session as SessionRow
-from app.models import User
 from app.settings import get_settings
 
 from .conftest import TEST_PASSWORD
@@ -171,10 +172,10 @@ def test_logout_revokes_the_session_server_side(author, db_session):
 
 
 def test_expired_session_is_rejected(author, db_session):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     row = db_session.scalars(select(SessionRow)).one()
-    row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
     db_session.commit()
 
     assert author.get("/api/auth/me").status_code == 401

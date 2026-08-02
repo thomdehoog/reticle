@@ -405,7 +405,7 @@ class Importer:
             tally.failures.append(str(error))
             self.db.rollback()
             return
-        except Exception as error:  # noqa: BLE001 - one bad guide must not end the run
+        except Exception as error:
             tally.failures.append(f"{type(error).__name__}: {error}")
             self.db.rollback()
             return
@@ -562,7 +562,7 @@ class Importer:
                     self._write_page(mapped)
                     self.db.commit()
                     self.report.pages_imported += 1
-                except Exception as error:  # noqa: BLE001
+                except Exception as error:
                     self.db.rollback()
                     self.report.skipped.append(f"{namespace}/{title}: {type(error).__name__}: {error}")
 
