@@ -1,6 +1,6 @@
 # Reticle backend
 
-FastAPI + SQLAlchemy + SQLite implementation of the HTTP contract in
+FastAPI + SQLAlchemy + PostgreSQL implementation of the HTTP contract in
 [`../docs/API.md`](../docs/API.md). The domain model it serialises is
 [`../frontend/src/domain/types.ts`](../frontend/src/domain/types.ts); that file
 is authoritative, and this backend translates its snake_case columns to
@@ -38,6 +38,14 @@ Put that value in `RETICLE_SECRET_KEY`. The application refuses to start
 without it, because it is the pepper for session-token hashes and a shipped
 default would be identical on every installation.
 
+Set `RETICLE_DATABASE_URL` to a PostgreSQL database as well. It has no default
+either: a working one would let a misconfigured server come up against a
+database nobody meant to use and serve an empty library.
+
+```powershell
+$env:RETICLE_DATABASE_URL = "postgresql+psycopg://reticle:<password>@localhost/reticle"
+```
+
 For local http development also set `RETICLE_COOKIE_SECURE=false`; otherwise
 the browser will not return the session cookie over a plain connection.
 
@@ -46,6 +54,7 @@ the browser will not return the session cookie over a plain connection.
 | Variable | Why it matters |
 | --- | --- |
 | `RETICLE_SECRET_KEY` | Mandatory. Pepper for session-token digests. |
+| `RETICLE_DATABASE_URL` | Mandatory. `postgresql+psycopg://user:password@host/database`. PostgreSQL is the only engine. |
 | `RETICLE_ENV_FILE` | Where this file lives. Defaults to `.env` in the working directory; point it at `/etc/reticle/reticle.env` under a service manager, or set it empty to use the process environment only. |
 | `RETICLE_MEDIA_ROOT` | Must sit **outside** any directory a web server serves, and must be covered by `.gitignore`. Images are delivered through `/api/media/{id}`, behind the login. Default `./media`. |
 | `RETICLE_COOKIE_SECURE` | `true` in production. `false` only for local http. |
@@ -78,9 +87,7 @@ inventory to anybody who asked, unauthenticated.
 
 Behind a reverse proxy, terminate TLS there, keep `RETICLE_COOKIE_SECURE=true`,
 and set `RETICLE_TRUST_FORWARDED_FOR=true` only if the proxy rewrites the
-header. Run a single uvicorn worker or move `RETICLE_DATABASE_URL` to
-PostgreSQL first — SQLite serialises writers, which is fine for one institute's
-editing load but not for a worker pool.
+header.
 
 ## Tests
 
@@ -89,11 +96,15 @@ C:\ProgramData\MinicondaZMB\envs\reticle\python.exe -m pytest
 C:\ProgramData\MinicondaZMB\envs\reticle\python.exe -m pytest --cov=app --cov-report=term-missing
 ```
 
-Each test gets a private in-memory database and a private media directory, so
-the suite is order-independent even though sessions, the login throttle and
-uploaded files are all persistent state. The environment variables the tests
-need are set at the top of `tests/conftest.py`; no `.env` is required to run
-them.
+The suite needs a PostgreSQL server, because the application does — see the
+top of `tests/conftest.py` for the URL it uses and `RETICLE_TEST_DATABASE_URL`
+to point it somewhere else. It empties that database at the start of the run,
+so give it one of its own.
+
+Each test gets an empty database and a private media directory, so the suite is
+order-independent even though sessions, the login throttle and uploaded files
+are all persistent state. The other environment variables the tests need are
+set at the top of `tests/conftest.py`; no `.env` is required to run them.
 
 ## Layout
 

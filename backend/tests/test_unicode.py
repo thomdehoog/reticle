@@ -66,8 +66,8 @@ def test_body_text_survives_too(author, category, label, text):
 
 
 def test_a_german_guide_is_found_whatever_case_the_reader_types(author, category):
-    """The bug this catches was live: on SQLite, searching in a different case
-    from the one stored returned nothing at all for any German word."""
+    """The bug this catches was live: searching in a different case from the one
+    stored returned nothing at all for any German word."""
     guide = create_guide(author, category.id, "Präparation der Probe")
     author.put(f"/api/guides/{guide['id']}", json=document_from(guide))
     author.post(f"/api/guides/{guide['id']}/publish")
