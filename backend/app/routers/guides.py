@@ -55,8 +55,8 @@ def parse_tag_filter(raw: str | None) -> list[str]:
     """Split the comma-separated ``?tags=`` filter into slugs.
 
     Bounded because the filter becomes one correlated subquery per term: a
-    caller passing a thousand tags would otherwise hand themselves a thousand-way
-    join on the single SQLite writer.
+    caller passing a thousand tags would otherwise hand themselves a
+    thousand-way join, on a query anybody can make without signing in.
     """
     if not raw:
         return []

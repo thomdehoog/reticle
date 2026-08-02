@@ -48,9 +48,9 @@ MAX_PAGE_BODY_CHARS = 200_000
 
 All of them are far above anything a procedure has ever needed and far below
 what one request can be used for: a single ``PUT`` carrying 2000 steps of 20
-bullets wrote forty thousand rows and held the only SQLite writer for nearly
-five seconds, which is a denial of service that any author account can perform
-by accident as easily as on purpose.
+bullets wrote forty thousand rows in one transaction and took nearly five
+seconds over it, which is a denial of service that any author account can
+perform by accident as easily as on purpose.
 """
 
 EDGE_TOLERANCE = 0.05

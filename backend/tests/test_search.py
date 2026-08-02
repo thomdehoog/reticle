@@ -421,13 +421,16 @@ def test_a_bullet_inside_a_draft_is_not_searchable_by_a_viewer(author, viewer, c
 
 
 def test_a_german_title_is_found_in_the_case_the_reader_types(author, category):
-    """SQLite's ``lower()`` folds A–Z and stops, so before this was fixed the
-    query below matched nothing: ``lower('Präparation')`` is ``'präparation'``
-    but ``lower('PRÄPARATION')`` is ``'PRÄPARATION'``.
+    """Case folding has to reach past Z, and once did not: the query below
+    matched nothing, because the folding in use turned ``Präparation`` into
+    ``präparation`` and left ``PRÄPARATION`` exactly as it was.
 
-    Half of ZMB's corpus is German. A search that answers "nothing found" about
-    a procedure that exists is worse than one that is slow, because the reader
-    cannot tell it from "nobody has written this yet" and goes to ask a person.
+    Every search is an ``ILIKE``, which folds by the database's collation, so
+    what is asserted here is a property of the database rather than of this
+    code — which is why it is asserted rather than assumed. Half of ZMB's corpus
+    is German. A search that answers "nothing found" about a procedure that
+    exists is worse than one that is slow, because the reader cannot tell it
+    from "nobody has written this yet" and goes to ask a person.
     """
     publish_guide_with(author, category.id, "Präparation der Probe")
 

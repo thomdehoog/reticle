@@ -221,7 +221,7 @@ Two requirements, and they rule out most characters. It must not be able to
 appear in an email address or an IP address, or two different pairs could
 collapse onto one key and share a throttle budget. And it must be storable:
 PostgreSQL text columns cannot hold a NUL byte at all, so ``\\x00`` is not an
-option even though SQLite accepts it.
+option — every login on this installation would fail.
 """
 
 

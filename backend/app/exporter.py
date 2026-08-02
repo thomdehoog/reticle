@@ -10,7 +10,7 @@ Three properties make an export worth having, and all three are deliberate.
 
 **It is readable without this software.** The document is JSON with documented
 field names — the same camelCase shapes the HTTP API already serves — not a
-SQLite file that only SQLAlchemy models can interpret. Somebody writing an
+database dump that only SQLAlchemy models can interpret. Somebody writing an
 importer for a different platform needs ``docs/EXPORT.md`` and nothing else.
 
 **It contains the files, not links to them.** A manifest of URLs is worthless

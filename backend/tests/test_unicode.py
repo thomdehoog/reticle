@@ -7,13 +7,13 @@ months later in a guide nobody can search for.
 
 Two failures have already been found here rather than reasoned about:
 
-- SQLite's ``lower()`` folds A–Z and stops, so searching *PRÄPARATION* matched
-  nothing (``app/db.py``).
+- Case folding that stopped at Z, so searching *PRÄPARATION* found nothing.
 - The login throttle joined two fields with a NUL byte, which PostgreSQL text
   columns cannot store at all (``app/security.py``).
 
-Both were invisible on the engine they were written against. That is why this
-file exists and why it runs on both.
+Neither was visible in the code; both were visible the moment a real database
+was asked. That is why this file exists and why the suite runs against the
+engine production runs.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
