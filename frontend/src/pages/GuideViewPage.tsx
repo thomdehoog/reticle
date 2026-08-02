@@ -154,15 +154,6 @@ export function GuideViewPage() {
         <StepBlock key={step.id} step={step} number={index + 1} />
       ))}
 
-      {guide.conclusion && (
-        <section className="step" style={{ gridTemplateColumns: '1fr' }}>
-          <div>
-            <h2 className="step__title">Conclusion</h2>
-            <p style={{ marginTop: '0.5rem' }}>{guide.conclusion}</p>
-          </div>
-        </section>
-      )}
-
       <footer className="guide__credits">
         <p className="guide__byline">
           Written by {guide.author.displayName}

@@ -69,7 +69,6 @@ function guideAsPlainText(guide: Guide): string {
     lines.push('')
   })
 
-  lines.push(guide.conclusion)
   return lines.join('\n').trim()
 }
 
@@ -349,7 +348,6 @@ export function GuideEditorPage() {
                   <BulletList step={step} />
                 </div>
               ))}
-              {snapshot.conclusion && <p>{snapshot.conclusion}</p>}
             </>
           )}
           onClose={() => setShowingHistory(false)}
@@ -633,21 +631,6 @@ export function GuideEditorPage() {
                 />
               </div>
 
-              <div className="field" style={{ marginBottom: 0 }}>
-                <label className="field__label" htmlFor="guide-conclusion">
-                  Conclusion
-                </label>
-                <AutoTextarea
-                  id="guide-conclusion"
-                  className="textarea"
-                  rows={3}
-                  value={guide.conclusion}
-                  placeholder="Shutdown, clean-up, what to do if it went wrong."
-                  onChange={(event) =>
-                    mutate((current) => ({ ...current, conclusion: event.target.value }))
-                  }
-                />
-              </div>
             </div>
           </div>
         </aside>

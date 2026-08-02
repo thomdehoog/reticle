@@ -1963,9 +1963,12 @@ a:hover {
   color: var(--bullet-red);
 }
 
+/* Grey, and deliberately so. A note is an aside, and it was the one flag using
+   a colour that also belongs to the annotation palette — a blue NOTE label sat
+   beside blue bullet dots that mean something else entirely. */
 .bullet--kind-note {
-  --flag-accent: var(--bullet-blue);
-  color: var(--bullet-blue);
+  --flag-accent: var(--ink-500);
+  color: var(--ink-500);
 }
 
 /* Teal rather than a fourth reuse of the annotation palette. A flag's colour
@@ -1977,20 +1980,36 @@ a:hover {
   color: var(--flag-reminder);
 }
 
-.bullet--flagged .bullet__text {
-  padding: 0.35rem 0.6rem;
-  border-radius: var(--radius-sm);
-  border-left: 3px solid var(--flag-accent);
-  background: color-mix(in srgb, var(--flag-accent) 10%, transparent);
-  /* Browsers drop backgrounds when printing; without this a caution loses its
-     tint on the sheet taped next to the instrument. */
+/**
+ * A flag is coloured words and an icon. It is deliberately not a tinted panel.
+ *
+ * The eight bullet colours mean something exact here: a bullet's colour is the
+ * colour of the mark drawn round the thing it describes on the picture beside
+ * it. A filled block of red or blue behind a line of text is a far larger piece
+ * of colour than any of those dots, and the eye reads the biggest colour on the
+ * screen as the most meaningful one — so the panels were competing with the
+ * only colour coding that carries information.
+ *
+ * The caution keeps its weight through the things that survive a photocopy and
+ * a colour-blind reader: red text, an outlined triangle, and the word CAUTION.
+ */
+/**
+ * Only a caution colours its own words. A note and a reminder colour their icon
+ * and their label and leave the sentence black.
+ *
+ * A note is not urgent — it is an aside — and a whole line of blue for every
+ * aside puts more colour on the screen than the bullet dots that actually
+ * encode something. Reserving coloured text for the one kind that means "this
+ * can hurt you or the instrument" is what keeps it meaning that.
+ */
+.bullet--kind-caution .bullet__text {
+  color: var(--flag-accent);
+  font-weight: 550;
+  /* Browsers drop colour when printing, and a caution that prints as ordinary
+     black text on the sheet taped beside the instrument is the failure worth
+     preventing. */
   print-color-adjust: exact;
   -webkit-print-color-adjust: exact;
-}
-
-.bullet--kind-caution .bullet__text {
-  border-left-width: 4px;
-  background: color-mix(in srgb, var(--flag-accent) 13%, transparent);
 }
 
 /**
