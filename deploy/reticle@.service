@@ -1,0 +1,75 @@
+# One unit file, any number of facilities.
+#
+#     systemctl enable --now reticle@zmb
+#     systemctl enable --now reticle@irchel
+#
+# The `%i` is the facility slug — everything after the `@`. This is the whole
+# mechanism behind "a subdomain per facility": the software is not duplicated,
+# only started again with a different environment file pointing at a different
+# database. Same release directory, same virtualenv, same code on disk.
+#
+# Install as /etc/systemd/system/reticle@.service
+
+[Unit]
+Description=Reticle (%i)
+After=network.target
+# If PostgreSQL is on this host rather than managed, add:
+#   After=network.target postgresql.service
+#   Wants=postgresql.service
+
+[Service]
+Type=exec
+User=reticle
+Group=reticle
+
+# Everything facility-specific lives in this one file: the database URL, the
+# media root, the port, the organisation name shown in the header, and the
+# secret key. Nothing facility-specific is ever in the code.
+EnvironmentFile=/opt/reticle/facilities/%i/env
+
+WorkingDirectory=/opt/reticle/current/backend
+ExecStart=/opt/reticle/current/venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 \
+    --port ${RETICLE_PORT} \
+    --proxy-headers \
+    --forwarded-allow-ips 127.0.0.1
+
+Restart=on-failure
+RestartSec=5s
+
+# A crash loop should be visible rather than infinite: after five failures in
+# five minutes systemd gives up and the unit sits failed, which is what an
+# alert and `systemctl --failed` can see. A service that restarts forever looks
+# healthy from the outside while serving nothing.
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Logs are JSON on stdout, so journald collects them as-is and anything that
+# ships journald output gets structured records without extra configuration.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=reticle-%i
+
+# --- containment -----------------------------------------------------------
+# This process handles uploads from a browser and decodes images with Pillow.
+# It should be able to touch its own data and nothing else on the machine.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# The only writable paths. ProtectSystem=strict makes everything else
+# read-only, so a path bug cannot write outside the facility's own directory.
+ReadWritePaths=/opt/reticle/facilities/%i
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,88 @@
+# One facility's vhost. Written by provision-facility.sh, which substitutes
+# {{SLUG}}, {{DOMAIN}} and {{PORT}}.
+#
+# Every facility gets an identical file with three values changed. The frontend
+# build is shared — one copy of the JavaScript on disk, served to all of them —
+# because nothing in it is facility-specific: the organisation's name arrives at
+# runtime from /api/config, which is exactly why that endpoint exists.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{SLUG}}.{{DOMAIN}};
+
+    # Everything except the ACME challenge goes to HTTPS. Cookies are marked
+    # Secure, so a session simply would not work over plain HTTP.
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name {{SLUG}}.{{DOMAIN}};
+
+    # A wildcard certificate for *.{{DOMAIN}} covers every facility and means
+    # provisioning a new one needs no certificate step at all. Per-subdomain
+    # certificates also work; swap these two paths.
+    ssl_certificate     /etc/letsencrypt/live/{{DOMAIN}}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{DOMAIN}}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    # HSTS is set here rather than in the application because it must also
+    # cover responses the application never sees — static files, redirects, and
+    # errors nginx answers itself.
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Uploads are capped in the application too; this stops a large body being
+    # read into the proxy at all.
+    client_max_body_size 210M;
+
+    # The built frontend, shared by every facility.
+    root /opt/reticle/current/static;
+    index index.html;
+
+    location / {
+        # A client-side router owns the URL space, so any path that is not a
+        # real file has to return index.html rather than 404 — otherwise
+        # reloading the page on /g/some-guide gives nginx's error page.
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Hashed asset filenames change whenever their contents do, so they can be
+    # cached indefinitely. index.html must not be, or a deploy leaves browsers
+    # pinned to the previous build's asset names.
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:{{PORT}};
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Passed through so Reticle's logs join up with the proxy's. The
+        # application only adopts an id that looks like one, and mints its own
+        # otherwise.
+        proxy_set_header X-Request-ID      $request_id;
+
+        # Media are served through the application so the login applies to
+        # them, and a large image on a slow connection must not be cut off.
+        proxy_read_timeout 120s;
+
+        # Uploads are streamed rather than buffered to disk first: a 200 MB
+        # video would otherwise be written to the proxy's spool and read back.
+        proxy_request_buffering off;
+    }
+}

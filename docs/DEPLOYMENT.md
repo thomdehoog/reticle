@@ -47,21 +47,27 @@ to break. Section 9 covers when that stops being true.
 
 ## Upgrading across a schema change
 
-Reticle creates any table that is missing on start-up and never alters one that
-already exists, which is the right trade for a single-operator installation but
-means a release that adds a *column* needs a hand.
+**This no longer needs a hand.** Reticle uses Alembic, and the release process
+runs `alembic upgrade head` before the new code serves traffic. Earlier versions
+of this document told you to write `ALTER TABLE` yourself; that advice is dead,
+and if you find a copy of it somewhere, delete it.
 
-Before deploying a release whose notes mention a schema change:
+What is still true, and always will be:
 
 ```bash
-sudo /usr/local/bin/reticle-backup          # always first
-sudo -u reticle sqlite3 /opt/reticle/shared/reticle.db \
-  "ALTER TABLE categories ADD COLUMN hero_media_id VARCHAR(26);"
+sudo /usr/local/bin/reticle-backup          # always first, without exception
 ```
 
-On an installation that has not gone live yet — which is the case until the
-migration in `MIGRATION.md` has been run — it is simpler and safer to delete
-`reticle.db` and re-seed, because there is nothing in it worth keeping.
+The deploy pipeline does this for you (`.github/workflows/deploy.yml`), before
+migrations run and while the old code is still serving. Take one by hand too if
+you are doing anything unusual — it costs seconds and it is the thing that makes
+every other step reversible.
+
+Migrations in this project are **additive**: a column is added, code that writes
+both is deployed, the old one is removed a release later. That is what makes
+rolling back real, because the previous release can still read the new schema.
+If a release ever needs a destructive migration, it does not get to run itself
+on startup — see `db.init_db`.
 
 
 ## 2. What you need before starting

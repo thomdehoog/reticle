@@ -215,6 +215,20 @@ jobs:
           RETICLE_MEDIA_ROOT: ./restored_media
         run: python -m app.portability publish --out ./snapshot
 
+  scripts:
+    name: Deploy scripts
+    runs-on: ubuntu-latest
+    # These run as root on a facility's server and create databases. An unquoted
+    # variable here is a worse bug than an unquoted variable in the application,
+    # because there is no test suite exercising them and the failure happens
+    # once, in production, during provisioning.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shellcheck
+        run: shellcheck deploy/*.sh
+      - name: systemd unit parses
+        run: systemd-analyze verify deploy/reticle@.service || true
+
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest
