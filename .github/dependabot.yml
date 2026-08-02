@@ -1,0 +1,46 @@
+version: 2
+
+# Grouped and weekly rather than per-dependency and immediate. A facility repo
+# with one maintainer drowns in individual pull requests and starts ignoring
+# them, which is worse than not having this at all — the security updates
+# arrive in the same flood as the patch bumps and get skimmed past.
+#
+# Security updates are exempt from the grouping and arrive on their own, which
+# is the point of separating them.
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      backend-minor-and-patch:
+        update-types: [minor, patch]
+    # A major bump changes behaviour under a facility that reboots its server
+    # twice a year, so it is raised deliberately by a person rather than
+    # proposed automatically.
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      frontend-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']

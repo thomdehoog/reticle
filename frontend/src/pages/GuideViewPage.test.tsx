@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router'
 
 import { createFakeServer, guideFixture, imageFixture } from '../test/fakeServer'
 import { renderWithApp } from '../test/harness'

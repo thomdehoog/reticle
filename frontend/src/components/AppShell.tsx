@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router'
 
 import { useAuth } from '../auth/AuthContext'
 import { IconPlus, ReticleMark } from './icons'

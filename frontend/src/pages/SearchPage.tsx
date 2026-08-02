@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 
 import { useApi } from '../auth/AuthContext'
 import { GuideCard, TileGrid, WikiCard } from '../components/BrowseCards'

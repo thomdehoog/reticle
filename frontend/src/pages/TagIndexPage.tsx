@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { useApi } from '../auth/AuthContext'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'

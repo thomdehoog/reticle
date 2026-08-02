@@ -13,7 +13,7 @@
  * holds the answer is not something a reader knows in advance.
  */
 
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import type { GuideSummary, PageSummary } from '../domain/types'
 import { IconBook, IconSteps } from './icons'

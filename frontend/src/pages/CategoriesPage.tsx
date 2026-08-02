@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { useApi } from '../auth/AuthContext'
 import { IconChevronDown, IconChevronUp, IconPlus, IconTrash } from '../components/icons'

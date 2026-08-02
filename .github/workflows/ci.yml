@@ -215,6 +215,43 @@ jobs:
           RETICLE_MEDIA_ROOT: ./restored_media
         run: python -m app.portability publish --out ./snapshot
 
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    # Reports known vulnerabilities in what is actually installed. It does not
+    # fail the build: an advisory against a transitive package with no fix
+    # available would block every unrelated change until somebody upstream
+    # acts, and a red build that cannot be made green teaches people to ignore
+    # red builds. The output is read on the weekly Dependabot pass.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Python dependencies
+        working-directory: backend
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --desc
+
+      - name: JavaScript dependencies
+        working-directory: frontend
+        run: |
+          npm ci
+          # Production dependencies only. A build-tool advisory is a different
+          # risk from one in code that is served to a browser, and mixing them
+          # means neither gets read.
+          npm audit --omit=dev
+
   e2e:
     name: Browser smoke test
     runs-on: ubuntu-latest

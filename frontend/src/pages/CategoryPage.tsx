@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { CategoryTile, GuideCard, TileGrid, WikiCard } from '../components/BrowseCards'

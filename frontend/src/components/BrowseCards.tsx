@@ -12,7 +12,7 @@
  * section, a wiki page, and a guide.
  */
 
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { DIFFICULTY_LABELS, formatDurationRange } from '../domain/guide'
 import type { Category, GuideSummary, PageSummary } from '../domain/types'

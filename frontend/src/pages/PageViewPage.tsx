@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { IconEdit, IconPrint } from '../components/icons'

@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router'
 
 import { AppShell } from '../components/AppShell'
 import { categoryFixture, createFakeServer, pageFixture } from '../test/fakeServer'

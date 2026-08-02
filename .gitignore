@@ -29,3 +29,5 @@ Thumbs.db
 # Alembic writes nothing here, but a stray local database from a migration
 # rehearsal is easy to leave behind.
 backend/migrations/**/__pycache__/
+backend/.ruff_cache/
+backend/.mypy_cache/

@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { TileGrid, WikiCard } from '../components/BrowseCards'
