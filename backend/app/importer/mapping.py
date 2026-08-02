@@ -124,6 +124,9 @@ KNOWN_GUIDE_FIELDS = frozenset(
         "conclusion",
         "public",
         "steps",
+        # A guide the site puts in front of people becomes one Reticle puts in
+        # front of people: a quick link.
+        "featured_guide",
         # Present, deliberately not carried across: identifiers and rendering
         # details of the other system, authorship that becomes a source record,
         # and counters that start again here.
@@ -147,7 +150,6 @@ KNOWN_GUIDE_FIELDS = frozenset(
         "parts",
         "tools",
         "patrol_threshold",
-        "featured_guide",
         "instructables_id",
         "view_count",
         "completed",
@@ -278,6 +280,7 @@ class MappedGuide:
     introduction: str
     conclusion: str
     is_public: bool
+    is_quick_link: bool
     steps: list[MappedStep]
 
 
@@ -830,6 +833,7 @@ def map_guide(payload: dict[str, Any]) -> tuple[MappedGuide, list[Unmapped]]:
                 or payload.get("conclusion")
             ),
             is_public=bool(payload.get("public", True)),
+            is_quick_link=bool(payload.get("featured_guide", False)),
             steps=steps,
         ),
         problems,

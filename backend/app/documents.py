@@ -106,6 +106,7 @@ def apply_document(db: DbSession, guide: Guide, payload: GuideDocumentIn, actor:
     guide.time_required_max_minutes = maximum
     guide.introduction = payload.introduction
     guide.conclusion = payload.conclusion
+    guide.is_quick_link = payload.is_quick_link
     guide.last_edited_by_id = actor.id
     guide.updated_at = next_updated_at(guide.updated_at)
 

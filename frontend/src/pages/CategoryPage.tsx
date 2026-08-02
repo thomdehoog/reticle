@@ -1,16 +1,19 @@
 /**
  * One category, opened up.
  *
- * Shows what is inside a category: any sub-categories, the wiki page that
- * introduces it if there is one, and the guides it holds - as pictures rather
- * than a list of titles, because people recognise the instrument they used far
- * faster than they recall what the procedure was called.
+ * A category shows one thing, and which thing depends on where it sits in the
+ * tree. With sub-categories under it, it shows those and the quick links, and
+ * nothing else: the guides belong to the level below, and listing them here as
+ * well is the same procedures twice, once under a heading nobody has chosen
+ * yet. With nothing under it — a leaf, whether that is a sub-category or a
+ * top-level category that never needed dividing — it is the bottom of the tree,
+ * so it shows the guides.
  *
- * The landing page is the point of this screen at ZMB. Their category pages are
- * prose with tag-gathered guide lists embedded in them — "Confocal systems",
- * then the guides carrying that tag — and a bare alphabetical list of every
- * guide in the category is exactly what that arrangement exists to avoid. The
- * plain list stays as the fallback, because a category nobody has written a
+ * The landing page is the point of the leaf screen at ZMB. Their category pages
+ * are prose with tag-gathered guide lists embedded in them — "Confocal
+ * systems", then the guides carrying that tag — and a bare alphabetical list of
+ * every guide in the category is exactly what that arrangement exists to avoid.
+ * The plain list stays as the fallback, because a category nobody has written a
  * page for yet must still show its contents.
  */
 
@@ -21,8 +24,9 @@ import { useApi, useAuth } from '../auth/AuthContext'
 import { CategoryTile, GuideRow, GuideRows, TileGrid, WikiCard } from '../components/BrowseCards'
 import { IconEdit, IconPlus } from '../components/icons'
 import { MarkdownBody } from '../components/MarkdownBody'
+import { QuickLinks } from '../components/QuickLinks'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
-import { browsableCategories, countGuidesByCategory } from '../hooks/useCategories'
+import { browsableCategories } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
 export function CategoryPage() {
@@ -37,20 +41,14 @@ export function CategoryPage() {
     async () => {
       const categories = await api.listCategories()
       const category = categories.find((candidate) => candidate.slug === slug) ?? null
-      if (!category)
-        return { categories, category, guides: [], published: [], landing: null, pages: [] }
+      if (!category) return { categories, category, guides: [], landing: null, pages: [] }
 
-      /* `published` is every published guide in the institute, which is what
-         the sub-category counts are counted from: a listing scoped to this
-         category holds none of a child's guides, so counting children against
-         it returned nought for every one of them. */
-      const [guides, published, landing, pages] = await Promise.all([
+      const [guides, landing, pages] = await Promise.all([
         api.listGuides({ categoryId: category.id }),
-        api.listGuides({ status: 'published' }),
         api.getCategoryLandingPage(category.id),
         api.listPages({ categoryId: category.id }),
       ])
-      return { categories, category, guides, published, landing, pages }
+      return { categories, category, guides, landing, pages }
     },
     [api, slug],
   )
@@ -59,15 +57,12 @@ export function CategoryPage() {
   if (error) return <ErrorAlert error={error} />
   if (!data?.category) return <EmptyState>That category does not exist.</EmptyState>
 
-  const { category, categories, guides, published, landing, pages } = data
-  const guideCount = countGuidesByCategory(categories, published)
+  const { category, categories, guides, landing, pages } = data
   const articles = pages.filter((page) => !page.isLanding)
   const children = browsableCategories(categories)
     .filter((candidate) => candidate.parentId === category.id)
     .sort((a, b) => a.orderIndex - b.orderIndex)
-  const parent = category.parentId
-    ? categories.find((candidate) => candidate.id === category.parentId)
-    : undefined
+  const isLeaf = children.length === 0
 
   async function startLandingPage() {
     if (!data?.category) return
@@ -88,40 +83,46 @@ export function CategoryPage() {
 
   return (
     <>
-      <nav className="breadcrumb">
-        <Link to="/">Guides</Link>
-        {parent && (
-          <>
-            <span className="breadcrumb__sep">/</span>
-            <Link to={`/c/${parent.slug}`}>{parent.name}</Link>
-          </>
-        )}
-        <span className="breadcrumb__sep">/</span>
-        <span>{category.name}</span>
-      </nav>
-
       <div className="page-header">
         <div className="page-header__text">
           <h1>{category.name}</h1>
-          {category.description && <p className="page-header__sub">{category.description}</p>}
         </div>
       </div>
 
       <ErrorAlert error={createError} />
 
-      {/* Sub-sections first: they are how somebody gets to the instrument they
-          came for, and underneath the guide lists they were the last thing on
-          the page. No heading — a row of pictures directly under a section's
+      {/* No heading over them: a row of pictures directly under a section's own
           name is not something a reader needs told is a list of sections. */}
-      {children.length > 0 && (
-        <TileGrid>
-          {children.map((child) => (
-            <CategoryTile key={child.id} category={child} guideCount={guideCount(child.id)} />
-          ))}
-        </TileGrid>
+      {!isLeaf && (
+        <>
+          <TileGrid>
+            {children.map((child) => (
+              <CategoryTile key={child.id} category={child} />
+            ))}
+          </TileGrid>
+          <QuickLinks />
+        </>
       )}
 
-      {landing && <MarkdownBody body={landing.body} wide />}
+      {/* A landing page lists its guides itself, grouped under the instrument
+          they belong to. Repeating all of them underneath it as one flat run is
+          the same guides a second time, which is what the landing page was
+          written to replace. Without one, this list is the section. */}
+      {isLeaf && landing && <MarkdownBody body={landing.body} wide />}
+
+      {isLeaf && !landing && guides.length > 0 && (
+        <section className="section">
+          <GuideRows>
+            {guides.map((guide) => (
+              <GuideRow key={guide.id} guide={guide} />
+            ))}
+          </GuideRows>
+        </section>
+      )}
+
+      {isLeaf && !landing && guides.length === 0 && (
+        <EmptyState>No guides in this section yet.</EmptyState>
+      )}
 
       {/* Wiki pages other than the landing one: at ZMB these are the written
           material a section carries beside its procedures, and they are reached
@@ -136,24 +137,6 @@ export function CategoryPage() {
             ))}
           </TileGrid>
         </section>
-      )}
-
-      {/* A landing page lists its guides itself, grouped under the instrument
-          they belong to. Repeating all of them underneath it as one flat run is
-          the same guides a second time, which is what the landing page was
-          written to replace. Without one, this list is the section. */}
-      {!landing && guides.length > 0 && (
-        <section className="section">
-          <GuideRows>
-            {guides.map((guide) => (
-              <GuideRow key={guide.id} guide={guide} />
-            ))}
-          </GuideRows>
-        </section>
-      )}
-
-      {!landing && guides.length === 0 && children.length === 0 && (
-        <EmptyState>No guides in this section yet.</EmptyState>
       )}
 
       {/* Writing the section's front page is an authoring job, and it sat at the
@@ -180,7 +163,6 @@ export function CategoryPage() {
           )}
         </div>
       )}
-
     </>
   )
 }

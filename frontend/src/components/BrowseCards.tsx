@@ -20,25 +20,21 @@ import { IconBook } from './icons'
 import { Thumbnail } from './Thumbnail'
 import { DifficultyMeter, StatusBadge } from './ui'
 
-/** A section. The count is the only number worth carrying on the way in. */
-export function CategoryTile({
-  category,
-  guideCount,
-  childCount,
-}: {
-  category: Category
-  guideCount: number
-  childCount?: number
-}) {
+/**
+ * A section: the picture and its name.
+ *
+ * No count under it. "12 guides" never decided which section somebody opened —
+ * they came for the confocal — and "0 guides" under a section that is being
+ * filled in reads as broken rather than as new. The only mark left is the one
+ * that changes what the tile means: a holding section, which is reached by tag
+ * rather than by browsing, and which only an author ever sees.
+ */
+export function CategoryTile({ category }: { category: Category }) {
   return (
     <Link className="tile" to={`/c/${category.slug}`}>
       <Thumbnail seed={category.name} src={category.imageUrl} className="tile__media" />
       <span className="tile__body">
         <span className="tile__name">{category.name}</span>
-        <span className="tile__meta">
-          {childCount ? `${childCount} sections · ` : ''}
-          {guideCount} {guideCount === 1 ? 'guide' : 'guides'}
-        </span>
       </span>
       {category.isHidden && <span className="tile__flag">Hidden</span>}
     </Link>

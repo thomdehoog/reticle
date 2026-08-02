@@ -84,6 +84,7 @@ export function guideFixture(overrides: Partial<Guide> = {}): Guide {
     summary: '',
     categoryId: 'c-light',
     tags: [],
+    isQuickLink: false,
     difficulty: 'moderate',
     timeRequiredMinMinutes: 30,
     timeRequiredMaxMinutes: null,
@@ -215,6 +216,7 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       summary: guide.summary,
       categoryId: guide.categoryId,
       tags: guide.tags,
+      isQuickLink: guide.isQuickLink,
       difficulty: guide.difficulty,
       timeRequiredMinMinutes: guide.timeRequiredMinMinutes,
       timeRequiredMaxMinutes: guide.timeRequiredMaxMinutes,
@@ -285,8 +287,10 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       const authorId = url.searchParams.get('authorId')
       const tags = url.searchParams.get('tags')
       const q = url.searchParams.get('q')
+      const quickLink = url.searchParams.get('quickLink')
 
       if (categoryId) guides = guides.filter((guide) => guide.categoryId === categoryId)
+      if (quickLink === 'true') guides = guides.filter((guide) => guide.isQuickLink)
       if (status) guides = guides.filter((guide) => guide.status === status)
       if (authorId) guides = guides.filter((guide) => guide.author.id === authorId)
       if (q) guides = guides.filter((guide) => guide.title.toLowerCase().includes(q.toLowerCase()))

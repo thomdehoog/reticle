@@ -196,6 +196,10 @@ class Guide(Base):
     introduction: Mapped[str] = mapped_column(Text, default="")
     conclusion: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(16), default="draft", index=True)
+    # A guide the facility wants reached in one move — "Book an instrument",
+    # "Get building access" — shown as a picture-and-text block on the front page
+    # or a category page instead of as one line in a list.
+    is_quick_link: Mapped[bool] = mapped_column(Boolean, default=False)
     version: Mapped[int] = mapped_column(Integer, default=0)
     view_count: Mapped[int] = mapped_column(Integer, default=0)
     author_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)

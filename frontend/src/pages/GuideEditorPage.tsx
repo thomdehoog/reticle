@@ -517,6 +517,26 @@ export function GuideEditorPage() {
                 <span className="field__hint">Tags decide where this guide appears.</span>
               </div>
 
+              {/* Above the tree rather than in it, so it is worth saying what
+                  that costs: the quick links are a short list by definition,
+                  and a facility that marks thirty of them has a second front
+                  page instead of an answer. */}
+              <div className="field">
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={guide.isQuickLink}
+                    onChange={(event) =>
+                      mutate((current) => ({ ...current, isQuickLink: event.target.checked }))
+                    }
+                  />
+                  Show as a quick link
+                </label>
+                <span className="field__hint">
+                  On the front page and on every category, above the sections.
+                </span>
+              </div>
+
               <div className="field">
                 <label className="field__label" htmlFor="guide-summary">
                   Summary

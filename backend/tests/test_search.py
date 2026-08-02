@@ -74,6 +74,7 @@ def test_a_guide_hit_carries_the_summary_projection(author, category):
         "timeRequiredMinMinutes",
         "timeRequiredMaxMinutes",
         "status",
+        "isQuickLink",
         "stepCount",
         "author",
         "viewCount",

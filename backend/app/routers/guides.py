@@ -145,6 +145,7 @@ def list_guides(
     q: str | None = Query(default=None, max_length=200),
     author_id: str | None = Query(default=None, alias="authorId"),
     tags: str | None = Query(default=None, max_length=800),
+    quick_link: bool | None = Query(default=None, alias="quickLink"),
 ) -> list[GuideSummaryOut]:
     step_count = (
         select(func.count(Step.id))
@@ -166,6 +167,8 @@ def list_guides(
         statement = statement.where(Guide.category_id == category_id)
     if author_id is not None:
         statement = statement.where(Guide.author_id == author_id)
+    if quick_link is not None:
+        statement = statement.where(Guide.is_quick_link.is_(quick_link))
     statement = apply_tag_filter(statement, parse_tag_filter(tags))
     if q:
         pattern = f"%{escape_like(q.strip())}%"

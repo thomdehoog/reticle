@@ -50,7 +50,9 @@ def build_corpus(admin, category) -> dict:
 
     Deliberately not a minimal fixture: the entities most likely to be dropped
     from an export are the ones hanging off something else — the shapes on a
-    picture, the tags, the contributor list, the publish snapshot.
+    picture, the tags, the contributor list, the publish snapshot. Every flag on
+    the guide is set away from its default for the same reason: a field the
+    export drops still round-trips perfectly when both sides happen to be false.
     """
     image = upload_media(admin)
     guide = create_guide(admin, category.id, "Starting a Session on the Confocal")
@@ -65,6 +67,7 @@ def build_corpus(admin, category) -> dict:
             timeRequiredMaxMinutes=40,
             introduction="Assumes a valid booking.",
             conclusion="Report faults the same day.",
+            isQuickLink=True,
             steps=[
                 step(
                     "Power up in order",
@@ -153,6 +156,36 @@ def test_tags_survive_because_they_are_the_navigation(admin, category, db_sessio
 
     assert sorted(tag["slug"] for tag in document["tags"]) == ["confocal", "stellaris"]
     assert document["guides"][0]["tags"] == ["confocal", "stellaris"]
+
+
+def test_a_quick_link_is_still_a_quick_link_after_a_restore(admin, category, db_session, tmp_path):
+    """Named on its own as well as being covered by the whole-document round
+    trip, because a boolean is the easiest thing in an export to lose: nothing
+    looks wrong, the guide simply stops being on the front page."""
+    build_corpus(admin, category)
+    assert export_of(db_session)["guides"][0]["isQuickLink"] is True
+
+    exporter.write_to_directory(db_session, get_settings(), tmp_path / "out")
+    document, files = read_export(tmp_path / "out")
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.db import Base
+
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(engine)
+    fresh = sessionmaker(bind=engine, autoflush=False, future=True)()
+
+    restore(fresh, get_settings(), document, files)
+
+    assert exporter.build_document(fresh, get_settings())["guides"][0]["isQuickLink"] is True
+
+    fresh.close()
+    engine.dispose()
 
 
 def test_publish_history_survives(admin, category, db_session):

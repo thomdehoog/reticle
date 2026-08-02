@@ -33,6 +33,8 @@ export type GuideQuery = {
   authorId?: string
   /** Comma-separated tag slugs; a guide must carry all of them to match. */
   tags?: string
+  /** Only the guides an author has marked as quick links. */
+  quickLink?: boolean
 }
 
 export type PageQuery = {
@@ -47,10 +49,12 @@ export interface RevisionSummary {
   publishedBy: { id: string; displayName: string }
 }
 
-function queryString(params: Record<string, string | undefined>): string {
+/* A flag reads as `?quickLink=true` when it is set and is left out entirely
+   when it is not, so an unfiltered listing keeps the URL it always had. */
+function queryString(params: Record<string, string | boolean | undefined>): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== '') search.set(key, value)
+    if (value !== undefined && value !== '' && value !== false) search.set(key, String(value))
   }
   const rendered = search.toString()
   return rendered === '' ? '' : `?${rendered}`

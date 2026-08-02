@@ -442,6 +442,7 @@ class Importer:
         guide.time_required_max_minutes = mapped.time_max_minutes
         guide.introduction = mapped.introduction
         guide.conclusion = mapped.conclusion
+        guide.is_quick_link = mapped.is_quick_link
         guide.last_edited_by_id = self._author.id
         guide.updated_at = now
 

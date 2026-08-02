@@ -411,6 +411,29 @@ def test_a_private_guide_is_marked_private_so_it_does_not_arrive_published():
     assert mapped.is_public is False
 
 
+def test_a_featured_guide_arrives_as_a_quick_link():
+    """The site puts it in front of people, so Reticle does too.
+
+    This field was dropped until Reticle had somewhere to put it, and a guide
+    the facility had deliberately promoted would have arrived indistinguishable
+    from the eighty others in its category.
+    """
+    payload = _guide_payload()
+    payload["featured_guide"] = True
+
+    mapped, problems = map_guide(payload)
+
+    assert mapped.is_quick_link is True
+    assert problems == []
+
+
+def test_a_guide_the_site_does_not_feature_is_not_a_quick_link():
+    mapped, problems = map_guide(_guide_payload())
+
+    assert mapped.is_quick_link is False
+    assert problems == []
+
+
 def test_a_guide_with_no_title_still_gets_one():
     mapped, _ = map_guide({"guideid": 5, "steps": []})
     assert mapped.title == "Untitled 5"

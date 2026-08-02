@@ -146,6 +146,17 @@ export interface Guide {
   categoryId: string
   /** Tag slugs. The server creates any tag that does not exist yet. */
   tags: string[]
+  /**
+   * Offered as a quick link: shown as a wide block on the front page and on
+   * every category, above the guides themselves.
+   *
+   * A handful of procedures answer the question most people arrive with —
+   * how to book, how to get in, where the data went — and they are scattered
+   * across categories that nobody would think to open. This is the author's
+   * way of saying "this one is asked for", rather than a rank the software
+   * computes from view counts.
+   */
+  isQuickLink: boolean
   difficulty: Difficulty
   /**
    * An estimate given as a range, because that is how long a procedure honestly
@@ -177,6 +188,7 @@ export interface GuideSummary {
   summary: string
   categoryId: string
   tags: string[]
+  isQuickLink: boolean
   difficulty: Difficulty
   timeRequiredMinMinutes: number | null
   timeRequiredMaxMinutes: number | null

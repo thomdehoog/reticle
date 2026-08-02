@@ -376,6 +376,10 @@ def _restore_guide(db: DbSession, entry: dict[str, Any], tags_by_slug: dict[str,
         introduction=entry["introduction"],
         conclusion=entry["conclusion"],
         status=entry["status"],
+        # Read with a default, unlike its neighbours, because an archive written
+        # by a Reticle from before quick links exists carries the same format
+        # version and simply has no such key.
+        is_quick_link=entry.get("isQuickLink", False),
         version=entry["version"],
         view_count=entry["viewCount"],
         author_id=entry["author"]["id"],

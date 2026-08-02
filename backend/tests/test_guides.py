@@ -23,6 +23,7 @@ def test_author_creates_a_draft_with_sane_defaults(author, category):
     assert body["timeRequiredMinMinutes"] is None
     assert body["timeRequiredMaxMinutes"] is None
     assert body["viewCount"] == 0
+    assert body["isQuickLink"] is False
     assert body["publishedAt"] is None
     assert body["categoryId"] == category.id
     assert body["author"] == {"id": body["lastEditedBy"]["id"], "displayName": "Author"}
@@ -68,6 +69,7 @@ def test_guide_response_matches_the_domain_model_exactly(author, category):
         "introduction",
         "conclusion",
         "status",
+        "isQuickLink",
         "steps",
         "author",
         "lastEditedBy",
@@ -179,6 +181,7 @@ def test_summary_projection_matches_the_domain_model(author, category):
         "timeRequiredMinMinutes",
         "timeRequiredMaxMinutes",
         "status",
+        "isQuickLink",
         "stepCount",
         "author",
         "viewCount",
@@ -217,6 +220,82 @@ def test_free_text_search_also_covers_the_summary(author, category):
     assert [g["title"] for g in author.get("/api/guides", params={"q": "cryostat"}).json()] == [
         "Nothing Matching Here"
     ]
+
+
+# --- quick links ----------------------------------------------------------
+
+
+def test_an_author_marks_a_guide_as_a_quick_link(author, category):
+    created = create_guide(author, category.id, "Book an Instrument")
+
+    saved = author.put(
+        f"/api/guides/{created['id']}", json=document_from(created, isQuickLink=True)
+    )
+
+    assert saved.status_code == 200
+    assert saved.json()["isQuickLink"] is True
+    assert author.get(f"/api/guides/{created['id']}").json()["isQuickLink"] is True
+
+
+def test_a_quick_link_can_be_taken_back_off_the_front_page(author, category):
+    created = create_guide(author, category.id, "Book an Instrument")
+    author.put(f"/api/guides/{created['id']}", json=document_from(created, isQuickLink=True))
+
+    reloaded = author.get(f"/api/guides/{created['id']}").json()
+    saved = author.put(
+        f"/api/guides/{created['id']}", json=document_from(reloaded, isQuickLink=False)
+    )
+
+    assert saved.json()["isQuickLink"] is False
+
+
+def test_the_flag_reaches_the_summary_because_that_is_what_the_lists_render(author, category):
+    """A quick link is drawn from a listing, not from a fetch of every guide."""
+    created = create_guide(author, category.id, "Get Building Access")
+    author.put(f"/api/guides/{created['id']}", json=document_from(created, isQuickLink=True))
+
+    entry = author.get("/api/guides").json()[0]
+
+    assert entry["isQuickLink"] is True
+
+
+def test_asking_for_quick_links_returns_only_those(author, category):
+    quick = create_guide(author, category.id, "Book an Instrument")
+    create_guide(author, category.id, "Aligning the Confocal")
+    author.put(f"/api/guides/{quick['id']}", json=document_from(quick, isQuickLink=True))
+
+    listing = author.get("/api/guides", params={"quickLink": "true"}).json()
+
+    assert [entry["title"] for entry in listing] == ["Book an Instrument"]
+    assert [entry["title"] for entry in author.get("/api/guides", params={"quickLink": "false"}).json()] == [
+        "Aligning the Confocal"
+    ]
+
+
+def test_a_quick_link_a_viewer_may_not_see_is_still_hidden_from_them(author, viewer, category):
+    """Promotion is not publication: an unpublished quick link is still a draft."""
+    created = create_guide(author, category.id, "Book an Instrument")
+    author.put(f"/api/guides/{created['id']}", json=document_from(created, isQuickLink=True))
+
+    assert viewer.get("/api/guides", params={"quickLink": "true"}).json() == []
+
+
+def test_a_viewer_cannot_promote_a_guide(author, viewer, category):
+    created = create_guide(author, category.id, "Book an Instrument")
+
+    response = viewer.put(f"/api/guides/{created['id']}", json=document_from(created, isQuickLink=True))
+
+    assert response.status_code == 403
+    assert author.get(f"/api/guides/{created['id']}").json()["isQuickLink"] is False
+
+
+def test_the_flag_is_part_of_the_published_snapshot(author, category):
+    created = create_guide(author, category.id, "Book an Instrument")
+    author.put(f"/api/guides/{created['id']}", json=document_from(created, isQuickLink=True))
+
+    author.post(f"/api/guides/{created['id']}/publish")
+
+    assert author.get(f"/api/guides/{created['id']}/revisions/1").json()["isQuickLink"] is True
 
 
 def test_archived_guides_are_excluded_unless_asked_for(author, admin, category):

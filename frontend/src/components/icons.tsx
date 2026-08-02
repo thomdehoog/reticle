@@ -119,6 +119,15 @@ export function IconSearch(props: IconProps) {
   )
 }
 
+/** A roof over a doorway: the front of the site. */
+export function IconHome(props: IconProps) {
+  return (
+    <svg {...svgProps(props)}>
+      <path d="M3.4 10.4 12 3.2l8.6 7.2v9a1.4 1.4 0 0 1-1.4 1.4h-4.6v-6.6H9.4v6.6H4.8a1.4 1.4 0 0 1-1.4-1.4v-9Z" />
+    </svg>
+  )
+}
+
 export function IconMenu(props: IconProps) {
   return (
     <svg {...svgProps(props)}>

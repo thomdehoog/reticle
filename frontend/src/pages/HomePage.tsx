@@ -4,42 +4,41 @@
  * The first screen after signing in. Somebody arriving here is looking for an
  * instrument or a procedure they already have in mind, and they recognise it
  * faster than they can read a list of titles — so this is a wall of tiles
- * rather than a table of contents, and the words on each one are held to the
- * name and a count. The description of a section belongs on the section, where
- * somebody has decided to read.
+ * rather than a table of contents, and the words on each one are the name and
+ * nothing else. Under them are the quick links: the few procedures people
+ * arrive asking for that no category name would lead them to.
  *
  * Surfacing an author's own drafts here is deliberate: a half-written guide
  * nobody can see from the front page is a half-written guide that never gets
- * finished.
+ * finished. It sits last, because it is about the person rather than about the
+ * material, and only an author has it at all.
  */
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { CategoryTile, GuideCard, TileGrid } from '../components/BrowseCards'
+import { QuickLinks } from '../components/QuickLinks'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
 import { browsableCategories, buildCategoryTree } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
 export function HomePage() {
   const api = useApi()
-  const { user, can } = useAuth()
+  const { user, can, organisation } = useAuth()
   const authorId = can('author') ? (user?.id ?? null) : null
 
   /**
-   * Two narrow listings rather than one broad one. One listing of every guide
-   * in the institute would send a viewer the whole editorial pipeline — drafts
-   * and other people's in-review work included — to show them eight numbers.
-   * The counts come from published guides, which is what the cards claim to
-   * count, and the drafts query is scoped to one author and only runs for
-   * somebody who can write.
+   * The drafts query is scoped to one author and only runs for somebody who can
+   * write. One listing of every guide in the institute would send a viewer the
+   * whole editorial pipeline — drafts and other people's in-review work
+   * included — for a screen that shows neither.
    */
   const { data, error, loading } = useAsync(
     async () => {
-      const [categories, published, mine] = await Promise.all([
+      const [categories, mine] = await Promise.all([
         api.listCategories(),
-        api.listGuides({ status: 'published' }),
         authorId === null ? Promise.resolve([]) : api.listGuides({ authorId }),
       ])
-      return { categories, published, mine }
+      return { categories, mine }
     },
     [api, authorId],
   )
@@ -49,35 +48,13 @@ export function HomePage() {
   if (!data) return null
 
   const roots = buildCategoryTree(browsableCategories(data.categories))
-
-  const publishedPerCategory = new Map<string, number>()
-  for (const guide of data.published) {
-    publishedPerCategory.set(guide.categoryId, (publishedPerCategory.get(guide.categoryId) ?? 0) + 1)
-  }
-
-  /**
-   * A parent card counts what is underneath it, hidden children included: those
-   * guides really are reachable from here through the page's own links, and a
-   * "0 guides" card over a category full of them reads as a broken section.
-   */
-  const countIncludingChildren = (categoryId: string): number => {
-    const children = data.categories.filter((child) => child.parentId === categoryId)
-    return (
-      (publishedPerCategory.get(categoryId) ?? 0) +
-      children.reduce((total, child) => total + countIncludingChildren(child.id), 0)
-    )
-  }
-
   const myDrafts = data.mine.filter((guide) => guide.status !== 'published')
 
   return (
     <>
       <div className="page-header">
         <div className="page-header__text">
-          <h1>Guides</h1>
-          <p className="page-header__sub">
-            Standard procedures for the Center for Microscopy and Image Analysis
-          </p>
+          <h1>{organisation?.name ?? 'Guides'}</h1>
         </div>
       </div>
 
@@ -86,19 +63,12 @@ export function HomePage() {
       ) : (
         <TileGrid>
           {roots.map((category) => (
-            <CategoryTile
-              key={category.id}
-              category={category}
-              guideCount={countIncludingChildren(category.id)}
-              childCount={
-                browsableCategories(data.categories).filter(
-                  (child) => child.parentId === category.id,
-                ).length
-              }
-            />
+            <CategoryTile key={category.id} category={category} />
           ))}
         </TileGrid>
       )}
+
+      <QuickLinks />
 
       {can('author') && myDrafts.length > 0 && (
         <section className="section">
