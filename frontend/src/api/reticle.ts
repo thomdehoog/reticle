@@ -49,12 +49,13 @@ export interface RevisionSummary {
   publishedBy: { id: string; displayName: string }
 }
 
-/* A flag reads as `?quickLink=true` when it is set and is left out entirely
-   when it is not, so an unfiltered listing keeps the URL it always had. */
+/* A flag is sent as it was given — `?quickLink=false` asks for the guides that
+   are not quick links, which is not the same question as not asking. Only an
+   absent value drops out, so an unfiltered listing keeps the URL it always had. */
 function queryString(params: Record<string, string | boolean | undefined>): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== '' && value !== false) search.set(key, String(value))
+    if (value !== undefined && value !== '') search.set(key, String(value))
   }
   const rendered = search.toString()
   return rendered === '' ? '' : `?${rendered}`

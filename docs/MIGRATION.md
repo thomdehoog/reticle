@@ -27,6 +27,7 @@ Everything below exists to make those two steps mechanical.
 | **Image annotations** — shape, colour and position | Comments, favourites, answers, quizzes, courses, approvals |
 | Step video (MP4/WebM), with its poster frame | Per-author accounts (see "Authorship" below) |
 | Tags, and the categories guides sit in | |
+| The featured-guide flag, which becomes a quick link | |
 | Wiki pages, including category landing pages | |
 
 **No third-party markup crosses the boundary.** Rendered HTML is reduced to text

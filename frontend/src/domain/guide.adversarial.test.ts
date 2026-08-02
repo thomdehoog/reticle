@@ -52,6 +52,7 @@ function guide(overrides: Partial<Guide> = {}): Guide {
     summary: '',
     categoryId: 'c1',
     tags: [],
+    isQuickLink: false,
     difficulty: 'moderate',
     timeRequiredMinMinutes: null,
     timeRequiredMaxMinutes: null,

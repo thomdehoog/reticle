@@ -34,34 +34,25 @@ describe('HomePage', () => {
     expect(screen.queryByRole('link', { name: /Tag-only/ })).not.toBeInTheDocument()
   })
 
-  it('counts published guides, including those in a hidden child', async () => {
+  /* The tile is a picture and a name. A count never decided which section
+     somebody opened, and "0 guides" over a section being filled in read as a
+     broken section rather than as a new one. */
+  it('names a section and says nothing else about it', async () => {
     const server = createFakeServer({
-      categories: [
-        categoryFixture({ id: 'c-light', name: 'Light Microscopy' }),
-        categoryFixture({
-          id: 'c-holding',
-          slug: 'holding',
-          name: 'Tag-only',
-          parentId: 'c-light',
-          isHidden: true,
-        }),
-      ],
-      guides: [
-        guideFixture({ id: 'g1', categoryId: 'c-light', status: 'published' }),
-        guideFixture({ id: 'g2', slug: 'g2', categoryId: 'c-holding', status: 'published' }),
-        guideFixture({ id: 'g3', slug: 'g3', categoryId: 'c-light', status: 'draft' }),
-      ],
+      categories: [categoryFixture({ id: 'c-light', name: 'Light Microscopy' })],
+      guides: [guideFixture({ id: 'g1', categoryId: 'c-light', status: 'published' })],
     })
     renderHome(server)
 
-    /* The draft is not counted — the card promises guides people can read. */
-    expect(await screen.findByText('2 guides')).toBeInTheDocument()
+    const tile = await screen.findByRole('link', { name: /Light Microscopy/ })
+    expect(tile).toHaveTextContent('Light Microscopy')
+    expect(screen.queryByText(/guides?$/)).toBeNull()
   })
 
   /**
    * A viewer used to download every draft in the institute so the front page
-   * could put a number on eight cards. Now the only listing they ask for is the
-   * published one.
+   * could put a number on eight cards. Now the only listing anybody asks for is
+   * the handful of quick links.
    */
   it('does not pull the editorial pipeline down to a reader', async () => {
     const server = createFakeServer({ user: VIEWER, guides: [] })
@@ -71,7 +62,36 @@ describe('HomePage', () => {
 
     const listings = server.requests.filter((request) => request.path.startsWith('/guides'))
     expect(listings).toHaveLength(1)
-    expect(listings[0].path).toBe('/guides?status=published')
+    expect(listings[0].path).toBe('/guides?quickLink=true')
+  })
+
+  /* The procedures people arrive asking for, which no category name would have
+     led them to. */
+  it('offers the quick links, and only the guides marked as one', async () => {
+    const server = createFakeServer({
+      guides: [
+        guideFixture({
+          id: 'g-book',
+          slug: 'book-an-instrument',
+          title: 'Book an instrument',
+          summary: 'PPMS in three steps',
+          status: 'published',
+          isQuickLink: true,
+        }),
+        guideFixture({
+          id: 'g-other',
+          slug: 'other',
+          title: 'Aligning the laser',
+          status: 'published',
+        }),
+      ],
+    })
+    renderHome(server)
+
+    const link = await screen.findByRole('link', { name: /Book an instrument/ })
+    expect(link).toHaveAttribute('href', '/g/book-an-instrument')
+    expect(link).toHaveTextContent('PPMS in three steps')
+    expect(screen.queryByRole('link', { name: /Aligning the laser/ })).not.toBeInTheDocument()
   })
 
   it('shows an author their own unfinished work, and nobody else’s', async () => {

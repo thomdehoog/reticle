@@ -224,9 +224,23 @@ for (const viewport of VIEWPORTS) {
      Waiting for the response that carries the list is the thing that actually
      means the data is here. */
   await listing
-  await page.waitForSelector('.guide-row, .empty-state')
+  await page.waitForSelector('.tile, .guide-row, .empty-state')
   await page.screenshot({ path: join(SHOTS, `${viewport.name}-3-category.png`), fullPage: true })
   await checkReadability(page, viewport, 'category')
+
+  /**
+   * Each level of the tree shows one thing, so a category with sub-categories
+   * shows those and no guides at all. The guides are one level down, which is
+   * where the rest of this walk has to go to find one.
+   */
+  /* Named by what it is not: the wiki cards further down the page are tiles
+     too, and clicking one of those leads to an article rather than to guides. */
+  const subSection = page.locator('.tile:not(.tile--wiki):not(.tile--guide)').first()
+  if (await subSection.count()) {
+    await subSection.click()
+    await page.waitForSelector('.guide-row, .empty-state')
+    await checkReadability(page, viewport, 'sub-category')
+  }
 
   const guideRow = page.locator('.guide-row').first()
   if (await guideRow.count()) {

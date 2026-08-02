@@ -29,13 +29,55 @@ describe('CategoryPage', () => {
   })
 
   /**
-   * A sub-section's card counts the guides inside it.
+   * Each level of the tree shows one thing.
    *
-   * The count used to be taken from this page's own listing, which is scoped to
-   * this category and therefore holds none of a child's guides — so every
-   * sub-section on every category page read "0 guides" however full it was.
+   * A category with sub-categories shows those and stops: the guides belong to
+   * the level below, and listing them here as well is the same procedures
+   * twice, once under a heading nobody has chosen yet. That is not a tidiness
+   * argument — a reader who has already been shown every guide in the section
+   * has no reason to open a sub-section, which is the only navigation the
+   * screen has.
    */
-  it('counts the guides inside a sub-section, not the ones beside it', async () => {
+  it('shows the sub-sections and no guide list on a category that has them', async () => {
+    const server = createFakeServer({
+      categories: [
+        categoryFixture(),
+        categoryFixture({
+          id: 'c-confocal',
+          slug: 'confocal',
+          name: 'Confocal',
+          parentId: 'c-light',
+          orderIndex: 0,
+        }),
+      ],
+      guides: [guideFixture({ status: 'published', title: 'Confocal startup' })],
+    })
+    renderCategory(server)
+
+    expect(await screen.findByRole('link', { name: /Confocal$/ })).toHaveAttribute(
+      'href',
+      '/c/confocal',
+    )
+    expect(screen.queryByRole('link', { name: /Confocal startup/ })).not.toBeInTheDocument()
+  })
+
+  /* A category with nothing under it is already the bottom of the tree, so it
+     is where the guides are. */
+  it('shows the guides on a category with no sub-sections', async () => {
+    const server = createFakeServer({
+      guides: [guideFixture({ status: 'published', title: 'Confocal startup' })],
+    })
+    renderCategory(server)
+
+    expect(await screen.findByRole('link', { name: /Confocal startup/ })).toHaveAttribute(
+      'href',
+      '/g/confocal-startup',
+    )
+  })
+
+  /* The tile is a picture and a name. A count never decided which sub-section
+     somebody opened. */
+  it('puts no count under a sub-section', async () => {
     const server = createFakeServer({
       categories: [
         categoryFixture(),
@@ -51,7 +93,6 @@ describe('CategoryPage', () => {
         guideFixture({
           id: 'g-child',
           slug: 'stellaris-startup',
-          title: 'Stellaris startup',
           categoryId: 'c-confocal',
           status: 'published',
         }),
@@ -59,32 +100,8 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    const section = await screen.findByRole('link', { name: /Confocal/ })
-    expect(section).toHaveAttribute('href', '/c/confocal')
-    expect(within(section).getByText('1 guide')).toBeInTheDocument()
-  })
-
-  /* Sub-sections are how a reader gets to the instrument they came for. Below
-     the guide lists they were the last thing on the page. */
-  it('puts the sub-sections above the guides', async () => {
-    const server = createFakeServer({
-      categories: [
-        categoryFixture(),
-        categoryFixture({
-          id: 'c-confocal',
-          slug: 'confocal',
-          name: 'Confocal',
-          parentId: 'c-light',
-          orderIndex: 0,
-        }),
-      ],
-      guides: [guideFixture({ status: 'published', title: 'Confocal startup' })],
-    })
-    const { container } = renderCategory(server)
-
-    await screen.findByRole('link', { name: /Confocal startup/ })
-    const links = [...container.querySelectorAll('a')].map((link) => link.getAttribute('href'))
-    expect(links.indexOf('/c/confocal')).toBeLessThan(links.indexOf('/g/confocal-startup'))
+    const section = await screen.findByRole('link', { name: /Confocal$/ })
+    expect(within(section).queryByText(/guides?$/)).toBeNull()
   })
 
   it('renders the landing page above the guide list, embeds and all', async () => {

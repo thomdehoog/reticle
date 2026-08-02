@@ -34,6 +34,7 @@ function guide(id: string, title: string): GuideSummary {
     summary: '',
     categoryId: base.categoryId,
     tags: [],
+    isQuickLink: false,
     difficulty: 'moderate',
     timeRequiredMinMinutes: null,
     timeRequiredMaxMinutes: null,

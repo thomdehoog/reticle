@@ -103,6 +103,9 @@ The parts most worth knowing, because they are the parts a naive importer drops:
   the picture and the red bullet beside it are one instruction.
 - `steps[].video` is a media reference or null.
 - `tags` is a list of slugs; the guide's own category is `categoryId`.
+- `isQuickLink` marks a guide the facility promoted to the front page or a
+  category page. A boolean is the easiest field in an export to lose without
+  anyone noticing, so the round-trip test sets it deliberately.
 - `timeRequiredMinMinutes` / `timeRequiredMaxMinutes` are a range, either end
   possibly null.
 

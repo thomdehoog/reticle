@@ -82,7 +82,7 @@ anyone who follows a tag or a link to them.
 
 | Method | Path                          | Role   | Purpose                    |
 | ------ | ----------------------------- | ------ | -------------------------- |
-| GET    | `/api/guides`                 | any    | Array of `GuideSummary`. Query: `categoryId`, `status`, `q`, `authorId`, `tags`. Viewers only ever receive `published`. |
+| GET    | `/api/guides`                 | any    | Array of `GuideSummary`. Query: `categoryId`, `status`, `q`, `authorId`, `tags`, `quickLink`. Viewers only ever receive `published`. |
 | GET    | `/api/guides/{idOrSlug}`      | any    | Full `Guide` including `steps`. |
 | POST   | `/api/guides`                 | author | Create a draft. Body: `{title, categoryId}`; everything else defaults. |
 | PUT    | `/api/guides/{id}`            | author | Save the whole guide including steps, bullets and media order. Used by autosave. |
@@ -110,6 +110,16 @@ database.
 them. A wiki page asking for `stellaris, confocal` means the guides that are
 both; `any` would turn every embed on the busiest page into an undifferentiated
 dump.
+
+`isQuickLink` marks a guide the facility wants reached in one move — "Book an
+instrument", "Get building access" — which the front page and the category pages
+render as a picture-and-text block rather than as a line in a list. It is set by
+an author or an administrator through the same whole-document `PUT` as every
+other field, and it appears on `GuideSummary` as well as on `Guide`, because
+those lists are built from summaries. `?quickLink=true` returns only the guides
+carrying it; `false` returns only those that do not. It is not a permission and
+not an ordering: reader visibility is still `status`, and the order is still the
+listing's own.
 
 `timeRequiredMinMinutes` and `timeRequiredMaxMinutes` are a range, because that
 is how long a procedure honestly takes. A reversed pair is rejected rather than

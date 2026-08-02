@@ -827,6 +827,13 @@ a:hover {
   text-decoration: none;
 }
 
+/* A flex child with an intrinsic size is still allowed to shrink, and a
+   squashed icon beside a long section name reads as a rendering fault. */
+.rail__link svg,
+.menu-sheet .menu-item svg {
+  flex: 0 0 auto;
+}
+
 /* Marked by weight and a filled ground, not by colour alone — a slightly
    lighter blue on dark blue is not a distinction anybody can act on. */
 .rail__link.active {
@@ -974,35 +981,6 @@ a:hover {
   border-left: 1px solid #2c4f8f;
 }
 
-.app__nav {
-  display: flex;
-  align-items: center;
-  gap: 0.15rem;
-}
-
-.app__nav-link {
-  padding: 0.35rem 0.6rem;
-  font-size: 0.9rem;
-  font-weight: 550;
-  color: #c7d6ee;
-  border-radius: var(--radius);
-}
-
-.app__nav-link:hover {
-  color: #fff;
-  background: var(--brand-800);
-  text-decoration: none;
-}
-
-/* The current section is marked by weight and a rule beneath, not by colour
-   alone — the header is one hue and a slightly lighter blue on dark blue is not
-   a distinction anybody can act on. */
-.app__nav-link.active {
-  color: #fff;
-  font-weight: 650;
-  box-shadow: inset 0 -2px 0 #8fb6f5;
-}
-
 .app__spacer {
   flex: 1;
 }
@@ -1014,8 +992,8 @@ a:hover {
   flex: 0 0 auto;
 }
 
-/* The panel is always a light surface, even in the header's dark blue: it is a
-   piece of the page that has come forward, not a piece of the bar. */
+/* The panel is always a light surface, even against the rail's dark blue: it is
+   a piece of the page that has come forward, not a piece of the furniture. */
 .header-menu__panel {
   position: absolute;
   top: calc(100% + 0.4rem);
@@ -1054,13 +1032,17 @@ a:hover {
   text-decoration: none;
 }
 
-/* Whose account this is. A label, not a target — so it is not sized like one. */
-.menu-name {
-  padding: 0.4rem 0.7rem 0.5rem;
-  font-size: 0.8rem;
-  color: var(--ink-500);
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 0.3rem;
+/* The account panel hangs off the foot of the rail, so it opens upwards and
+   sits over the content rather than off the bottom of the window. */
+.header-menu--rail {
+  width: 100%;
+}
+
+.header-menu--rail .header-menu__panel {
+  top: auto;
+  bottom: calc(100% + 0.4rem);
+  left: 0.6rem;
+  right: 0.6rem;
 }
 
 .app__menu-toggle {
@@ -1079,24 +1061,26 @@ a:hover {
   cursor: pointer;
 }
 
-.app__header .button {
+/* Only on the dark bar. The wide screen's bar is an ordinary light surface and
+   the buttons on it are the ordinary buttons. */
+.app__header:not(.app__header--desk) .button {
   color: #e8eefb;
   background: transparent;
   border-color: #2c4f8f;
 }
 
-.app__header .button:hover:not(:disabled) {
+.app__header:not(.app__header--desk) .button:hover:not(:disabled) {
   background: var(--brand-800);
   border-color: #4a72bd;
 }
 
-.app__header .button--primary {
+.app__header:not(.app__header--desk) .button--primary {
   background: var(--brand-600);
   border-color: var(--brand-600);
   color: #fff;
 }
 
-.app__header .button--primary:hover:not(:disabled) {
+.app__header:not(.app__header--desk) .button--primary:hover:not(:disabled) {
   background: #1a5fc4;
   border-color: #1a5fc4;
 }
@@ -1107,20 +1091,6 @@ a:hover {
   max-width: var(--content-max);
   margin: 0 auto;
   padding: 1.75rem 1.25rem 4rem;
-}
-
-/* The account control is the avatar alone. The name is inside the panel it
-   opens, where there is room for it and where it answers "whose session is
-   this" at the moment somebody is about to sign out. */
-.app__user {
-  display: grid;
-  place-items: center;
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
 }
 
 .avatar {
@@ -1135,7 +1105,7 @@ a:hover {
   font-weight: 650;
 }
 
-.app__user:hover .avatar {
+.rail__me:hover .avatar {
   background: #1a5fc4;
 }
 
@@ -1165,6 +1135,30 @@ a:hover {
   outline: none;
   background: rgba(255, 255, 255, 0.16);
   border-color: #6f95d6;
+}
+
+/* On the light bar it is a pill on a white surface: the one thing in the bar
+   that is not the page, so it has to read as a field rather than as a gap. */
+.app__header--desk .searchbar {
+  flex: 0 1 440px;
+}
+
+.app__header--desk .searchbar input {
+  padding: 0.4rem 0.9rem;
+  color: var(--ink-900);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+}
+
+.app__header--desk .searchbar input::placeholder {
+  color: var(--ink-400);
+}
+
+.app__header--desk .searchbar input:focus {
+  background: var(--surface);
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 3px var(--brand-100);
 }
 
 /* ------------------------------------------------------------------- cards */
@@ -2510,6 +2504,77 @@ a:hover {
   padding: 1.25rem;
 }
 
+/**
+ * The phone's menu is the rail, folded.
+ *
+ * It fills the screen rather than sitting as a card in the middle of one,
+ * because it carries every place in the application and a list of a facility's
+ * sections does not fit in a card. It is still the same dialog, so the keyboard
+ * is still held inside it and Escape still gives it back. `:has` keeps the
+ * treatment to this one panel.
+ */
+.modal-backdrop:has(.menu-sheet) {
+  padding: 0;
+  place-items: stretch;
+}
+
+.modal:has(.menu-sheet) {
+  max-width: none;
+  max-height: none;
+  color: #fff;
+  background: var(--brand-900);
+  border-radius: 0;
+}
+
+.modal:has(.menu-sheet) .modal__head {
+  border-bottom-color: rgba(255, 255, 255, 0.13);
+}
+
+.modal:has(.menu-sheet) .modal__head .button {
+  color: #fff;
+}
+
+.modal:has(.menu-sheet) .modal__body {
+  padding: 0.5rem 0.6rem 1.5rem;
+}
+
+.modal:has(.menu-sheet) :focus-visible {
+  outline-color: #8fb6f5;
+}
+
+.menu-sheet {
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-sheet .menu-item {
+  gap: 0.7rem;
+  color: #dce6f5;
+  border-radius: var(--radius);
+}
+
+.menu-sheet .menu-item:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* The places keep the rail's own treatment, at a size a thumb can hit. */
+.menu-sheet .rail__section,
+.menu-sheet .rail__item {
+  padding-left: 0.7rem;
+  padding-right: 0.7rem;
+}
+
+.menu-sheet .rail__item {
+  min-height: 44px;
+  font-size: 0.95rem;
+}
+
+.menu-sheet .rail__rule {
+  margin-left: 0.7rem;
+  margin-right: 0.7rem;
+}
+
 /* ------------------------------------------------------------------- print */
 
 /**
@@ -2534,6 +2599,7 @@ a:hover {
   }
 
   .app__header,
+  .rail,
   .page-actions,
   .breadcrumb,
   .searchbar,
@@ -2544,7 +2610,9 @@ a:hover {
     display: none !important;
   }
 
+  .app,
   .app__main {
+    display: block;
     max-width: none;
     padding: 0;
   }
@@ -3105,6 +3173,16 @@ a:hover {
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
 }
 
+/* Two across on a phone rather than one. A facility has eight or nine sections
+   and one per row makes the front page nine screens of scrolling — which is
+   the same wall of pictures turned back into a list. */
+@media (max-width: 640px) {
+  .tiles {
+    gap: 0.7rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .tile {
   position: relative;
   display: flex;
@@ -3202,6 +3280,107 @@ a:hover {
   margin-bottom: 0.9rem;
   font-size: 1.05rem;
   color: var(--ink-700);
+}
+
+/* A caption over a run of blocks rather than a heading of its own. It survives
+   where the other captions went because without it a row of wide blocks reads
+   as more sections; it says what they are and then gets out of the way. */
+.section__title--caption {
+  font-size: 0.8rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+
+/* ------------------------------------------------------------- quick links */
+
+/**
+ * The same block as a tile, laid out wide so the picture reads as a badge.
+ *
+ * Two across on a wide screen and one on a phone: three would be a grid, and a
+ * grid is what the sections above them are.
+ */
+.quick-links {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 860px) {
+  .quick-links {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.qlink {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding-right: 0.9rem;
+  overflow: hidden;
+  color: inherit;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.qlink:hover,
+.qlink:focus-visible {
+  text-decoration: none;
+  border-color: var(--brand-600);
+  box-shadow: var(--shadow);
+}
+
+/* The parent is named because `.thumb` sets width and height to 100% further
+   up the sheet, and a single class here loses to it and lets the picture eat
+   the title. */
+.qlink > .qlink__art {
+  flex: 0 0 auto;
+  width: 104px;
+  height: 70px;
+  overflow: hidden;
+  background: var(--brand-900);
+}
+
+.qlink__text {
+  min-width: 0;
+  padding: 0.55rem 0;
+}
+
+.qlink__name {
+  display: block;
+  font-weight: 650;
+  font-size: 0.95rem;
+  line-height: 1.3;
+  color: var(--ink-900);
+}
+
+/* One line, cut off rather than wrapped: the block is a badge and a name, and
+   a summary that runs to three lines makes it a card again. */
+.qlink__sub {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  margin-top: 0.1rem;
+  font-size: 0.82rem;
+  color: var(--ink-500);
+}
+
+.qlink__summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .qlink > .qlink__art {
+    width: 88px;
+    height: 60px;
+  }
 }
 
 /* On paper a wall of thumbnails is noise: the destination is what matters. */

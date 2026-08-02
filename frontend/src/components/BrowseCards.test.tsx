@@ -40,6 +40,7 @@ function summary(overrides: Partial<GuideSummary> = {}): GuideSummary {
     summary: guide.summary,
     categoryId: guide.categoryId,
     tags: guide.tags,
+    isQuickLink: guide.isQuickLink,
     difficulty: guide.difficulty,
     timeRequiredMinMinutes: guide.timeRequiredMinMinutes,
     timeRequiredMaxMinutes: guide.timeRequiredMaxMinutes,
@@ -74,60 +75,57 @@ describe('monogram', () => {
 describe('CategoryTile', () => {
   it('shows the section photograph when there is one', () => {
     const { container } = render(
-      <CategoryTile
-        category={categoryFixture({ imageUrl: '/api/media/m-1' })}
-        guideCount={3}
-      />,
+      <CategoryTile category={categoryFixture({ imageUrl: '/api/media/m-1' })} />,
     )
 
     expect(container.querySelector('img')).toHaveAttribute('src', '/api/media/m-1')
   })
 
   it('draws a figure when there is no photograph, rather than nothing', () => {
-    const { container } = render(
-      <CategoryTile category={categoryFixture()} guideCount={0} />,
-    )
+    const { container } = render(<CategoryTile category={categoryFixture()} />)
 
     expect(container.querySelector('img')).toBeNull()
     expect(container.querySelector('svg.thumb__figure')).not.toBeNull()
   })
 
   it('draws the same figure for the same name every time', () => {
-    const first = render(<CategoryTile category={categoryFixture()} guideCount={0} />)
+    const first = render(<CategoryTile category={categoryFixture()} />)
     const firstFigure = first.container.querySelector('svg.thumb__figure')?.innerHTML
     first.unmount()
 
-    const second = render(<CategoryTile category={categoryFixture()} guideCount={0} />)
+    const second = render(<CategoryTile category={categoryFixture()} />)
 
     expect(second.container.querySelector('svg.thumb__figure')?.innerHTML).toBe(firstFigure)
   })
 
   it('draws different figures for different names', () => {
-    const light = render(<CategoryTile category={categoryFixture()} guideCount={0} />)
+    const light = render(<CategoryTile category={categoryFixture()} />)
     const lightFigure = light.container.querySelector('svg.thumb__figure')?.innerHTML
     light.unmount()
 
     const cryo = render(
-      <CategoryTile category={categoryFixture({ name: 'CryoEM' })} guideCount={0} />,
+      <CategoryTile category={categoryFixture({ name: 'CryoEM' })} />,
     )
 
     expect(cryo.container.querySelector('svg.thumb__figure')?.innerHTML).not.toBe(lightFigure)
   })
 
-  it('leads to the section and counts what is in it', () => {
-    render(<CategoryTile category={categoryFixture()} guideCount={3} />)
-
+  it('leads to the section', () => {
+    render(<CategoryTile category={categoryFixture()} />)
     expect(screen.getByRole('link')).toHaveAttribute('href', '/c/light-microscopy')
-    expect(screen.getByText('3 guides')).toBeInTheDocument()
   })
 
-  it('counts one guide in the singular', () => {
-    render(<CategoryTile category={categoryFixture()} guideCount={1} />)
-    expect(screen.getByText('1 guide')).toBeInTheDocument()
+  /* "12 guides" never decided which section anybody opened, and "0 guides"
+     over a section being filled in read as broken rather than as new. */
+  it('says nothing about how many guides are in it', () => {
+    render(<CategoryTile category={categoryFixture({ name: 'Widefield' })} />)
+
+    expect(screen.getByRole('link')).toHaveTextContent('Widefield')
+    expect(screen.queryByText(/guides?$/)).toBeNull()
   })
 
   it('marks a holding section, which is reached by tag rather than by browsing', () => {
-    render(<CategoryTile category={categoryFixture({ isHidden: true })} guideCount={86} />)
+    render(<CategoryTile category={categoryFixture({ isHidden: true })} />)
     expect(screen.getByText('Hidden')).toBeInTheDocument()
   })
 })

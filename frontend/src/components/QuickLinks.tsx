@@ -4,7 +4,7 @@
  * Booking an instrument, getting into the building, finding where the data
  * went: procedures nobody would think to look for under a microscope's name,
  * and the ones a facility is asked about most. An author marks a guide as a
- * quick link and it appears here, above the tree, on the front page and on
+ * quick link and it appears here, under the sections on the front page and on
  * every category that has sub-categories.
  *
  * The block is laid out wide — a badge-sized picture with the title and one
@@ -27,10 +27,16 @@ import { StatusBadge } from './ui'
 export function QuickLinks() {
   const api = useApi()
   const { data } = useAsync(() => api.listGuides({ quickLink: true }), [api])
-  const guides = data ?? []
+  /* The filter is the server's job and it is asked for. The flag is checked
+     again here because the failure mode of a listing that ignored the filter is
+     the whole corpus presented as the four things people ask for most, which is
+     worse on this screen than showing none. */
+  const guides = (data ?? []).filter((guide) => guide.isQuickLink)
 
-  /* Nothing to show is not an error and not an empty state: a facility that has
-     not marked any quick links yet simply has a shorter front page. */
+  /* Nothing to show is not an empty state, and a listing that failed is not an
+     error banner: these are a shortcut to material the tree below already
+     reaches, so a facility that has marked none of them — or a request that did
+     not come back — simply has a shorter front page. */
   if (guides.length === 0) return null
 
   return (
@@ -45,7 +51,7 @@ export function QuickLinks() {
               {(guide.summary !== '' || guide.status !== 'published') && (
                 <span className="qlink__sub">
                   {guide.status !== 'published' && <StatusBadge status={guide.status} />}
-                  {guide.summary}
+                  <span className="qlink__summary">{guide.summary}</span>
                 </span>
               )}
             </span>
