@@ -300,6 +300,65 @@ for (const viewport of VIEWPORTS) {
     record(`[${viewport.name}] guide renders steps`, false, 'no guides in Light Microscopy')
   }
 
+  /*
+   * The screens the walk above never reaches.
+   *
+   * Home, a category, a guide and the editor are the reader's path and are
+   * checked in depth. These seven are checked only for being reachable and
+   * readable — but that is the difference between an administrator finding a
+   * 500 and a reader finding one. Every screen in the application is now
+   * visited by something.
+   *
+   * The wiki page and the tag are looked up rather than named, because a
+   * hard-coded slug stops failing the day it is renamed: it 404s, the page
+   * renders its empty state, and the check passes against nothing.
+   */
+  const reachable = await page.evaluate(async () => {
+    const get = async (u) => (await fetch(u, { credentials: 'same-origin' })).json()
+    const [pages, tags] = await Promise.all([get('/api/pages'), get('/api/tags')])
+    return { page: pages[0]?.slug ?? null, tag: tags[0]?.slug ?? null }
+  })
+
+  const rest = [
+    ['wiki index', '/w'],
+    ['tags', '/t'],
+    ['search', '/search?q=laser'],
+    ['account', '/account'],
+    ['categories admin', '/categories'],
+    ['people admin', '/users'],
+    ...(reachable.page ? [['wiki page', `/w/${reachable.page}`]] : []),
+    ...(reachable.tag ? [['tag', `/t/${encodeURIComponent(reachable.tag)}`]] : []),
+  ]
+
+  for (const [name, path] of rest) {
+    await page.goto(BASE + path, { waitUntil: 'networkidle' })
+
+    /*
+     * Not "did it respond" and not "did it draw something". In a single-page
+     * application every path returns 200 — the server hands back the same
+     * document whatever you ask for — and a route that matches nothing still
+     * draws a tidy "that does not exist" panel. Both of those pass while the
+     * screen is broken; a run against a deliberately wrong path proved it.
+     *
+     * So the check is: this screen put its own heading up, and nothing on it is
+     * an error or an apology.
+     */
+    const state = await page.evaluate(() => {
+      const main = document.querySelector('.app__main')
+      return {
+        heading: main?.querySelector('h1')?.textContent?.trim() ?? '',
+        text: main?.textContent ?? '',
+        alerts: main?.querySelectorAll('.alert--error, .empty-state').length ?? 0,
+      }
+    })
+    record(`[${viewport.name}] ${name} has a heading`, state.heading.length > 0, state.heading)
+    record(
+      `[${viewport.name}] ${name} is not an error`,
+      state.alerts === 0 && !/does not exist|went wrong|not found/i.test(state.text),
+    )
+    await checkReadability(page, viewport, name)
+  }
+
   const overflows = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth + 1,
   )
