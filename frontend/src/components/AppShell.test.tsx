@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { Route, Routes, useNavigate } from 'react-router'
+import { Route, Routes } from 'react-router'
 
 import type { User } from '../domain/types'
 import { createFakeServer } from '../test/fakeServer'
@@ -130,19 +130,10 @@ describe('AppShell menu', () => {
     const user = userEvent.setup()
     const server = createFakeServer({ user: AUTHOR })
 
-    function GoToWiki() {
-      const navigate = useNavigate()
-      return (
-        <button type="button" onClick={() => navigate('/w')}>
-          Go to the wiki
-        </button>
-      )
-    }
-
     renderWithApp(
       <AppShell>
         <Routes>
-          <Route path="/" element={<GoToWiki />} />
+          <Route path="/" element={<div>Home</div>} />
           <Route path="/w" element={<div>Wiki index</div>} />
         </Routes>
       </AppShell>,
@@ -153,9 +144,21 @@ describe('AppShell menu', () => {
     await user.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
 
-    await user.click(screen.getByRole('button', { name: 'Go to the wiki' }))
+    await user.click(screen.getByRole('link', { name: 'Wiki' }))
 
     expect(await screen.findByText('Wiki index')).toBeInTheDocument()
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('closes itself when it opens a dialog instead', async () => {
+    const user = userEvent.setup()
+    renderShell(AUTHOR)
+
+    const toggle = await screen.findByRole('button', { name: 'Menu' })
+    await user.click(toggle)
+    await user.click(screen.getByRole('button', { name: /New guide/ }))
+
+    expect(screen.getByRole('dialog', { name: 'New guide' })).toBeInTheDocument()
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
   })
 })

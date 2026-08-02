@@ -1,31 +1,69 @@
 /**
  * The frame that stays put while the middle changes.
  *
- * The header, the search box, the sign-out button and the side navigation are the
- * same on every screen, so they are drawn once here and the actual page is
- * dropped into the middle. Moving between guides swaps only the middle, which is
- * why navigation feels instant and why the scroll position of the sidebar is not
- * thrown away every time you click something.
+ * The header, the search box and the account controls are the same on every
+ * screen, so they are drawn once here and the actual page is dropped into the
+ * middle. Moving between guides swaps only the middle, which is why navigation
+ * feels instant.
  *
- * Navigation and actions are kept apart on purpose: the left group is places you
- * can go, the right group is things you can make. Tags and the wiki are in the
- * left group because at ZMB they are the two indexes people navigate by, and
- * neither is reachable without already being on a guide that links to it.
+ * The bar carries what a reader uses and nothing else: the brand, the wiki, the
+ * tags, and search. The two administrator screens, the account, signing out and
+ * the two ways to create something sit behind controls that have to be opened
+ * first — eleven items across the top of every page is eleven things to read
+ * past on the way to a procedure.
  *
- * On a phone all of that collapses behind one button. Laid out in a row it wraps
- * to four rows and takes 233px of a 568px screen before the page has begun —
- * permanently, on every screen, for somebody holding the phone in one hand at an
- * instrument who wants step 1. Everything but the brand and the search box moves
- * into a menu, and the header stays one row tall.
+ * On a phone even that is too much furniture. Laid out in a row the header
+ * wrapped to four rows and took 233px of a 568px screen before the page had
+ * begun, on every screen, for somebody holding the phone in one hand at an
+ * instrument. Below the breakpoint the bar is brand, search and one button, and
+ * everything else is in the sheet that button opens.
  */
 
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+  type ReactNode,
+} from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router'
 
 import { useAuth } from '../auth/AuthContext'
 import { IconMenu, IconPlus, ReticleMark } from './icons'
 import { NewGuideDialog } from './NewGuideDialog'
 import { NewPageDialog } from './NewPageDialog'
+import { Modal } from './ui'
+
+/** The width below which the header is a brand, a search box and a button. */
+const PHONE_WIDTH = '(max-width: 860px)'
+
+function subscribeToWidth(onChange: () => void) {
+  const query = window.matchMedia(PHONE_WIDTH)
+  query.addEventListener('change', onChange)
+  return () => query.removeEventListener('change', onChange)
+}
+
+/**
+ * Whether the header is in its phone layout.
+ *
+ * The stylesheet knows this already, but the component has to know it too,
+ * because what the button opens differs in kind between the two. On a wide
+ * screen it is a small panel hanging off a control and the page behind it stays
+ * usable. On a phone it is a sheet that covers the screen, and a sheet that
+ * covers the screen has to hold the keyboard as well, or Tab walks off into a
+ * guide the reader can no longer see.
+ *
+ * `useSyncExternalStore` reads the query during render, so there is no first
+ * paint in the wrong layout and no effect setting state to correct one.
+ */
+function usePhoneLayout(): boolean {
+  return useSyncExternalStore(
+    subscribeToWidth,
+    () => window.matchMedia(PHONE_WIDTH).matches,
+    () => false,
+  )
+}
 
 function initials(displayName: string): string {
   const parts = displayName.trim().split(/\s+/).filter(Boolean)
@@ -35,31 +73,52 @@ function initials(displayName: string): string {
   return (first + last).toUpperCase()
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
-  const { user, logout, can, organisation } = useAuth()
-  const navigate = useNavigate()
-  const { pathname } = useLocation()
-  const [query, setQuery] = useState('')
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [creatingGuide, setCreatingGuide] = useState(false)
-  const [creatingPage, setCreatingPage] = useState(false)
-  const headerRef = useRef<HTMLElement>(null)
+/** Which of the header's controls is showing its contents; one at a time. */
+type MenuName = 'new' | 'account' | 'sheet'
 
-  // Arriving somewhere is the end of using the menu. Left open, it covers the
-  // screen the reader just asked for.
-  useEffect(() => setMenuOpen(false), [pathname])
+/**
+ * A header control that opens a panel beneath itself.
+ *
+ * Deliberately not `role="menu"`: that role promises arrow-key navigation
+ * between the items, and these panels hold ordinary links and buttons that Tab
+ * already reaches in the right order. Escape closes and hands focus back to the
+ * button, because leaving focus on a node that has just been removed drops the
+ * next keystroke on `<body>`, at the top of the page.
+ */
+function HeaderMenu({
+  id,
+  trigger,
+  triggerClassName,
+  label,
+  open,
+  onOpen,
+  onClose,
+  children,
+}: {
+  id: string
+  trigger: ReactNode
+  triggerClassName: string
+  /** What a screen reader announces, for a button whose face is a picture. */
+  label?: string
+  open: boolean
+  onOpen: () => void
+  onClose: () => void
+  children: ReactNode
+}) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    if (!menuOpen) return
+    if (!open) return
 
-    // The panel covers the top of the page, so tapping the page is somebody
-    // asking for it to go away. There is no Escape key on a phone, but there is
-    // one on the tablet at the bench.
+    /* Anywhere outside the control is somebody asking for the panel to go away. */
     function dismiss(event: MouseEvent) {
-      if (!headerRef.current?.contains(event.target as Node)) setMenuOpen(false)
+      if (!rootRef.current?.contains(event.target as Node)) onClose()
     }
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setMenuOpen(false)
+      if (event.key !== 'Escape') return
+      onClose()
+      buttonRef.current?.focus()
     }
 
     document.addEventListener('mousedown', dismiss)
@@ -68,7 +127,51 @@ export function AppShell({ children }: { children: ReactNode }) {
       document.removeEventListener('mousedown', dismiss)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [menuOpen])
+  }, [open, onClose])
+
+  return (
+    <div className="header-menu" ref={rootRef}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className={triggerClassName}
+        aria-label={label}
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => (open ? onClose() : onOpen())}
+      >
+        {trigger}
+      </button>
+      {open && (
+        <div className="header-menu__panel" id={id}>
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function AppShell({ children }: { children: ReactNode }) {
+  const { user, logout, can, organisation } = useAuth()
+  const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const phone = usePhoneLayout()
+  const [query, setQuery] = useState('')
+  const [creatingGuide, setCreatingGuide] = useState(false)
+  const [creatingPage, setCreatingPage] = useState(false)
+
+  /**
+   * A menu belongs to the screen it was opened on.
+   *
+   * Recording which path that was closes every menu as a consequence of
+   * rendering the new screen. The alternative — an effect watching the path and
+   * setting the state back — runs after the screen the reader asked for has
+   * already been painted with the menu still sitting over it.
+   */
+  const [opened, setOpened] = useState<{ menu: MenuName; path: string } | null>(null)
+  const openMenu = opened?.path === pathname ? opened.menu : null
+  const open = (menu: MenuName) => setOpened({ menu, path: pathname })
+  const close = () => setOpened(null)
 
   function onSearch(event: FormEvent) {
     event.preventDefault()
@@ -76,14 +179,50 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (trimmed !== '') navigate(`/search?q=${encodeURIComponent(trimmed)}`)
   }
 
+  const displayName = user?.displayName ?? ''
+
+  /* The same entries in the wide screen's account panel and in the phone's
+     sheet, written once so neither can quietly lose one the other keeps. */
+  const accountItems = (
+    <>
+      <Link className="menu-item" to="/account">
+        Your account
+      </Link>
+      {can('admin') && (
+        <>
+          <Link className="menu-item" to="/categories">
+            Categories
+          </Link>
+          <Link className="menu-item" to="/users">
+            People
+          </Link>
+        </>
+      )}
+      <button className="menu-item" type="button" onClick={() => void logout()}>
+        Sign out
+      </button>
+    </>
+  )
+
   return (
     <div className="app">
-      <header className="app__header" ref={headerRef}>
+      <header className="app__header">
         <Link to="/" className="app__brand">
           <ReticleMark />
           Reticle
           {organisation && <span className="app__brand-sub">{organisation.shortName}</span>}
         </Link>
+
+        {!phone && (
+          <nav className="app__nav" aria-label="Sections">
+            <NavLink className="app__nav-link" to="/w">
+              Wiki
+            </NavLink>
+            <NavLink className="app__nav-link" to="/t">
+              Tags
+            </NavLink>
+          </nav>
+        )}
 
         <form className="searchbar" role="search" onSubmit={onSearch}>
           <label className="visually-hidden" htmlFor="global-search">
@@ -98,78 +237,117 @@ export function AppShell({ children }: { children: ReactNode }) {
           />
         </form>
 
-        <button
-          className="app__menu-toggle"
-          type="button"
-          aria-label="Menu"
-          aria-expanded={menuOpen}
-          aria-controls="app-menu"
-          onClick={() => setMenuOpen((open) => !open)}
-        >
-          <IconMenu size={20} />
-        </button>
+        <div className="app__spacer" />
 
-        {/*
-          One set of links for both layouts. `display: contents` dissolves this
-          wrapper on a wide screen, so its children sit in the header row exactly
-          as they would without it; on a phone the same wrapper is the panel the
-          menu button opens. A second copy of the navigation for small screens
-          would be a second thing to keep in step, and the copy nobody is looking
-          at is the one that rots.
-        */}
-        <div className={`app__drawer${menuOpen ? ' app__drawer--open' : ''}`} id="app-menu">
-          <nav className="app__nav" aria-label="Sections">
-            <NavLink className="app__nav-link" to="/w">
-              Wiki
-            </NavLink>
-            <NavLink className="app__nav-link" to="/t">
-              Tags
-            </NavLink>
-            {can('admin') && (
+        {!phone && can('author') && (
+          <HeaderMenu
+            id="new-menu"
+            triggerClassName="button button--primary"
+            trigger={
               <>
-                <NavLink className="app__nav-link" to="/categories">
-                  Categories
-                </NavLink>
-                <NavLink className="app__nav-link" to="/users">
-                  People
-                </NavLink>
+                <IconPlus />
+                New
               </>
-            )}
-          </nav>
+            }
+            open={openMenu === 'new'}
+            onOpen={() => open('new')}
+            onClose={close}
+          >
+            <button
+              className="menu-item"
+              type="button"
+              onClick={() => {
+                close()
+                setCreatingGuide(true)
+              }}
+            >
+              Guide
+            </button>
+            <button
+              className="menu-item"
+              type="button"
+              onClick={() => {
+                close()
+                setCreatingPage(true)
+              }}
+            >
+              Page
+            </button>
+          </HeaderMenu>
+        )}
 
-          <div className="app__spacer" />
+        {!phone && (
+          <HeaderMenu
+            id="account-menu"
+            triggerClassName="app__user"
+            label={`Account: ${displayName}`}
+            trigger={
+              <span className="avatar" aria-hidden="true">
+                {initials(displayName)}
+              </span>
+            }
+            open={openMenu === 'account'}
+            onOpen={() => open('account')}
+            onClose={close}
+          >
+            <span className="menu-name">{displayName}</span>
+            {accountItems}
+          </HeaderMenu>
+        )}
 
-          {can('author') && (
-            <>
-              <button
-                className="button button--primary"
-                type="button"
-                onClick={() => setCreatingGuide(true)}
-              >
-                <IconPlus />
-                New guide
-              </button>
-              <button className="button" type="button" onClick={() => setCreatingPage(true)}>
-                <IconPlus />
-                New page
-              </button>
-            </>
-          )}
-
-          <Link className="app__user" to="/account" title="Your account">
-            <span className="avatar" aria-hidden="true">
-              {initials(user?.displayName ?? '')}
-            </span>
-            <span>{user?.displayName}</span>
-          </Link>
-
-          <button className="button" type="button" onClick={() => void logout()}>
-            Sign out
+        {phone && (
+          <button
+            className="app__menu-toggle"
+            type="button"
+            aria-expanded={openMenu === 'sheet'}
+            aria-controls="app-menu"
+            onClick={() => (openMenu === 'sheet' ? close() : open('sheet'))}
+          >
+            <IconMenu size={20} />
+            Menu
           </button>
-        </div>
+        )}
       </header>
 
       <main className="app__main">{children}</main>
+
+      {phone && openMenu === 'sheet' && (
+        <Modal id="app-menu" title="Menu" onClose={close}>
+          <nav className="menu-sheet" aria-label="Everywhere else">
+            <Link className="menu-item" to="/w">
+              Wiki
+            </Link>
+            <Link className="menu-item" to="/t">
+              Tags
+            </Link>
+            {can('author') && (
+              <>
+                <button
+                  className="menu-item"
+                  type="button"
+                  onClick={() => {
+                    close()
+                    setCreatingGuide(true)
+                  }}
+                >
+                  New guide
+                </button>
+                <button
+                  className="menu-item"
+                  type="button"
+                  onClick={() => {
+                    close()
+                    setCreatingPage(true)
+                  }}
+                >
+                  New page
+                </button>
+              </>
+            )}
+            {accountItems}
+          </nav>
+        </Modal>
+      )}
 
       {creatingGuide && <NewGuideDialog onClose={() => setCreatingGuide(false)} />}
       {creatingPage && <NewPageDialog onClose={() => setCreatingPage(false)} />}
