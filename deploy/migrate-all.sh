@@ -21,7 +21,18 @@ set -euo pipefail
 
 ROOT="${RETICLE_ROOT:-/opt/reticle}"
 DRY_RUN=false
-[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
+case "${1:-}" in
+    "") ;;
+    --dry-run) DRY_RUN=true ;;
+    *)
+        # An unrecognised flag must not fall through to the real thing. The
+        # whole purpose of --dry-run is "change nothing", so a typo like
+        # --dryrun silently migrating every facility is the worst possible
+        # failure this script could have.
+        echo "Unknown argument '${1}'. Use --dry-run, or no arguments to migrate." >&2
+        exit 64
+        ;;
+esac
 
 shopt -s nullglob
 FACILITIES=("$ROOT"/facilities/*/)
@@ -42,8 +53,15 @@ for dir in "${FACILITIES[@]}"; do
         exit 1
     fi
 
-    current=$(sudo -u reticle bash -c "set -a; . '$env_file'; set +a; cd '$ROOT/current/backend' && '$ROOT/current/venv/bin/alembic' current 2>/dev/null | tail -1")
-    head=$(sudo -u reticle bash -c "cd '$ROOT/current/backend' && '$ROOT/current/venv/bin/alembic' heads 2>/dev/null | tail -1")
+    # pipefail inside the inner shell too. Without it the pipeline's exit
+    # status is tail's, so an unreachable database reported success with empty
+    # output - and --dry-run then showed "<none>", which reads as "needs
+    # migrating from scratch" rather than "cannot reach this database".
+    if ! current=$(sudo -u reticle bash -c "set -eo pipefail; set -a; . '$env_file'; set +a; cd '$ROOT/current/backend' && '$ROOT/current/venv/bin/alembic' current 2>/dev/null | tail -1"); then
+        echo "!! Cannot reach the database for '$slug'. Stopping." >&2
+        exit 1
+    fi
+    head=$(sudo -u reticle bash -c "set -eo pipefail; cd '$ROOT/current/backend' && '$ROOT/current/venv/bin/alembic' heads 2>/dev/null | tail -1")
 
     if [[ "$DRY_RUN" == true ]]; then
         printf '    %-20s at %-40s target %s\n' "$slug" "${current:-<none>}" "$head"

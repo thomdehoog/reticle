@@ -26,3 +26,10 @@ argon2-cffi~=25.1
 pillow~=12.3
 python-multipart~=0.0.32
 python-ulid~=4.0
+
+# Only needed when RETICLE_STORAGE_BACKEND=s3. Kept here rather than in an
+# extras group because a facility that switches to object storage should not
+# also have to discover a second install command - and an unused wheel costs
+# nothing next to Pillow. app/storage.py imports it lazily, so a local-disk
+# install never loads it.
+boto3~=1.42
