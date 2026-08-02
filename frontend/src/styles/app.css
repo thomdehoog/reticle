@@ -1078,8 +1078,11 @@ a:hover {
 }
 
 /* Small, because it is the confirmation that you have the right guide rather
-   than the thing you are reading. */
-.guide-row__thumb {
+   than the thing you are reading.
+   The selector names the parent on purpose: `.thumb`, which every picture also
+   carries, sets width and height to 100% further down the sheet, and a single
+   class here loses to it and lets the picture eat the title. */
+.guide-row > .guide-row__thumb {
   flex: 0 0 auto;
   width: 68px;
   height: 46px;
@@ -2545,7 +2548,7 @@ a:hover {
 
   /* The title gets the width it needs to be told apart from its neighbours;
      the picture shrinks, because it is only confirming the choice. */
-  .guide-row__thumb {
+  .guide-row > .guide-row__thumb {
     width: 54px;
     height: 38px;
   }

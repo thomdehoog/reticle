@@ -123,15 +123,18 @@ export function WikiCard({ page, context }: { page: PageSummary; context?: strin
       <Thumbnail seed={page.title} src={page.heroImageUrl} className="tile__media" />
       <span className="tile__body">
         <span className="tile__name">{page.title}</span>
-        {/* The book icon and the heading above the group already say this is a
-            wiki page. What is worth a line is the exception — a landing page is
-            a section's front rather than an article — and, where the card is
-            seen away from its section, which section that is. */}
-        <span className="tile__meta">
-          <IconBook size={13} />
-          {page.isLanding && <span>Section front page</span>}
-          {context && <span>{context}</span>}
-        </span>
+        {/* The heading above the group already says these are wiki pages, so a
+            card only speaks when it has something the group does not: that it is
+            a section's front rather than an article, or — where the card is seen
+            away from its section — which section it belongs to. With neither,
+            the line is dropped rather than left as a lone icon. */}
+        {(page.isLanding || context) && (
+          <span className="tile__meta">
+            <IconBook size={13} />
+            {page.isLanding && <span>Section front page</span>}
+            {context && <span>{context}</span>}
+          </span>
+        )}
       </span>
       {page.status !== 'published' && (
         <span className="tile__status">
