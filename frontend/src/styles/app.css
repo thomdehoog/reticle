@@ -1998,22 +1998,30 @@ a:hover {
  * a colour-blind reader: red text, an outlined triangle, and the word CAUTION.
  */
 /**
- * Only a caution colours its own words. A note and a reminder colour their icon
- * and their label and leave the sentence black.
+ * A caution and a reminder colour their own words; a note does not.
  *
- * A note is not urgent — it is an aside — and a whole line of blue for every
- * aside puts more colour on the screen than the bullet dots that actually
- * encode something. Reserving coloured text for the one kind that means "this
- * can hurt you or the instrument" is what keeps it meaning that.
+ * Both of those are meant to be acted on — one because it can hurt you or the
+ * instrument, one because forgetting it costs somebody else their session — so
+ * both have to survive being skimmed. A note is an aside, and colouring every
+ * aside would put more colour on the screen than the bullet dots that actually
+ * encode which mark on the picture a point belongs to.
+ *
+ * Weight is what separates the two that are coloured. The caution is heavier,
+ * so red and amber never have to be told apart by hue alone — which matters in
+ * a greyscale photocopy and for a reader who cannot separate them at all.
  */
-.bullet--kind-caution .bullet__text {
+.bullet--kind-caution .bullet__text,
+.bullet--kind-reminder .bullet__text {
   color: var(--flag-accent);
-  font-weight: 550;
   /* Browsers drop colour when printing, and a caution that prints as ordinary
      black text on the sheet taped beside the instrument is the failure worth
      preventing. */
   print-color-adjust: exact;
   -webkit-print-color-adjust: exact;
+}
+
+.bullet--kind-caution .bullet__text {
+  font-weight: 550;
 }
 
 /**
