@@ -178,7 +178,9 @@ def record_contribution(db: DbSession, record: Guide | Page, actor: User) -> Non
     )
 
 
-def _validated_time_range(minimum: int | None, maximum: int | None) -> tuple[int | None, int | None]:
+def _validated_time_range(
+    minimum: int | None, maximum: int | None
+) -> tuple[int | None, int | None]:
     """A range, not two independent numbers.
 
     ZMB writes estimates as "30 – 90 min" because that is how long a procedure
@@ -267,7 +269,9 @@ def _validated_media(db: DbSession, payload: GuideDocumentIn, cap: int) -> dict[
     media_by_id = {item.id: item for item in found}
     missing = referenced - media_by_id.keys()
     if missing:
-        raise errors.validation_failed("One or more files referenced by this guide no longer exist.")
+        raise errors.validation_failed(
+            "One or more files referenced by this guide no longer exist."
+        )
 
     for media_id, media in media_by_id.items():
         wanted = "video" if media_id in videos else "image"
@@ -308,7 +312,9 @@ def _sync_annotations(db: DbSession, media: Media, item: MediaRefIn) -> None:
         )
 
 
-def _claim_id(db: DbSession, model: type, candidate: str | None, owned: set[str], label: str) -> str:
+def _claim_id(
+    db: DbSession, model: type, candidate: str | None, owned: set[str], label: str
+) -> str:
     """Resolve a client-supplied identifier, or mint one.
 
     An identifier the client already owns is reused; an unknown one is accepted
@@ -323,11 +329,15 @@ def _claim_id(db: DbSession, model: type, candidate: str | None, owned: set[str]
     if candidate in owned:
         return candidate
     if db.get(model, candidate) is not None:
-        raise errors.validation_failed(f"That {label} identifier already belongs to something else.")
+        raise errors.validation_failed(
+            f"That {label} identifier already belongs to something else."
+        )
     return candidate
 
 
-def _sync_steps(db: DbSession, guide: Guide, steps_in: list[StepIn], media_by_id: dict[str, Media]) -> None:
+def _sync_steps(
+    db: DbSession, guide: Guide, steps_in: list[StepIn], media_by_id: dict[str, Media]
+) -> None:
     existing_steps = {step.id: step for step in guide.steps}
 
     plan: list[tuple[str, StepIn]] = []
@@ -378,7 +388,9 @@ def _sync_steps(db: DbSession, guide: Guide, steps_in: list[StepIn], media_by_id
         step.order_index = index
         step.title = step_in.title
 
-        existing_bullets = {bullet.id: bullet for bullet in step.bullets} if step_id in existing_steps else {}
+        existing_bullets = (
+            {bullet.id: bullet for bullet in step.bullets} if step_id in existing_steps else {}
+        )
         for position, (bullet_id, bullet_in) in enumerate(bullet_plan[step_id]):
             bullet = existing_bullets.get(bullet_id)
             if bullet is None:

@@ -152,7 +152,10 @@ def list_guides(
     tags: str | None = Query(default=None, max_length=800),
 ) -> list[GuideSummaryOut]:
     step_count = (
-        select(func.count(Step.id)).where(Step.guide_id == Guide.id).correlate(Guide).scalar_subquery()
+        select(func.count(Step.id))
+        .where(Step.guide_id == Guide.id)
+        .correlate(Guide)
+        .scalar_subquery()
     )
     statement = select(Guide, step_count.label("step_count"), thumbnail_subquery().label("thumb"))
 
@@ -367,7 +370,9 @@ def list_revisions(guide_id: str, db: DbDep, user: AuthorUser) -> list[RevisionS
 def read_revision(guide_id: str, version: int, db: DbDep, user: AuthorUser) -> dict[str, Any]:
     _load_editable(db, guide_id)
     revision = db.scalars(
-        select(GuideRevision).where(GuideRevision.guide_id == guide_id, GuideRevision.version == version)
+        select(GuideRevision).where(
+            GuideRevision.guide_id == guide_id, GuideRevision.version == version
+        )
     ).one_or_none()
     if revision is None:
         raise errors.not_found("That revision does not exist.")

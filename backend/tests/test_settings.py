@@ -38,7 +38,9 @@ def test_an_env_file_written_by_notepad_still_loads(tmp_path, monkeypatch):
 
 
 def test_a_comma_separated_origin_list_loads_from_a_dotenv_file(tmp_path):
-    settings = load(tmp_path, MINIMAL + "RETICLE_CORS_ORIGINS=https://guides.zmb.uzh.ch,http://localhost:5173\n")
+    settings = load(
+        tmp_path, MINIMAL + "RETICLE_CORS_ORIGINS=https://guides.zmb.uzh.ch,http://localhost:5173\n"
+    )
 
     assert settings.cors_origins == ["https://guides.zmb.uzh.ch", "http://localhost:5173"]
 
@@ -56,7 +58,10 @@ def test_a_comma_separated_origin_list_loads_from_the_process_environment(monkey
 
 
 def test_the_origin_default_covers_the_vite_dev_server(tmp_path):
-    assert load(tmp_path, MINIMAL).cors_origins == ["http://localhost:5173", "http://127.0.0.1:5173"]
+    assert load(tmp_path, MINIMAL).cors_origins == [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
 
 
 def test_a_dotenv_file_supplies_the_whole_configuration(tmp_path):
@@ -109,8 +114,14 @@ def test_the_env_file_location_is_configurable(monkeypatch, tmp_path):
 def test_secure_defaults_hold_when_nothing_is_configured(tmp_path, monkeypatch):
     """The suite weakens several settings through the process environment; this
     asserts what a deployment that configures nothing actually gets."""
-    for name in ("RETICLE_COOKIE_SECURE", "RETICLE_ARGON2_TIME_COST", "RETICLE_ARGON2_MEMORY_COST_KIB",
-                 "RETICLE_ARGON2_PARALLELISM", "RETICLE_MEDIA_ROOT", "RETICLE_DATABASE_URL"):
+    for name in (
+        "RETICLE_COOKIE_SECURE",
+        "RETICLE_ARGON2_TIME_COST",
+        "RETICLE_ARGON2_MEMORY_COST_KIB",
+        "RETICLE_ARGON2_PARALLELISM",
+        "RETICLE_MEDIA_ROOT",
+        "RETICLE_DATABASE_URL",
+    ):
         monkeypatch.delenv(name, raising=False)
 
     settings = load(tmp_path, MINIMAL)

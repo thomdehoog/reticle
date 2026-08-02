@@ -27,7 +27,9 @@ from .conftest import annotated, annotation, create_guide, document_from, step, 
 def save_annotations(client, guide: dict, image: dict, *shapes: dict):
     return client.put(
         f"/api/guides/{guide['id']}",
-        json=document_from(guide, steps=[step("Mount the sample", media=[annotated(image, *shapes)])]),
+        json=document_from(
+            guide, steps=[step("Mount the sample", media=[annotated(image, *shapes)])]
+        ),
     )
 
 
@@ -132,7 +134,9 @@ def test_each_save_replaces_the_whole_set_rather_than_appending(author, category
         annotation(shape="ellipse"),
     ).json()
 
-    second = save_annotations(author, first, image, annotation(shape="arrow", color="orange")).json()
+    second = save_annotations(
+        author, first, image, annotation(shape="arrow", color="orange")
+    ).json()
 
     assert [s["shape"] for s in stored(second)] == ["arrow"]
     assert [s["color"] for s in stored(second)] == ["orange"]

@@ -61,9 +61,7 @@ def test_a_draft_is_not_written_into_a_folder_that_has_no_login(
     assert "Unfinished" not in (out / "index.html").read_text(encoding="utf-8")
 
 
-def test_a_picture_only_a_draft_shows_is_not_copied_out(
-    admin, category, db_session, tmp_path
-):
+def test_a_picture_only_a_draft_shows_is_not_copied_out(admin, category, db_session, tmp_path):
     """The subtler half of the same rule, and the one nobody checks."""
     secret = upload_media(admin)
     draft = create_guide(admin, category.id, "Unpublished")
@@ -132,9 +130,7 @@ def test_a_published_guide_renders_with_its_steps_and_bullets(
     assert "30 min – 1 h 30 min" in page
 
 
-def test_the_shapes_drawn_on_a_picture_are_redrawn_over_it(
-    admin, category, db_session, tmp_path
-):
+def test_the_shapes_drawn_on_a_picture_are_redrawn_over_it(admin, category, db_session, tmp_path):
     """Half of what a step says is on the picture, not beside it."""
     image = upload_media(admin)
     published_guide(
@@ -146,9 +142,15 @@ def test_the_shapes_drawn_on_a_picture_are_redrawn_over_it(
                 media=[
                     annotated(
                         image,
-                        annotation(shape="rectangle", color="red", x=0.1, y=0.2, width=0.3, height=0.4),
-                        annotation(shape="arrow", color="blue", x=0.8, y=0.8, width=-0.3, height=-0.3),
-                        annotation(shape="ellipse", color="green", x=0.1, y=0.6, width=0.2, height=0.2),
+                        annotation(
+                            shape="rectangle", color="red", x=0.1, y=0.2, width=0.3, height=0.4
+                        ),
+                        annotation(
+                            shape="arrow", color="blue", x=0.8, y=0.8, width=-0.3, height=-0.3
+                        ),
+                        annotation(
+                            shape="ellipse", color="green", x=0.1, y=0.6, width=0.2, height=0.2
+                        ),
                     )
                 ],
             )
@@ -158,7 +160,7 @@ def test_the_shapes_drawn_on_a_picture_are_redrawn_over_it(
     _, out = site(db_session, tmp_path)
     page = (out / "g" / "starting-the-confocal.html").read_text(encoding="utf-8")
 
-    assert "<svg class=\"overlay\"" in page
+    assert '<svg class="overlay"' in page
     assert "<rect" in page and "<line" in page and "<ellipse" in page
     assert "var(--bullet-red)" in page
     assert "var(--bullet-blue)" in page
@@ -185,7 +187,9 @@ def test_the_picture_is_beside_its_page_and_the_link_resolves(
 def test_the_index_leads_to_everything_published(admin, category, db_session, tmp_path):
     published_guide(admin, category, title="Aligning the Confocal")
     page = create_page(admin, title="Immersion oil", category_id=category.id)
-    admin.put(f"/api/pages/{page['id']}", json=page_document_from(page, body="Which oil, and when."))
+    admin.put(
+        f"/api/pages/{page['id']}", json=page_document_from(page, body="Which oil, and when.")
+    )
     admin.post(f"/api/pages/{page['id']}/publish")
 
     _, out = site(db_session, tmp_path)

@@ -59,7 +59,9 @@ def _validated_hero(db: DbSession, media_id: str | None) -> str | None:
 
 
 def _next_order_index(db: DbSession, parent_id: str | None) -> int:
-    sibling_filter = Category.parent_id.is_(None) if parent_id is None else Category.parent_id == parent_id
+    sibling_filter = (
+        Category.parent_id.is_(None) if parent_id is None else Category.parent_id == parent_id
+    )
     highest = db.scalar(select(func.max(Category.order_index)).where(sibling_filter))
     return 0 if highest is None else highest + 1
 
@@ -104,7 +106,9 @@ def read_landing_page(category_id: str, db: DbDep, user: AnyUser) -> PageOut | N
 
 
 @router.post("", response_model=CategoryOut, status_code=status.HTTP_201_CREATED)
-def create_category(payload: CategoryCreateIn, request: Request, db: DbDep, user: AdminUser) -> CategoryOut:
+def create_category(
+    payload: CategoryCreateIn, request: Request, db: DbDep, user: AdminUser
+) -> CategoryOut:
     name = payload.name.strip()
     if not name:
         raise errors.validation_failed("A category needs a name.")
@@ -191,11 +195,15 @@ def patch_category(
 def delete_category(category_id: str, request: Request, db: DbDep, user: AdminUser) -> Response:
     category = _load(db, category_id)
 
-    children = db.scalar(select(func.count()).select_from(Category).where(Category.parent_id == category.id))
+    children = db.scalar(
+        select(func.count()).select_from(Category).where(Category.parent_id == category.id)
+    )
     if children:
         raise errors.conflict("Move or delete the sub-categories first.")
 
-    guides = db.scalar(select(func.count()).select_from(Guide).where(Guide.category_id == category.id))
+    guides = db.scalar(
+        select(func.count()).select_from(Guide).where(Guide.category_id == category.id)
+    )
     if guides:
         raise errors.conflict("Move the guides in this category somewhere else first.")
 

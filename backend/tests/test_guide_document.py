@@ -27,7 +27,11 @@ def test_put_returns_the_saved_document(author, category):
             timeRequiredMaxMinutes=90,
             introduction="Read the safety sheet first.",
             conclusion="Log the session in the booking system.",
-            steps=[step("Fix the sample", bullets=[bullet("Use 4% PFA", color="orange", icon="caution")])],
+            steps=[
+                step(
+                    "Fix the sample", bullets=[bullet("Use 4% PFA", color="orange", icon="caution")]
+                )
+            ],
         ),
     )
 
@@ -77,16 +81,24 @@ def test_reordering_is_a_plain_array_move(author, category):
 
     moved = list(saved["steps"])
     moved.insert(0, moved.pop(2))
-    reordered = author.put(f"/api/guides/{created['id']}", json=document_from(saved, steps=moved)).json()
+    reordered = author.put(
+        f"/api/guides/{created['id']}", json=document_from(saved, steps=moved)
+    ).json()
 
     assert [s["title"] for s in reordered["steps"]] == ["C", "A", "B"]
     assert [s["orderIndex"] for s in reordered["steps"]] == [0, 1, 2]
-    assert [s["id"] for s in reordered["steps"]] == [saved["steps"][2]["id"], saved["steps"][0]["id"], saved["steps"][1]["id"]]
+    assert [s["id"] for s in reordered["steps"]] == [
+        saved["steps"][2]["id"],
+        saved["steps"][0]["id"],
+        saved["steps"][1]["id"],
+    ]
 
 
 def test_step_identity_survives_a_reorder(author, category):
     created = create_guide(author, category.id)
-    saved = author.put(f"/api/guides/{created['id']}", json=document_from(created, steps=[step("A"), step("B")])).json()
+    saved = author.put(
+        f"/api/guides/{created['id']}", json=document_from(created, steps=[step("A"), step("B")])
+    ).json()
     original_ids = {s["title"]: s["id"] for s in saved["steps"]}
 
     reordered = author.put(
@@ -128,12 +140,16 @@ def test_removed_steps_and_bullets_are_deleted(author, category, db_session):
     created = create_guide(author, category.id)
     saved = author.put(
         f"/api/guides/{created['id']}",
-        json=document_from(created, steps=[step("Keep", bullets=[bullet("a"), bullet("b")]), step("Drop")]),
+        json=document_from(
+            created, steps=[step("Keep", bullets=[bullet("a"), bullet("b")]), step("Drop")]
+        ),
     ).json()
 
     kept = saved["steps"][0]
     kept["bullets"] = kept["bullets"][:1]
-    trimmed = author.put(f"/api/guides/{created['id']}", json=document_from(saved, steps=[kept])).json()
+    trimmed = author.put(
+        f"/api/guides/{created['id']}", json=document_from(saved, steps=[kept])
+    ).json()
 
     assert [s["title"] for s in trimmed["steps"]] == ["Keep"]
     assert [b["text"] for b in trimmed["steps"][0]["bullets"]] == ["a"]
@@ -148,7 +164,10 @@ def test_client_supplied_ids_are_honoured_so_optimistic_ui_stays_stable(author, 
 
     body = author.put(
         f"/api/guides/{created['id']}",
-        json=document_from(created, steps=[step("Local", bullets=[bullet("Local", bullet_id=bullet_id)], step_id=step_id)]),
+        json=document_from(
+            created,
+            steps=[step("Local", bullets=[bullet("Local", bullet_id=bullet_id)], step_id=step_id)],
+        ),
     ).json()
 
     assert body["steps"][0]["id"] == step_id
@@ -158,7 +177,9 @@ def test_client_supplied_ids_are_honoured_so_optimistic_ui_stays_stable(author, 
 def test_a_step_id_belonging_to_another_guide_is_rejected(author, category):
     first = create_guide(author, category.id, "First")
     second = create_guide(author, category.id, "Second")
-    saved = author.put(f"/api/guides/{first['id']}", json=document_from(first, steps=[step("Owned")])).json()
+    saved = author.put(
+        f"/api/guides/{first['id']}", json=document_from(first, steps=[step("Owned")])
+    ).json()
 
     response = author.put(
         f"/api/guides/{second['id']}",
@@ -236,7 +257,9 @@ def test_the_same_image_twice_in_one_step_is_rejected(author, category):
 
 def test_the_same_step_twice_in_one_guide_is_rejected(author, category):
     created = create_guide(author, category.id)
-    saved = author.put(f"/api/guides/{created['id']}", json=document_from(created, steps=[step("Once")])).json()
+    saved = author.put(
+        f"/api/guides/{created['id']}", json=document_from(created, steps=[step("Once")])
+    ).json()
     repeated = saved["steps"][0]
 
     response = author.put(
@@ -276,7 +299,9 @@ def test_replacing_the_images_on_an_existing_step_detaches_the_old_ones(author, 
 
     existing = saved["steps"][0]
     existing["media"] = [second]
-    replaced = author.put(f"/api/guides/{created['id']}", json=document_from(saved, steps=[existing])).json()
+    replaced = author.put(
+        f"/api/guides/{created['id']}", json=document_from(saved, steps=[existing])
+    ).json()
 
     assert [m["id"] for m in replaced["steps"][0]["media"]] == [second["id"]]
     assert replaced["steps"][0]["id"] == saved["steps"][0]["id"]
@@ -302,7 +327,20 @@ def test_an_unknown_media_id_is_rejected(author, category):
         f"/api/guides/{created['id']}",
         json=document_from(
             created,
-            steps=[step("Ghost", media=[{"id": str(ULID()), "url": "/api/media/x", "alt": "", "width": 1, "height": 1}])],
+            steps=[
+                step(
+                    "Ghost",
+                    media=[
+                        {
+                            "id": str(ULID()),
+                            "url": "/api/media/x",
+                            "alt": "",
+                            "width": 1,
+                            "height": 1,
+                        }
+                    ],
+                )
+            ],
         ),
     )
 
@@ -321,7 +359,10 @@ def test_alt_text_is_saved_through_the_document(author, category):
     ).json()
 
     assert body["steps"][0]["media"][0]["alt"] == "Turret with the 63x objective seated."
-    assert author.get(f"/api/guides/{created['id']}").json()["steps"][0]["media"][0]["alt"] == media["alt"]
+    assert (
+        author.get(f"/api/guides/{created['id']}").json()["steps"][0]["media"][0]["alt"]
+        == media["alt"]
+    )
 
 
 def test_either_end_of_the_time_estimate_may_be_left_open(author, category):
@@ -338,8 +379,14 @@ def test_either_end_of_the_time_estimate_may_be_left_open(author, category):
         json=document_from(lower_only, timeRequiredMinMinutes=None, timeRequiredMaxMinutes=120),
     ).json()
 
-    assert (lower_only["timeRequiredMinMinutes"], lower_only["timeRequiredMaxMinutes"]) == (30, None)
-    assert (upper_only["timeRequiredMinMinutes"], upper_only["timeRequiredMaxMinutes"]) == (None, 120)
+    assert (lower_only["timeRequiredMinMinutes"], lower_only["timeRequiredMaxMinutes"]) == (
+        30,
+        None,
+    )
+    assert (upper_only["timeRequiredMinMinutes"], upper_only["timeRequiredMaxMinutes"]) == (
+        None,
+        120,
+    )
 
 
 def test_a_single_number_is_expressed_as_an_equal_range(author, category):
@@ -383,7 +430,9 @@ def test_a_negative_time_estimate_is_rejected(author, category):
 def test_moving_a_guide_to_an_unknown_category_is_rejected(author, category):
     created = create_guide(author, category.id)
 
-    response = author.put(f"/api/guides/{created['id']}", json=document_from(created, categoryId=str(ULID())))
+    response = author.put(
+        f"/api/guides/{created['id']}", json=document_from(created, categoryId=str(ULID()))
+    )
 
     assert response.status_code == 422
 
@@ -393,9 +442,13 @@ def test_a_stale_updated_at_conflicts_and_changes_nothing(author, as_role, categ
     colleague = as_role("author", "colleague@zmb.uzh.ch")
 
     fresh = author.get(f"/api/guides/{created['id']}").json()
-    colleague.put(f"/api/guides/{created['id']}", json=document_from(fresh, title="Colleague's title"))
+    colleague.put(
+        f"/api/guides/{created['id']}", json=document_from(fresh, title="Colleague's title")
+    )
 
-    response = author.put(f"/api/guides/{created['id']}", json=document_from(fresh, title="My title"))
+    response = author.put(
+        f"/api/guides/{created['id']}", json=document_from(fresh, title="My title")
+    )
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "conflict"
@@ -405,7 +458,9 @@ def test_a_stale_updated_at_conflicts_and_changes_nothing(author, as_role, categ
 def test_a_current_updated_at_saves_and_moves_the_clock_forward(author, category):
     created = create_guide(author, category.id)
 
-    saved = author.put(f"/api/guides/{created['id']}", json=document_from(created, title="Renamed")).json()
+    saved = author.put(
+        f"/api/guides/{created['id']}", json=document_from(created, title="Renamed")
+    ).json()
 
     assert saved["title"] == "Renamed"
     assert instant(saved["updatedAt"]) > instant(created["updatedAt"])
@@ -416,7 +471,9 @@ def test_consecutive_autosaves_chain_without_conflicting(author, category):
     document = create_guide(author, category.id)
 
     for index in range(4):
-        response = author.put(f"/api/guides/{document['id']}", json=document_from(document, title=f"Revision {index}"))
+        response = author.put(
+            f"/api/guides/{document['id']}", json=document_from(document, title=f"Revision {index}")
+        )
         assert response.status_code == 200, response.text
         document = response.json()
 
@@ -439,7 +496,9 @@ def test_the_save_records_who_edited_last(author, as_role, category):
     colleague = as_role("author", "colleague@zmb.uzh.ch", display_name="Colleague Editor")
 
     fresh = colleague.get(f"/api/guides/{created['id']}").json()
-    saved = colleague.put(f"/api/guides/{created['id']}", json=document_from(fresh, title="Edited")).json()
+    saved = colleague.put(
+        f"/api/guides/{created['id']}", json=document_from(fresh, title="Edited")
+    ).json()
 
     assert saved["lastEditedBy"]["displayName"] == "Colleague Editor"
     assert saved["author"]["displayName"] == "Author"
@@ -461,11 +520,18 @@ def test_status_slug_and_version_are_not_writable_through_the_document(author, c
 def test_an_invalid_enumeration_value_is_rejected(author, category):
     created = create_guide(author, category.id)
 
-    assert author.put(f"/api/guides/{created['id']}", json=document_from(created, difficulty="trivial")).status_code == 422
+    assert (
+        author.put(
+            f"/api/guides/{created['id']}", json=document_from(created, difficulty="trivial")
+        ).status_code
+        == 422
+    )
     assert (
         author.put(
             f"/api/guides/{created['id']}",
-            json=document_from(created, steps=[step("Bad", bullets=[bullet("x", color="chartreuse")])]),
+            json=document_from(
+                created, steps=[step("Bad", bullets=[bullet("x", color="chartreuse")])]
+            ),
         ).status_code
         == 422
     )
@@ -481,7 +547,9 @@ def test_an_invalid_enumeration_value_is_rejected(author, category):
 def test_viewers_cannot_save_a_guide(author, viewer, category):
     created = create_guide(author, category.id)
 
-    response = viewer.put(f"/api/guides/{created['id']}", json=document_from(created, title="Hijacked"))
+    response = viewer.put(
+        f"/api/guides/{created['id']}", json=document_from(created, title="Hijacked")
+    )
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "forbidden"
@@ -495,11 +563,18 @@ def test_saving_an_unknown_guide_is_not_found(author, category):
     assert response.status_code == 404
 
 
-def test_a_published_guide_can_still_be_edited_and_the_reader_sees_the_new_text(author, viewer, category):
+def test_a_published_guide_can_still_be_edited_and_the_reader_sees_the_new_text(
+    author, viewer, category
+):
     created = create_guide(author, category.id)
     author.post(f"/api/guides/{created['id']}/publish")
 
     fresh = author.get(f"/api/guides/{created['id']}").json()
-    author.put(f"/api/guides/{created['id']}", json=document_from(fresh, steps=[step("Added after publish")]))
+    author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(fresh, steps=[step("Added after publish")]),
+    )
 
-    assert [s["title"] for s in viewer.get(f"/api/guides/{created['slug']}").json()["steps"]] == ["Added after publish"]
+    assert [s["title"] for s in viewer.get(f"/api/guides/{created['slug']}").json()["steps"]] == [
+        "Added after publish"
+    ]

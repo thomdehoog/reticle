@@ -49,7 +49,9 @@ def _hasher(time_cost: int, memory_cost: int, parallelism: int) -> PasswordHashe
 
 def _current_hasher() -> PasswordHasher:
     settings = get_settings()
-    return _hasher(settings.argon2_time_cost, settings.argon2_memory_cost_kib, settings.argon2_parallelism)
+    return _hasher(
+        settings.argon2_time_cost, settings.argon2_memory_cost_kib, settings.argon2_parallelism
+    )
 
 
 def hash_password(plaintext: str) -> str:
@@ -76,7 +78,9 @@ def _decoy_hash(time_cost: int, memory_cost: int, parallelism: int) -> str:
 
 def burn_password_time() -> None:
     settings = get_settings()
-    decoy = _decoy_hash(settings.argon2_time_cost, settings.argon2_memory_cost_kib, settings.argon2_parallelism)
+    decoy = _decoy_hash(
+        settings.argon2_time_cost, settings.argon2_memory_cost_kib, settings.argon2_parallelism
+    )
     verify_password(decoy, "not-the-password")
 
 
@@ -125,7 +129,9 @@ def create_session(
 def resolve_session(db: DbSession, token: str | None) -> SessionRow | None:
     if not token:
         return None
-    row = db.scalars(select(SessionRow).where(SessionRow.token_hash == token_digest(token))).one_or_none()
+    row = db.scalars(
+        select(SessionRow).where(SessionRow.token_hash == token_digest(token))
+    ).one_or_none()
     if row is None or not row.is_live(utcnow()):
         return None
     return row
@@ -209,7 +215,9 @@ def _failures(db: DbSession, scope: str, key: str, since: datetime) -> int:
     return db.scalar(
         select(func.count())
         .select_from(LoginAttempt)
-        .where(LoginAttempt.scope == scope, LoginAttempt.key == key, LoginAttempt.created_at >= since)
+        .where(
+            LoginAttempt.scope == scope, LoginAttempt.key == key, LoginAttempt.created_at >= since
+        )
     )
 
 
@@ -264,7 +272,10 @@ def clear_failed_logins(db: DbSession, email: str, ip_address: str | None = None
     conditions = [and_(LoginAttempt.scope == SCOPE_EMAIL, LoginAttempt.key == email)]
     if ip_address is not None:
         conditions.append(
-            and_(LoginAttempt.scope == SCOPE_EMAIL_ADDRESS, LoginAttempt.key == _pair_key(email, ip_address))
+            and_(
+                LoginAttempt.scope == SCOPE_EMAIL_ADDRESS,
+                LoginAttempt.key == _pair_key(email, ip_address),
+            )
         )
     db.execute(delete(LoginAttempt).where(or_(*conditions)))
 

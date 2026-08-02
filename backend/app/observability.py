@@ -47,9 +47,11 @@ request_id: ContextVar[str] = ContextVar("request_id", default="-")
 
 # Fields ``logging`` puts on every record. Anything outside this set was passed
 # by the caller via ``extra=`` and belongs in the JSON output.
-_STANDARD = frozenset(
-    logging.LogRecord("", 0, "", 0, "", None, None).__dict__
-) | {"asctime", "message", "taskName"}
+_STANDARD = frozenset(logging.LogRecord("", 0, "", 0, "", None, None).__dict__) | {
+    "asctime",
+    "message",
+    "taskName",
+}
 
 
 class JsonFormatter(logging.Formatter):
@@ -178,9 +180,7 @@ class RequestContextMiddleware:
             self.log.exception("request failed", extra=self._fields(scope, 500, started))
             raise
         else:
-            self.log.info(
-                "request", extra=self._fields(scope, status_holder["status"], started)
-            )
+            self.log.info("request", extra=self._fields(scope, status_holder["status"], started))
         finally:
             request_id.reset(token)
 

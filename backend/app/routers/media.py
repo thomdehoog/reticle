@@ -134,7 +134,11 @@ def _store_video(
         entity_id=media.id,
         actor=user,
         ip_address=client_address(request),
-        detail={"contentType": identified.content_type, "byteSize": media.byte_size, "kind": "video"},
+        detail={
+            "contentType": identified.content_type,
+            "byteSize": media.byte_size,
+            "kind": "video",
+        },
     )
     db.commit()
     return media_out(media)

@@ -302,8 +302,6 @@ def write_to_directory(db: DbSession, settings: Settings, destination: Path) -> 
         media = db.get(Media, entry["id"])
         if media is None:  # pragma: no cover
             continue
-        (destination / entry["file"]).write_bytes(
-            build_storage(settings).read(media.storage_path)
-        )
+        (destination / entry["file"]).write_bytes(build_storage(settings).read(media.storage_path))
 
     return document

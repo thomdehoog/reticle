@@ -352,7 +352,9 @@ class MediaRefIn(Document):
 
     id: str
     alt: str = Field(default="", max_length=1000)
-    annotations: list[AnnotationIn] = Field(default_factory=list, max_length=MAX_ANNOTATIONS_PER_MEDIA)
+    annotations: list[AnnotationIn] = Field(
+        default_factory=list, max_length=MAX_ANNOTATIONS_PER_MEDIA
+    )
 
 
 class StepIn(Document):
@@ -463,7 +465,9 @@ def tag_out(tag: models.Tag, guide_count: int) -> TagOut:
 
 
 def bullet_out(bullet: models.Bullet) -> BulletOut:
-    return BulletOut(id=bullet.id, text=bullet.text, color=bullet.color, icon=bullet.icon, level=bullet.level)
+    return BulletOut(
+        id=bullet.id, text=bullet.text, color=bullet.color, icon=bullet.icon, level=bullet.level
+    )
 
 
 def step_out(step: models.Step) -> StepOut:

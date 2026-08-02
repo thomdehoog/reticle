@@ -78,7 +78,9 @@ def create_user(payload: UserCreateIn, request: Request, db: DbDep, actor: Admin
 
 
 @router.patch("/{user_id}", response_model=UserOut)
-def patch_user(user_id: str, payload: UserPatchIn, request: Request, db: DbDep, actor: AdminUser) -> UserOut:
+def patch_user(
+    user_id: str, payload: UserPatchIn, request: Request, db: DbDep, actor: AdminUser
+) -> UserOut:
     user = _load(db, user_id)
     changed = payload.model_fields_set
 

@@ -213,7 +213,10 @@ def test_configuring_twice_does_not_double_every_line():
     ("url", "expected"),
     [
         ("sqlite:///./reticle.db", "sqlite:///./reticle.db"),
-        ("postgresql+psycopg://reticle:hunter2@db.internal/reticle", "postgresql+psycopg://reticle:***@db.internal/reticle"),
+        (
+            "postgresql+psycopg://reticle:hunter2@db.internal/reticle",
+            "postgresql+psycopg://reticle:***@db.internal/reticle",
+        ),
         ("postgresql://user:p%40ss@host:5432/db", "postgresql://user:***@host:5432/db"),
     ],
 )
@@ -230,7 +233,11 @@ def test_a_browser_crash_reaches_the_log(author, captured):
     not work this morning", if at all."""
     response = author.post(
         "/api/client-errors",
-        json={"message": "annotation has no shape", "componentStack": "at StepGallery", "url": "/g/x"},
+        json={
+            "message": "annotation has no shape",
+            "componentStack": "at StepGallery",
+            "url": "/g/x",
+        },
     )
 
     assert response.status_code == 204

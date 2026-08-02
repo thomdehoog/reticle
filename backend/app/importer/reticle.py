@@ -86,7 +86,9 @@ class RestoreReport:
             lines.extend(f"  {name}" for name in self.missing_files)
             lines.append("")
         if self.checksum_failures:
-            lines.append(f"Files whose contents did not match their checksum ({len(self.checksum_failures)}):")
+            lines.append(
+                f"Files whose contents did not match their checksum ({len(self.checksum_failures)}):"
+            )
             lines.extend(f"  {name}" for name in self.checksum_failures)
             lines.append("")
         if not self.missing_files and not self.checksum_failures:

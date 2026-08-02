@@ -117,7 +117,8 @@ def count_source(payload: dict[str, Any], tally: GuideTally) -> None:
         tally.source_bullets += sum(
             1
             for line in lines
-            if isinstance(line, dict) and str(line.get("text_raw") or line.get("text") or "").strip()
+            if isinstance(line, dict)
+            and str(line.get("text_raw") or line.get("text") or "").strip()
         )
 
         media = step.get("media")
@@ -474,7 +475,9 @@ class Importer:
             if self.options.skip_media:
                 continue
 
-            for position, image in enumerate(mapped_step.images[: self.settings.max_media_per_step]):
+            for position, image in enumerate(
+                mapped_step.images[: self.settings.max_media_per_step]
+            ):
                 media, annotation_count = self._import_image(image)
                 self.db.add(StepMedia(step_id=step.id, media_id=media.id, order_index=position))
                 tally.imported_images += 1
@@ -564,7 +567,9 @@ class Importer:
                     self.report.pages_imported += 1
                 except Exception as error:
                     self.db.rollback()
-                    self.report.skipped.append(f"{namespace}/{title}: {type(error).__name__}: {error}")
+                    self.report.skipped.append(
+                        f"{namespace}/{title}: {type(error).__name__}: {error}"
+                    )
 
     def _write_page(self, mapped: MappedPage) -> Page:
         existing = self._existing("page", mapped.source_id)
@@ -610,7 +615,10 @@ class Importer:
         if not any(link.user_id == self._author.id for link in page.contributor_links):
             self.db.add(
                 PageContributor(
-                    page_id=page.id, user_id=self._author.id, first_edited_at=now, last_edited_at=now
+                    page_id=page.id,
+                    user_id=self._author.id,
+                    first_edited_at=now,
+                    last_edited_at=now,
                 )
             )
 
@@ -669,9 +677,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Fetch and map, write nothing. Produces the full reconciliation report.",
     )
-    parser.add_argument("--skip-media", action="store_true", help="Text only. For a fast rehearsal.")
-    parser.add_argument("--pages-only", action="store_true", help="Import wiki pages and nothing else.")
-    parser.add_argument("--guides-only", action="store_true", help="Import guides and nothing else.")
+    parser.add_argument(
+        "--skip-media", action="store_true", help="Text only. For a fast rehearsal."
+    )
+    parser.add_argument(
+        "--pages-only", action="store_true", help="Import wiki pages and nothing else."
+    )
+    parser.add_argument(
+        "--guides-only", action="store_true", help="Import guides and nothing else."
+    )
     parser.add_argument(
         "--verify",
         action="store_true",
@@ -680,7 +694,9 @@ def build_parser() -> argparse.ArgumentParser:
         "source does not have.",
     )
     parser.add_argument("--report", type=Path, default=None, help="Write the text report here.")
-    parser.add_argument("--json-report", type=Path, default=None, help="Write the JSON report here.")
+    parser.add_argument(
+        "--json-report", type=Path, default=None, help="Write the JSON report here."
+    )
     return parser
 
 

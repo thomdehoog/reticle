@@ -35,7 +35,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     out = commands.add_parser("export", help="Write everything out.")
     destination = out.add_mutually_exclusive_group(required=True)
-    destination.add_argument("--out", type=Path, help="Write a directory: JSON plus a media folder.")
+    destination.add_argument(
+        "--out", type=Path, help="Write a directory: JSON plus a media folder."
+    )
     destination.add_argument("--archive", type=Path, help="Write a single .tar.gz.")
 
     site = commands.add_parser(
@@ -46,7 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
     site.add_argument("--out", type=Path, required=True, help="Directory to write the site into.")
 
     back = commands.add_parser("restore", help="Read an export into an empty database.")
-    back.add_argument("--from", dest="source", type=Path, required=True, help="Directory or .tar.gz.")
+    back.add_argument(
+        "--from", dest="source", type=Path, required=True, help="Directory or .tar.gz."
+    )
     back.add_argument(
         "--placeholder-password",
         default=None,

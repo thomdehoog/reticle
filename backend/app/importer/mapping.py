@@ -103,18 +103,55 @@ MAX_BULLET_LEVEL = 2
 KNOWN_GUIDE_FIELDS = frozenset(
     {
         # Read by the mapping.
-        "guideid", "id", "wikiid", "title", "summary", "category", "namespace",
-        "tags", "difficulty", "time_required", "time", "introduction_raw",
-        "introduction_rendered", "introduction", "conclusion_raw",
-        "conclusion_rendered", "conclusion", "public", "steps",
+        "guideid",
+        "id",
+        "wikiid",
+        "title",
+        "summary",
+        "category",
+        "namespace",
+        "tags",
+        "difficulty",
+        "time_required",
+        "time",
+        "introduction_raw",
+        "introduction_rendered",
+        "introduction",
+        "conclusion_raw",
+        "conclusion_rendered",
+        "conclusion",
+        "public",
+        "steps",
         # Present, deliberately not carried across: identifiers and rendering
         # details of the other system, authorship that becomes a source record,
         # and counters that start again here.
-        "url", "revisionid", "locale", "langid", "modified_date", "created_date",
-        "published", "author", "username", "userid", "image", "documents",
-        "flags", "type", "guide_type", "prereqs", "prerequisites", "parts",
-        "tools", "patrol_threshold", "featured_guide", "instructables_id",
-        "view_count", "completed", "favorited", "comments", "solutions",
+        "url",
+        "revisionid",
+        "locale",
+        "langid",
+        "modified_date",
+        "created_date",
+        "published",
+        "author",
+        "username",
+        "userid",
+        "image",
+        "documents",
+        "flags",
+        "type",
+        "guide_type",
+        "prereqs",
+        "prerequisites",
+        "parts",
+        "tools",
+        "patrol_threshold",
+        "featured_guide",
+        "instructables_id",
+        "view_count",
+        "completed",
+        "favorited",
+        "comments",
+        "solutions",
     }
 )
 """Every key the corpus is expected to carry.
@@ -128,8 +165,18 @@ feature?" into a list.
 
 KNOWN_STEP_FIELDS = frozenset(
     {
-        "stepid", "orderby", "title", "lines", "bullets", "media",
-        "revisionid", "guideid", "id", "type", "images", "video",
+        "stepid",
+        "orderby",
+        "title",
+        "lines",
+        "bullets",
+        "media",
+        "revisionid",
+        "guideid",
+        "id",
+        "type",
+        "images",
+        "video",
     }
 )
 
@@ -280,7 +327,9 @@ def strip_markup(source: str | None) -> str:
     return _BLANK_LINES.sub("\n\n", text).strip()
 
 
-TAG_TRANSLITERATIONS = str.maketrans({"ß": "ss", "æ": "ae", "œ": "oe", "ø": "o", "đ": "d", "ł": "l"})
+TAG_TRANSLITERATIONS = str.maketrans(
+    {"ß": "ss", "æ": "ae", "œ": "oe", "ø": "o", "đ": "d", "ł": "l"}
+)
 
 MAX_TAG_LENGTH = 120
 
@@ -690,7 +739,9 @@ def map_step_media(
             video = MappedVideo(
                 source_id=str(data.get("id") or data.get("videoid") or url),
                 url=url,
-                poster_url=best_image_url(data.get("image")) if isinstance(data.get("image"), dict) else None,
+                poster_url=best_image_url(data.get("image"))
+                if isinstance(data.get("image"), dict)
+                else None,
                 alt=strip_markup(str(data.get("alt") or data.get("caption") or "")),
             )
         else:
@@ -764,10 +815,14 @@ def map_guide(payload: dict[str, Any]) -> tuple[MappedGuide, list[Unmapped]]:
             time_min_minutes=low,
             time_max_minutes=high,
             introduction=strip_markup(
-                payload.get("introduction_raw") or payload.get("introduction_rendered") or payload.get("introduction")
+                payload.get("introduction_raw")
+                or payload.get("introduction_rendered")
+                or payload.get("introduction")
             ),
             conclusion=strip_markup(
-                payload.get("conclusion_raw") or payload.get("conclusion_rendered") or payload.get("conclusion")
+                payload.get("conclusion_raw")
+                or payload.get("conclusion_rendered")
+                or payload.get("conclusion")
             ),
             is_public=bool(payload.get("public", True)),
             steps=steps,
@@ -825,7 +880,9 @@ def map_page(payload: dict[str, Any]) -> tuple[MappedPage, list[Unmapped]]:
     return (
         MappedPage(
             source_id=source_id,
-            title=strip_markup(str(payload.get("display_title") or payload.get("title") or "")).strip()
+            title=strip_markup(
+                str(payload.get("display_title") or payload.get("title") or "")
+            ).strip()
             or f"Untitled {source_id}",
             summary=strip_markup(str(payload.get("summary") or payload.get("description") or "")),
             body=body,

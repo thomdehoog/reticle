@@ -18,7 +18,9 @@ def entries(db_session):
     return db_session.scalars(select(AuditLog).order_by(AuditLog.created_at, AuditLog.id)).all()
 
 
-def test_a_successful_login_is_recorded_with_the_source_address(client_factory, make_user, db_session):
+def test_a_successful_login_is_recorded_with_the_source_address(
+    client_factory, make_user, db_session
+):
     make_user("audited@zmb.uzh.ch")
     client_factory("198.51.100.22").login("audited@zmb.uzh.ch")
 
@@ -70,8 +72,16 @@ def test_the_guide_lifecycle_is_audited(author, admin, category, db_session):
 
     actions = [r.action for r in entries(db_session) if r.entity_type == "guide"]
 
-    assert actions == ["guide.create", "guide.update", "guide.publish", "guide.unpublish", "guide.archive"]
-    assert all(r.entity_id == created["id"] for r in entries(db_session) if r.entity_type == "guide")
+    assert actions == [
+        "guide.create",
+        "guide.update",
+        "guide.publish",
+        "guide.unpublish",
+        "guide.archive",
+    ]
+    assert all(
+        r.entity_id == created["id"] for r in entries(db_session) if r.entity_type == "guide"
+    )
 
 
 def test_the_publish_record_carries_the_version(author, category, db_session):
@@ -86,7 +96,14 @@ def test_the_publish_record_carries_the_version(author, category, db_session):
 def test_user_and_category_administration_is_audited(admin, db_session):
     created = admin.post("/api/categories", json={"name": "Spatial Biology"}).json()
     admin.patch(f"/api/categories/{created['id']}", json={"name": "Spatial Omics"})
-    user = admin.post("/api/users", json={"email": "audited.new@zmb.uzh.ch", "role": "author", "password": "Long-Enough-Password-1"}).json()
+    user = admin.post(
+        "/api/users",
+        json={
+            "email": "audited.new@zmb.uzh.ch",
+            "role": "author",
+            "password": "Long-Enough-Password-1",
+        },
+    ).json()
     admin.post(f"/api/users/{user['id']}/password", json={"newPassword": "Another-Long-Password-2"})
 
     actions = [r.action for r in entries(db_session) if r.entity_type in {"category", "user"}]
@@ -95,10 +112,16 @@ def test_user_and_category_administration_is_audited(admin, db_session):
 
 
 def test_a_password_change_never_lands_in_the_audit_detail(admin, db_session):
-    user = admin.post("/api/users", json={"email": "secret@zmb.uzh.ch", "role": "viewer", "password": "Long-Enough-Password-1"}).json()
+    user = admin.post(
+        "/api/users",
+        json={"email": "secret@zmb.uzh.ch", "role": "viewer", "password": "Long-Enough-Password-1"},
+    ).json()
     admin.post(f"/api/users/{user['id']}/password", json={"newPassword": "Another-Long-Password-2"})
 
-    assert not any("Long-Enough" in repr(r.detail) or "Another-Long" in repr(r.detail) for r in entries(db_session))
+    assert not any(
+        "Long-Enough" in repr(r.detail) or "Another-Long" in repr(r.detail)
+        for r in entries(db_session)
+    )
 
 
 def test_an_upload_is_audited_with_its_size_and_type(author, db_session):

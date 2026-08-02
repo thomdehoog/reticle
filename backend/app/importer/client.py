@@ -117,7 +117,9 @@ class DozukiClient:
             if attempt < len(RETRY_DELAYS_SECONDS):
                 self._sleep(RETRY_DELAYS_SECONDS[attempt])
 
-        raise MigrationError(f"Gave up on {url} after {len(RETRY_DELAYS_SECONDS)} retries: {last_error}")
+        raise MigrationError(
+            f"Gave up on {url} after {len(RETRY_DELAYS_SECONDS)} retries: {last_error}"
+        )
 
     def get_json(self, path: str, **params: Any) -> Any:
         query = urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})

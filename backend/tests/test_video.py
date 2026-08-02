@@ -54,12 +54,16 @@ def test_an_mp4_is_stored_as_a_video(author):
 
 
 def test_a_webm_is_stored_as_a_video(author):
-    body = author.post("/api/media", files={"file": ("stage.webm", webm_bytes(), "video/webm")}).json()
+    body = author.post(
+        "/api/media", files={"file": ("stage.webm", webm_bytes(), "video/webm")}
+    ).json()
 
     assert body["kind"] == "video"
 
 
-def test_the_stored_bytes_and_type_come_from_the_header_not_the_upload(author, db_session, media_root):
+def test_the_stored_bytes_and_type_come_from_the_header_not_the_upload(
+    author, db_session, media_root
+):
     """The declared type and the filename are discarded exactly as they are for
     images, and the file is served back with a fixed type and ``nosniff`` so a
     browser cannot be talked into treating it as anything else."""
@@ -85,7 +89,9 @@ def test_the_stored_bytes_and_type_come_from_the_header_not_the_upload(author, d
 def test_the_brands_a_browser_will_actually_play_are_accepted(author, brand):
     """A QuickTime file is on the list because that is what the Mac in the EM
     suite writes by default; rejecting it would send people away to convert."""
-    response = author.post("/api/media", files={"file": ("clip.mp4", mp4_bytes(brand), "video/mp4")})
+    response = author.post(
+        "/api/media", files={"file": ("clip.mp4", mp4_bytes(brand), "video/mp4")}
+    )
 
     assert response.status_code == 201
     assert response.json()["kind"] == "video"
@@ -101,7 +107,9 @@ def test_an_unknown_container_brand_is_not_treated_as_a_video(author):
 
 
 def test_a_truncated_video_is_rejected(author, media_root):
-    response = author.post("/api/media", files={"file": ("cut.webm", webm_bytes()[:6], "video/webm")})
+    response = author.post(
+        "/api/media", files={"file": ("cut.webm", webm_bytes()[:6], "video/webm")}
+    )
 
     assert response.status_code == 422
     assert not (media_root.exists() and [p for p in media_root.rglob("*") if p.is_file()])
@@ -157,7 +165,9 @@ def test_a_video_round_trips_through_a_steps_video_slot(author, category):
     assert body["steps"][0]["video"]["id"] == clip["id"]
     assert body["steps"][0]["video"]["kind"] == "video"
     assert body["steps"][0]["media"] == []
-    assert author.get(f"/api/guides/{created['id']}").json()["steps"][0]["video"]["id"] == clip["id"]
+    assert (
+        author.get(f"/api/guides/{created['id']}").json()["steps"][0]["video"]["id"] == clip["id"]
+    )
 
 
 def test_a_step_keeps_its_images_alongside_its_video(author, category):
@@ -230,7 +240,9 @@ def test_a_viewer_may_fetch_a_video_shown_by_a_published_guide(author, viewer, c
     author.post(f"/api/guides/{created['id']}/publish")
 
     assert viewer.get(f"/api/media/{clip['id']}").status_code == 200
-    assert viewer.get(f"/api/guides/{created['slug']}").json()["steps"][0]["video"]["id"] == clip["id"]
+    assert (
+        viewer.get(f"/api/guides/{created['slug']}").json()["steps"][0]["video"]["id"] == clip["id"]
+    )
 
 
 def test_a_viewer_cannot_fetch_a_video_that_only_a_draft_shows(author, viewer, category):

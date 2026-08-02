@@ -82,9 +82,20 @@ def test_an_existing_tag_is_reused_rather_than_duplicated(author, category, db_s
 
 @pytest.mark.parametrize(
     "candidate",
-    ["Confocal", "con focal", "-confocal", "confocal-", "con--focal", "confocal_2", "Kühlung", "conf.ocal"],
+    [
+        "Confocal",
+        "con focal",
+        "-confocal",
+        "confocal-",
+        "con--focal",
+        "confocal_2",
+        "Kühlung",
+        "conf.ocal",
+    ],
 )
-def test_a_tag_that_is_not_already_a_slug_is_refused_rather_than_rewritten(author, category, candidate):
+def test_a_tag_that_is_not_already_a_slug_is_refused_rather_than_rewritten(
+    author, category, candidate
+):
     """Re-slugifying server-side would be worse than refusing: two spellings
     would agree in the editor and disagree in the database, which is exactly how
     the live site ended up with four spellings of one instrument."""
@@ -202,7 +213,9 @@ def test_the_tag_filter_requires_every_tag_not_any_of_them(author, category):
     tagged_guide(author, category.id, ["confocal"], title="Confocal Only")
     tagged_guide(author, category.id, ["stellaris"], title="Stellaris Only")
 
-    titles = [g["title"] for g in author.get("/api/guides", params={"tags": "confocal,stellaris"}).json()]
+    titles = [
+        g["title"] for g in author.get("/api/guides", params={"tags": "confocal,stellaris"}).json()
+    ]
 
     assert titles == ["Both"]
 
@@ -239,8 +252,12 @@ def test_the_tag_filter_is_capped_at_twenty_terms(author, category):
 def test_an_empty_tag_filter_is_no_filter_at_all(author, category):
     tagged_guide(author, category.id, ["confocal"], title="Visible")
 
-    assert [g["title"] for g in author.get("/api/guides", params={"tags": ""}).json()] == ["Visible"]
-    assert [g["title"] for g in author.get("/api/guides", params={"tags": " , "}).json()] == ["Visible"]
+    assert [g["title"] for g in author.get("/api/guides", params={"tags": ""}).json()] == [
+        "Visible"
+    ]
+    assert [g["title"] for g in author.get("/api/guides", params={"tags": " , "}).json()] == [
+        "Visible"
+    ]
 
 
 def test_the_tag_filter_still_hides_drafts_from_a_viewer(author, viewer, category):

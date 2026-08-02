@@ -110,7 +110,9 @@ def normalise(payload: bytes, max_dimension: int, max_pixels: int) -> Normalised
     if width == 0 or height == 0:
         raise errors.validation_failed("That image has no pixels.")
     if width > max_dimension or height > max_dimension:
-        raise errors.validation_failed(f"Images must be at most {max_dimension} pixels on each side.")
+        raise errors.validation_failed(
+            f"Images must be at most {max_dimension} pixels on each side."
+        )
     if width * height > max_pixels:
         raise errors.validation_failed(too_many_pixels_message(max_pixels))
 

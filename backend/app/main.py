@@ -217,7 +217,9 @@ def create_app() -> FastAPI:
         return _failure(exc.status_code, exc.body())
 
     @application.exception_handler(RequestValidationError)
-    async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    async def handle_validation_error(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
         failure = errors.validation_failed(_describe_validation(exc))
         return _failure(failure.status_code, failure.body())
 

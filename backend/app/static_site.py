@@ -167,7 +167,7 @@ def _page_shell(title: str, organisation: str, body: str, depth: int = 1) -> str
 <body>
 <header class="site-header">
   <a class="site-brand" href="{root}index.html">{esc(organisation)}</a>
-  <span class="site-note">Offline copy · {datetime.now(UTC).strftime('%Y-%m-%d')}</span>
+  <span class="site-note">Offline copy · {datetime.now(UTC).strftime("%Y-%m-%d")}</span>
 </header>
 <main>
 {body}
@@ -186,17 +186,19 @@ def render_guide(guide: Guide, organisation: str, filenames: dict[str, str]) -> 
 
     parts.append(
         '<dl class="meta">'
-        f'<div><dt>Difficulty</dt><dd>{esc(DIFFICULTY_LABELS.get(document["difficulty"], document["difficulty"]))}</dd></div>'
-        f'<div><dt>Time required</dt><dd>{esc(duration(document["timeRequiredMinMinutes"], document["timeRequiredMaxMinutes"]))}</dd></div>'
-        f'<div><dt>Steps</dt><dd>{len(document["steps"])}</dd></div>'
-        f'<div><dt>Author</dt><dd>{esc(document["author"]["displayName"])}</dd></div>'
-        f'<div><dt>Version</dt><dd>{document["version"]}</dd></div>'
+        f"<div><dt>Difficulty</dt><dd>{esc(DIFFICULTY_LABELS.get(document['difficulty'], document['difficulty']))}</dd></div>"
+        f"<div><dt>Time required</dt><dd>{esc(duration(document['timeRequiredMinMinutes'], document['timeRequiredMaxMinutes']))}</dd></div>"
+        f"<div><dt>Steps</dt><dd>{len(document['steps'])}</dd></div>"
+        f"<div><dt>Author</dt><dd>{esc(document['author']['displayName'])}</dd></div>"
+        f"<div><dt>Version</dt><dd>{document['version']}</dd></div>"
         "</dl>"
     )
 
     if document["tags"]:
         parts.append(
-            '<p class="tags">' + " ".join(f'<span class="tag">{esc(tag)}</span>' for tag in document["tags"]) + "</p>"
+            '<p class="tags">'
+            + " ".join(f'<span class="tag">{esc(tag)}</span>' for tag in document["tags"])
+            + "</p>"
         )
 
     if document["introduction"]:
@@ -204,7 +206,9 @@ def render_guide(guide: Guide, organisation: str, filenames: dict[str, str]) -> 
 
     for number, step in enumerate(document["steps"], start=1):
         parts.append('<section class="step">')
-        parts.append(f'<h2><span class="step-number">{number}</span>{esc(step["title"] or f"Step {number}")}</h2>')
+        parts.append(
+            f'<h2><span class="step-number">{number}</span>{esc(step["title"] or f"Step {number}")}</h2>'
+        )
 
         if step["media"] or step.get("video"):
             parts.append('<div class="step-media">')
@@ -212,7 +216,7 @@ def render_guide(guide: Guide, organisation: str, filenames: dict[str, str]) -> 
                 parts.append(
                     '<figure class="shot">'
                     f'<img src="../media/{esc(filenames.get(item["id"], item["id"]))}" alt="{esc(item["alt"])}">'
-                    f'{annotation_overlay(item["annotations"])}'
+                    f"{annotation_overlay(item['annotations'])}"
                     "</figure>"
                 )
             if step.get("video"):
@@ -226,7 +230,7 @@ def render_guide(guide: Guide, organisation: str, filenames: dict[str, str]) -> 
         if bullets:
             parts.append('<ul class="bullets">')
             for bullet in bullets:
-                classes = f'bullet bullet--color-{bullet["color"]} bullet--level-{bullet["level"]}'
+                classes = f"bullet bullet--color-{bullet['color']} bullet--level-{bullet['level']}"
                 if bullet["icon"]:
                     classes += " bullet--flagged"
                 flag = (
@@ -240,7 +244,9 @@ def render_guide(guide: Guide, organisation: str, filenames: dict[str, str]) -> 
         parts.append("</section>")
 
     if document["conclusion"]:
-        parts.append(f'<section class="step"><h2>Conclusion</h2><p>{esc(document["conclusion"])}</p></section>')
+        parts.append(
+            f'<section class="step"><h2>Conclusion</h2><p>{esc(document["conclusion"])}</p></section>'
+        )
 
     parts.append("</article>")
     return _page_shell(document["title"], organisation, "\n".join(parts))
@@ -271,7 +277,9 @@ def render_index(
             continue
         body.append(f'<section class="section"><h2>{esc(category.name)}</h2><ul class="index">')
         for page in category_pages:
-            body.append(f'<li><a href="w/{esc(page.slug)}.html">{esc(page.title)}</a> <span class="kind">wiki</span></li>')
+            body.append(
+                f'<li><a href="w/{esc(page.slug)}.html">{esc(page.title)}</a> <span class="kind">wiki</span></li>'
+            )
         for guide in in_category:
             body.append(f'<li><a href="g/{esc(guide.slug)}.html">{esc(guide.title)}</a></li>')
         body.append("</ul></section>")

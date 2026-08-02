@@ -196,7 +196,9 @@ def test_an_unfolded_german_tag_is_refused_rather_than_stored(author, category):
     database that no URL can address, which is worse than a clear refusal."""
     guide = create_guide(author, category.id, "Tagged raw")
 
-    refused = author.put(f"/api/guides/{guide['id']}", json=document_from(guide, tags=["Präparation"]))
+    refused = author.put(
+        f"/api/guides/{guide['id']}", json=document_from(guide, tags=["Präparation"])
+    )
 
     assert refused.status_code == 422
     assert refused.json()["error"]["code"] == "validation_failed"

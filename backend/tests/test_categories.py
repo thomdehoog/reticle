@@ -29,7 +29,9 @@ def test_listing_categories_requires_a_session(anon):
 
 
 def test_admin_creates_a_category_and_the_slug_is_derived(admin):
-    response = admin.post("/api/categories", json={"name": "Electron Microscopy", "description": "TEM and SEM."})
+    response = admin.post(
+        "/api/categories", json={"name": "Electron Microscopy", "description": "TEM and SEM."}
+    )
 
     assert response.status_code == 201
     body = response.json()
@@ -109,17 +111,24 @@ def test_a_category_cannot_become_its_own_ancestor(admin, category):
 
 
 def test_a_category_cannot_be_its_own_parent(admin, category):
-    assert admin.patch(f"/api/categories/{category.id}", json={"parentId": category.id}).status_code == 422
+    assert (
+        admin.patch(f"/api/categories/{category.id}", json={"parentId": category.id}).status_code
+        == 422
+    )
 
 
 def test_reparenting_to_an_unknown_category_is_rejected(admin, category):
-    response = admin.patch(f"/api/categories/{category.id}", json={"parentId": "01JQNOTAREALULID00000000"})
+    response = admin.patch(
+        f"/api/categories/{category.id}", json={"parentId": "01JQNOTAREALULID00000000"}
+    )
 
     assert response.status_code == 422
 
 
 def test_creating_a_category_under_an_unknown_parent_is_rejected(admin):
-    response = admin.post("/api/categories", json={"name": "Orphan", "parentId": "01JQNOTAREALULID00000000"})
+    response = admin.post(
+        "/api/categories", json={"name": "Orphan", "parentId": "01JQNOTAREALULID00000000"}
+    )
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_failed"

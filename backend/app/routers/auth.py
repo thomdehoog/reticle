@@ -37,7 +37,9 @@ from ..settings import Settings, get_settings
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-def set_session_cookies(response: Response, token: str, csrf_token: str, settings: Settings) -> None:
+def set_session_cookies(
+    response: Response, token: str, csrf_token: str, settings: Settings
+) -> None:
     max_age = settings.session_lifetime_hours * 3600
     response.set_cookie(
         SESSION_COOKIE,

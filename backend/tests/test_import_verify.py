@@ -81,9 +81,7 @@ def test_a_recoloured_bullet_is_reported(db_session, author_account, media_root)
     assert any("flag" in str(d) for d in report.verdicts[0].drift)
 
 
-def test_an_extra_bullet_is_reported_as_invention_not_drift(
-    db_session, author_account, media_root
-):
+def test_an_extra_bullet_is_reported_as_invention_not_drift(db_session, author_account, media_root):
     """Nothing in this importer writes prose, so an extra sentence has an author."""
     client = FakeDozuki([_guide()])
     imported(db_session, client)
@@ -183,7 +181,16 @@ def test_an_annotation_nobody_drew_is_an_invention(db_session, author_account, m
 
     media = db_session.scalars(select(Media)).first()
     db_session.add(
-        Annotation(media_id=media.id, order_index=9, shape="ellipse", color="green", x=0.1, y=0.1, width=0.1, height=0.1)
+        Annotation(
+            media_id=media.id,
+            order_index=9,
+            shape="ellipse",
+            color="green",
+            x=0.1,
+            y=0.1,
+            width=0.1,
+            height=0.1,
+        )
     )
     db_session.commit()
 

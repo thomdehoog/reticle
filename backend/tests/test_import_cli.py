@@ -59,9 +59,7 @@ def test_an_unmapped_value_exits_non_zero_even_though_the_guide_was_written(
     assert "does not recognise" in captured.err
 
 
-def test_allowing_unmapped_values_still_fails_when_the_counts_disagree(
-    cli, author_account, capsys
-):
+def test_allowing_unmapped_values_still_fails_when_the_counts_disagree(cli, author_account, capsys):
     """Accepting a loss knowingly is a decision; hiding it is not."""
     payload = _guide()
     payload["steps"][0]["lines"][0]["bullet"] = "teal"
@@ -75,9 +73,7 @@ def test_a_missing_account_stops_before_anything_is_written(cli, capsys):
     assert "No account for" in capsys.readouterr().err
 
 
-def test_the_reports_are_written_where_they_were_asked_for(
-    cli, author_account, tmp_path
-):
+def test_the_reports_are_written_where_they_were_asked_for(cli, author_account, tmp_path):
     text_report = tmp_path / "migration.txt"
     json_report = tmp_path / "migration.json"
 

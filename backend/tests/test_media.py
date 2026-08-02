@@ -42,13 +42,22 @@ def _attach_to_guide(author, category, image: dict, publish: bool) -> dict:
 
 
 def test_uploading_a_png_returns_the_domain_media_object(author, media_root):
-    response = author.post("/api/media", files={"file": ("turret.png", image_bytes(64, 48), "image/png")})
+    response = author.post(
+        "/api/media", files={"file": ("turret.png", image_bytes(64, 48), "image/png")}
+    )
 
     assert response.status_code == 201
     body = response.json()
     assert set(body) == {
-        "id", "url", "kind", "alt", "width", "height", "durationSeconds",
-        "posterUrl", "annotations",
+        "id",
+        "url",
+        "kind",
+        "alt",
+        "width",
+        "height",
+        "durationSeconds",
+        "posterUrl",
+        "annotations",
     }
     assert body["kind"] == "image"
     assert body["width"] == 64
@@ -67,7 +76,9 @@ def test_uploading_a_png_returns_the_domain_media_object(author, media_root):
 def test_the_four_accepted_formats_round_trip(author, image_format, mime):
     payload = image_bytes(20, 12, image_format)
 
-    created = author.post("/api/media", files={"file": (f"x.{image_format.lower()}", payload, mime)}).json()
+    created = author.post(
+        "/api/media", files={"file": (f"x.{image_format.lower()}", payload, mime)}
+    ).json()
     fetched = author.get(f"/api/media/{created['id']}")
 
     assert fetched.status_code == 200
@@ -96,13 +107,21 @@ def test_html_disguised_as_an_image_is_rejected(author):
 def test_an_svg_is_rejected_because_it_is_executable_markup(author):
     payload = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
 
-    assert author.post("/api/media", files={"file": ("vector.svg", payload, "image/svg+xml")}).status_code == 422
+    assert (
+        author.post(
+            "/api/media", files={"file": ("vector.svg", payload, "image/svg+xml")}
+        ).status_code
+        == 422
+    )
 
 
 def test_a_truncated_image_is_rejected(author):
     payload = image_bytes(40, 40, "PNG")[:60]
 
-    assert author.post("/api/media", files={"file": ("cut.png", payload, "image/png")}).status_code == 422
+    assert (
+        author.post("/api/media", files={"file": ("cut.png", payload, "image/png")}).status_code
+        == 422
+    )
 
 
 def test_a_corrupted_image_is_rejected_rather_than_stored(author, media_root):
@@ -122,21 +141,28 @@ def test_an_unsupported_but_genuine_image_format_is_rejected(author):
     buffer = BytesIO()
     Image.new("RGB", (8, 8), "white").save(buffer, format="BMP")
 
-    response = author.post("/api/media", files={"file": ("bitmap.bmp", buffer.getvalue(), "image/bmp")})
+    response = author.post(
+        "/api/media", files={"file": ("bitmap.bmp", buffer.getvalue(), "image/bmp")}
+    )
 
     assert response.status_code == 422
     assert "png" in response.json()["error"]["message"].lower()
 
 
 def test_an_empty_upload_is_rejected(author):
-    assert author.post("/api/media", files={"file": ("empty.png", b"", "image/png")}).status_code == 422
+    assert (
+        author.post("/api/media", files={"file": ("empty.png", b"", "image/png")}).status_code
+        == 422
+    )
 
 
 def test_an_image_wider_than_the_limit_is_rejected(author, monkeypatch):
     monkeypatch.setenv("RETICLE_MAX_IMAGE_DIMENSION", "64")
     get_settings.cache_clear()
 
-    response = author.post("/api/media", files={"file": ("wide.png", image_bytes(65, 8), "image/png")})
+    response = author.post(
+        "/api/media", files={"file": ("wide.png", image_bytes(65, 8), "image/png")}
+    )
 
     assert response.status_code == 422
     assert "64" in response.json()["error"]["message"]
@@ -146,7 +172,12 @@ def test_an_image_taller_than_the_limit_is_rejected(author, monkeypatch):
     monkeypatch.setenv("RETICLE_MAX_IMAGE_DIMENSION", "64")
     get_settings.cache_clear()
 
-    assert author.post("/api/media", files={"file": ("tall.png", image_bytes(8, 65), "image/png")}).status_code == 422
+    assert (
+        author.post(
+            "/api/media", files={"file": ("tall.png", image_bytes(8, 65), "image/png")}
+        ).status_code
+        == 422
+    )
 
 
 def test_the_default_dimension_limit_is_ten_thousand():
@@ -167,14 +198,18 @@ def test_an_oversized_body_is_refused_with_payload_too_large(author, monkeypatch
     assert response.json()["error"]["code"] == "payload_too_large"
 
 
-def test_a_hopelessly_oversized_upload_is_refused_from_its_declared_length(author, monkeypatch, media_root):
+def test_a_hopelessly_oversized_upload_is_refused_from_its_declared_length(
+    author, monkeypatch, media_root
+):
     """Streaming the body against the cap is the guarantee; refusing on the
     declared length first is what stops the process buffering a body it has
     already decided to reject."""
     monkeypatch.setenv("RETICLE_MAX_UPLOAD_BYTES", "1024")
     get_settings.cache_clear()
 
-    response = author.post("/api/media", files={"file": ("huge.png", noisy_png(700, 700), "image/png")})
+    response = author.post(
+        "/api/media", files={"file": ("huge.png", noisy_png(700, 700), "image/png")}
+    )
 
     assert response.status_code == 413
     assert response.json()["error"]["code"] == "payload_too_large"
@@ -185,7 +220,9 @@ def test_exif_is_stripped_from_what_is_stored(author, db_session, media_root):
     original = jpeg_with_exif()
     assert Image.open(BytesIO(original)).getexif().get(0x010F) == "ZMB-Stellaris"
 
-    created = author.post("/api/media", files={"file": ("camera.jpg", original, "image/jpeg")}).json()
+    created = author.post(
+        "/api/media", files={"file": ("camera.jpg", original, "image/jpeg")}
+    ).json()
     served = author.get(f"/api/media/{created['id']}").content
 
     assert dict(Image.open(BytesIO(served)).getexif()) == {}
@@ -193,8 +230,12 @@ def test_exif_is_stripped_from_what_is_stored(author, db_session, media_root):
     assert dict(Image.open(media_root / stored.storage_path).getexif()) == {}
 
 
-def test_the_stored_filename_is_generated_and_the_original_never_used(author, db_session, media_root):
-    created = author.post("/api/media", files={"file": ("Ünsafe Name (1).png", image_bytes(), "image/png")}).json()
+def test_the_stored_filename_is_generated_and_the_original_never_used(
+    author, db_session, media_root
+):
+    created = author.post(
+        "/api/media", files={"file": ("Ünsafe Name (1).png", image_bytes(), "image/png")}
+    ).json()
 
     stored = db_session.scalars(select(Media)).one()
     on_disk = list(media_root.rglob("*.png"))
@@ -217,7 +258,9 @@ def test_a_traversing_filename_cannot_escape_the_media_root(author, media_root):
 
 
 def test_serving_an_image_forbids_sniffing_and_inline_scripting(author):
-    created = author.post("/api/media", files={"file": ("x.png", image_bytes(), "image/png")}).json()
+    created = author.post(
+        "/api/media", files={"file": ("x.png", image_bytes(), "image/png")}
+    ).json()
 
     response = author.get(f"/api/media/{created['id']}")
 
@@ -228,14 +271,21 @@ def test_serving_an_image_forbids_sniffing_and_inline_scripting(author):
 
 
 def test_the_served_bytes_are_the_stored_bytes(author, db_session, media_root):
-    created = author.post("/api/media", files={"file": ("x.png", image_bytes(30, 20), "image/png")}).json()
+    created = author.post(
+        "/api/media", files={"file": ("x.png", image_bytes(30, 20), "image/png")}
+    ).json()
 
     stored = db_session.scalars(select(Media)).one()
-    assert author.get(f"/api/media/{created['id']}").content == (media_root / stored.storage_path).read_bytes()
+    assert (
+        author.get(f"/api/media/{created['id']}").content
+        == (media_root / stored.storage_path).read_bytes()
+    )
 
 
 def test_media_bytes_are_behind_the_login(anon, author):
-    created = author.post("/api/media", files={"file": ("x.png", image_bytes(), "image/png")}).json()
+    created = author.post(
+        "/api/media", files={"file": ("x.png", image_bytes(), "image/png")}
+    ).json()
 
     assert anon.get(f"/api/media/{created['id']}").status_code == 401
 
@@ -245,7 +295,10 @@ def test_viewers_may_read_an_image_on_a_published_guide_but_not_upload(viewer, a
     _attach_to_guide(author, category, image, publish=True)
 
     assert viewer.get(f"/api/media/{image['id']}").status_code == 200
-    assert viewer.post("/api/media", files={"file": ("x.png", image_bytes(), "image/png")}).status_code == 403
+    assert (
+        viewer.post("/api/media", files={"file": ("x.png", image_bytes(), "image/png")}).status_code
+        == 403
+    )
 
 
 def test_a_viewer_cannot_read_an_image_from_an_unpublished_guide(viewer, author, category):
@@ -287,7 +340,9 @@ def test_an_unknown_media_id_is_not_found(author):
 
 
 def test_a_media_row_whose_file_vanished_is_not_found(author, db_session, media_root):
-    created = author.post("/api/media", files={"file": ("x.png", image_bytes(), "image/png")}).json()
+    created = author.post(
+        "/api/media", files={"file": ("x.png", image_bytes(), "image/png")}
+    ).json()
     stored = db_session.scalars(select(Media)).one()
     (media_root / stored.storage_path).unlink()
 

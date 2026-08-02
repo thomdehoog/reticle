@@ -233,6 +233,7 @@ def test_only_http_urls_are_fetched(hostile):
 
 def test_https_is_still_fetched_normally():
     """The guard must not be so eager that it blocks the actual migration."""
+
     class Response:
         headers: ClassVar[dict[str, str]] = {"Content-Type": "image/png"}
 

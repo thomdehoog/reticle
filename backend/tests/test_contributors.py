@@ -38,7 +38,9 @@ def test_a_colleague_who_saves_a_guide_is_appended(author, as_role, category):
     colleague = as_role("author", "colleague@zmb.uzh.ch", display_name="Colleague Editor")
 
     fresh = colleague.get(f"/api/guides/{created['id']}").json()
-    saved = colleague.put(f"/api/guides/{created['id']}", json=document_from(fresh, title="Edited")).json()
+    saved = colleague.put(
+        f"/api/guides/{created['id']}", json=document_from(fresh, title="Edited")
+    ).json()
 
     assert names(saved) == ["Author", "Colleague Editor"]
 
@@ -48,7 +50,9 @@ def test_a_colleague_who_saves_a_page_is_appended(author, as_role, category):
     colleague = as_role("author", "colleague@zmb.uzh.ch", display_name="Colleague Editor")
 
     fresh = colleague.get(f"/api/pages/{created['id']}").json()
-    saved = colleague.put(f"/api/pages/{created['id']}", json=page_document_from(fresh, body="Edited")).json()
+    saved = colleague.put(
+        f"/api/pages/{created['id']}", json=page_document_from(fresh, body="Edited")
+    ).json()
 
     assert names(saved) == ["Author", "Colleague Editor"]
 
@@ -103,7 +107,9 @@ def test_the_original_author_stays_credited_even_once_others_take_over(author, a
 
     document = colleague.put(
         f"/api/guides/{created['id']}",
-        json=document_from(colleague.get(f"/api/guides/{created['id']}").json(), title="Taken over"),
+        json=document_from(
+            colleague.get(f"/api/guides/{created['id']}").json(), title="Taken over"
+        ),
     ).json()
 
     assert document["author"]["displayName"] == "Author"

@@ -41,7 +41,9 @@ def publish_page_with(client, title: str, **fields) -> dict:
 
 
 def titles(hits: list[dict]) -> list[str]:
-    return [hit["guide"]["title"] if hit["kind"] == "guide" else hit["page"]["title"] for hit in hits]
+    return [
+        hit["guide"]["title"] if hit["kind"] == "guide" else hit["page"]["title"] for hit in hits
+    ]
 
 
 def test_one_query_spans_guides_and_wiki_pages(author, category):
@@ -62,9 +64,22 @@ def test_a_guide_hit_carries_the_summary_projection(author, category):
     assert set(hit) == {"kind", "guide"}
     assert hit["kind"] == "guide"
     assert set(hit["guide"]) == {
-        "id", "slug", "title", "summary", "categoryId", "tags", "difficulty",
-        "timeRequiredMinMinutes", "timeRequiredMaxMinutes", "status",
-        "stepCount", "author", "viewCount", "thumbnailUrl", "updatedAt", "publishedAt",
+        "id",
+        "slug",
+        "title",
+        "summary",
+        "categoryId",
+        "tags",
+        "difficulty",
+        "timeRequiredMinMinutes",
+        "timeRequiredMaxMinutes",
+        "status",
+        "stepCount",
+        "author",
+        "viewCount",
+        "thumbnailUrl",
+        "updatedAt",
+        "publishedAt",
     }
 
 
@@ -76,16 +91,28 @@ def test_a_page_hit_carries_the_page_summary_projection(author):
     assert set(hit) == {"kind", "page"}
     assert hit["kind"] == "page"
     assert set(hit["page"]) == {
-        "id", "slug", "title", "summary", "categoryId", "isLanding", "status",
-        "heroImageUrl", "updatedAt", "publishedAt",
+        "id",
+        "slug",
+        "title",
+        "summary",
+        "categoryId",
+        "isLanding",
+        "status",
+        "heroImageUrl",
+        "updatedAt",
+        "publishedAt",
     }
 
 
 def test_a_guide_matches_on_all_of_its_front_matter(author, category):
     publish_guide_with(author, category.id, "Objective Care")
     publish_guide_with(author, category.id, "Second Guide", summary="Handling the cryostat safely.")
-    publish_guide_with(author, category.id, "Third Guide", introduction="Read the xylene sheet first.")
-    publish_guide_with(author, category.id, "Fourth Guide", conclusion="Log any drift in the booking system.")
+    publish_guide_with(
+        author, category.id, "Third Guide", introduction="Read the xylene sheet first."
+    )
+    publish_guide_with(
+        author, category.id, "Fourth Guide", conclusion="Log any drift in the booking system."
+    )
 
     assert titles(author.get("/api/search", params={"q": "objective"}).json()) == ["Objective Care"]
     assert titles(author.get("/api/search", params={"q": "cryostat"}).json()) == ["Second Guide"]
@@ -106,7 +133,9 @@ def test_a_guide_matches_on_the_text_inside_its_steps(author, category):
     )
     publish_guide_with(author, category.id, "Unrelated Guide")
 
-    assert titles(author.get("/api/search", params={"q": "immersion medium"}).json()) == ["Mounting"]
+    assert titles(author.get("/api/search", params={"q": "immersion medium"}).json()) == [
+        "Mounting"
+    ]
     assert titles(author.get("/api/search", params={"q": "one drop"}).json()) == ["Mounting"]
 
 
@@ -150,7 +179,9 @@ def test_a_page_matches_on_its_title_summary_and_body(author):
 def test_matching_ignores_case(author, category):
     publish_guide_with(author, category.id, "Immersion Oil Guide")
 
-    assert titles(author.get("/api/search", params={"q": "IMMERSION"}).json()) == ["Immersion Oil Guide"]
+    assert titles(author.get("/api/search", params={"q": "IMMERSION"}).json()) == [
+        "Immersion Oil Guide"
+    ]
 
 
 def test_an_empty_query_returns_nothing_rather_than_everything(author, category):
@@ -169,15 +200,23 @@ def test_a_percent_sign_is_matched_literally_and_not_as_a_wildcard(author, categ
     publish_page_with(author, "Buffers", body="Dilute to 70% ethanol.")
     publish_page_with(author, "Booking", body="Nothing of the sort here.")
 
-    assert sorted(titles(author.get("/api/search", params={"q": "%"}).json())) == ["Buffers", "Fixation"]
+    assert sorted(titles(author.get("/api/search", params={"q": "%"}).json())) == [
+        "Buffers",
+        "Fixation",
+    ]
 
 
-def test_an_underscore_is_matched_literally_and_not_as_a_single_character_wildcard(author, category):
+def test_an_underscore_is_matched_literally_and_not_as_a_single_character_wildcard(
+    author, category
+):
     publish_guide_with(author, category.id, "Batch Export", summary="Files land as run_01.tif.")
     publish_guide_with(author, category.id, "Manual Export", summary="Files land as run01 tif.")
     publish_page_with(author, "Naming", body="Use frame_index in the macro.")
 
-    assert sorted(titles(author.get("/api/search", params={"q": "_"}).json())) == ["Batch Export", "Naming"]
+    assert sorted(titles(author.get("/api/search", params={"q": "_"}).json())) == [
+        "Batch Export",
+        "Naming",
+    ]
 
 
 def test_a_backslash_in_the_query_matches_itself(author, category):
@@ -195,7 +234,9 @@ def test_a_viewer_never_sees_a_draft_guide_in_the_results(author, viewer, catego
         "Draft Guide About Immersion Oil",
         "Published Guide",
     ]
-    assert titles(viewer.get("/api/search", params={"q": "immersion"}).json()) == ["Published Guide"]
+    assert titles(viewer.get("/api/search", params={"q": "immersion"}).json()) == [
+        "Published Guide"
+    ]
 
 
 def test_a_viewer_never_sees_a_draft_page_in_the_results(author, viewer):

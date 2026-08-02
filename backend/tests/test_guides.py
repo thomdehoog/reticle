@@ -56,16 +56,34 @@ def test_guide_response_matches_the_domain_model_exactly(author, category):
     body = create_guide(author, category.id)
 
     assert set(body) == {
-        "id", "slug", "title", "summary", "categoryId", "tags", "difficulty",
-        "timeRequiredMinMinutes", "timeRequiredMaxMinutes", "introduction",
-        "conclusion", "status", "steps", "author", "lastEditedBy",
-        "contributors", "viewCount", "createdAt", "updatedAt", "publishedAt",
+        "id",
+        "slug",
+        "title",
+        "summary",
+        "categoryId",
+        "tags",
+        "difficulty",
+        "timeRequiredMinMinutes",
+        "timeRequiredMaxMinutes",
+        "introduction",
+        "conclusion",
+        "status",
+        "steps",
+        "author",
+        "lastEditedBy",
+        "contributors",
+        "viewCount",
+        "createdAt",
+        "updatedAt",
+        "publishedAt",
         "version",
     }
 
 
 def test_creating_a_guide_in_an_unknown_category_is_rejected(author):
-    response = author.post("/api/guides", json={"title": "Orphan", "categoryId": "01JQNOTAREALULID00000000"})
+    response = author.post(
+        "/api/guides", json={"title": "Orphan", "categoryId": "01JQNOTAREALULID00000000"}
+    )
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_failed"
@@ -151,9 +169,21 @@ def test_summary_projection_matches_the_domain_model(author, category):
     entry = author.get("/api/guides").json()[0]
 
     assert set(entry) == {
-        "id", "slug", "title", "summary", "categoryId", "tags", "difficulty",
-        "timeRequiredMinMinutes", "timeRequiredMaxMinutes", "status",
-        "stepCount", "author", "viewCount", "thumbnailUrl", "updatedAt",
+        "id",
+        "slug",
+        "title",
+        "summary",
+        "categoryId",
+        "tags",
+        "difficulty",
+        "timeRequiredMinMinutes",
+        "timeRequiredMaxMinutes",
+        "status",
+        "stepCount",
+        "author",
+        "viewCount",
+        "thumbnailUrl",
+        "updatedAt",
         "publishedAt",
     }
     assert entry["stepCount"] == 2
@@ -165,18 +195,28 @@ def test_listing_filters_by_category_author_and_free_text(author, admin, categor
     create_guide(author, other["id"], "Cryo Sectioning")
     admin_guide = create_guide(admin, category.id, "Vacuum Maintenance")
 
-    assert [g["title"] for g in author.get("/api/guides", params={"categoryId": other["id"]}).json()] == ["Cryo Sectioning"]
-    assert [g["title"] for g in author.get("/api/guides", params={"q": "confocal"}).json()] == ["Confocal Alignment"]
-    assert [g["title"] for g in author.get("/api/guides", params={"authorId": admin_guide["author"]["id"]}).json()] == [
-        "Vacuum Maintenance"
+    assert [
+        g["title"] for g in author.get("/api/guides", params={"categoryId": other["id"]}).json()
+    ] == ["Cryo Sectioning"]
+    assert [g["title"] for g in author.get("/api/guides", params={"q": "confocal"}).json()] == [
+        "Confocal Alignment"
     ]
+    assert [
+        g["title"]
+        for g in author.get("/api/guides", params={"authorId": admin_guide["author"]["id"]}).json()
+    ] == ["Vacuum Maintenance"]
 
 
 def test_free_text_search_also_covers_the_summary(author, category):
     created = create_guide(author, category.id, "Nothing Matching Here")
-    author.put(f"/api/guides/{created['id']}", json=document_from(created, summary="Uses the cryostat daily."))
+    author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, summary="Uses the cryostat daily."),
+    )
 
-    assert [g["title"] for g in author.get("/api/guides", params={"q": "cryostat"}).json()] == ["Nothing Matching Here"]
+    assert [g["title"] for g in author.get("/api/guides", params={"q": "cryostat"}).json()] == [
+        "Nothing Matching Here"
+    ]
 
 
 def test_archived_guides_are_excluded_unless_asked_for(author, admin, category):
@@ -184,7 +224,9 @@ def test_archived_guides_are_excluded_unless_asked_for(author, admin, category):
     admin.delete(f"/api/guides/{created['id']}")
 
     assert author.get("/api/guides").json() == []
-    assert [g["id"] for g in author.get("/api/guides", params={"status": "archived"}).json()] == [created["id"]]
+    assert [g["id"] for g in author.get("/api/guides", params={"status": "archived"}).json()] == [
+        created["id"]
+    ]
 
 
 def test_publishing_increments_the_version_and_stamps_the_time(author, category):
@@ -203,12 +245,16 @@ def test_publishing_writes_an_immutable_snapshot(author, category):
     created = create_guide(author, category.id, "Snapshot Guide")
     author.put(
         f"/api/guides/{created['id']}",
-        json=document_from(created, steps=[step("Original title", bullets=[bullet("Original bullet")])]),
+        json=document_from(
+            created, steps=[step("Original title", bullets=[bullet("Original bullet")])]
+        ),
     )
     published = author.post(f"/api/guides/{created['id']}/publish").json()
 
     reloaded = author.get(f"/api/guides/{created['id']}").json()
-    author.put(f"/api/guides/{created['id']}", json=document_from(reloaded, steps=[step("Rewritten")]))
+    author.put(
+        f"/api/guides/{created['id']}", json=document_from(reloaded, steps=[step("Rewritten")])
+    )
 
     snapshot = author.get(f"/api/guides/{created['id']}/revisions/1").json()
 

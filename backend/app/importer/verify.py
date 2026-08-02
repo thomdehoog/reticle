@@ -233,9 +233,7 @@ def compare(source: MappedGuide, stored: dict[str, Any], verdict: GuideVerdict) 
                 "bullets", f"{where} bullet count", len(source_bullets), len(stored_bullets)
             )
             (
-                verdict.invention
-                if len(stored_bullets) > len(source_bullets)
-                else verdict.drift
+                verdict.invention if len(stored_bullets) > len(source_bullets) else verdict.drift
             ).append(difference)
 
         for position, (source_bullet, stored_bullet) in enumerate(

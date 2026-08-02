@@ -75,8 +75,12 @@ def build_corpus(admin, category) -> dict:
                     media=[
                         annotated(
                             image,
-                            annotation(shape="rectangle", color="red", x=0.1, y=0.1, width=0.2, height=0.2),
-                            annotation(shape="arrow", color="blue", x=0.8, y=0.8, width=-0.3, height=-0.3),
+                            annotation(
+                                shape="rectangle", color="red", x=0.1, y=0.1, width=0.2, height=0.2
+                            ),
+                            annotation(
+                                shape="arrow", color="blue", x=0.8, y=0.8, width=-0.3, height=-0.3
+                            ),
                         )
                     ],
                 ),
@@ -307,7 +311,9 @@ def test_a_corpus_survives_being_exported_and_restored(
 
     from app.db import Base
 
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     Base.metadata.create_all(engine)
     fresh = sessionmaker(bind=engine, autoflush=False, future=True)()
 
@@ -327,7 +333,9 @@ def test_a_corpus_survives_being_exported_and_restored(
     engine.dispose()
 
 
-def test_a_restore_refuses_a_database_that_already_holds_content(admin, category, db_session, tmp_path):
+def test_a_restore_refuses_a_database_that_already_holds_content(
+    admin, category, db_session, tmp_path
+):
     """Merging two corpora is a different operation with different answers."""
     build_corpus(admin, category)
     exporter.write_to_directory(db_session, get_settings(), tmp_path / "out")
@@ -360,7 +368,9 @@ def test_a_truncated_file_is_reported_rather_than_restored_silently(
 
     from app.db import Base
 
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     Base.metadata.create_all(engine)
     fresh = sessionmaker(bind=engine, autoflush=False, future=True)()
 
@@ -389,7 +399,9 @@ def test_a_restored_account_cannot_be_signed_into_with_a_known_password(
     from app.db import Base
     from app.security import verify_password
 
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     Base.metadata.create_all(engine)
     fresh = sessionmaker(bind=engine, autoflush=False, future=True)()
 

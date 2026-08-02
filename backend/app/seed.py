@@ -42,12 +42,32 @@ from .slugs import slugify
 from .storage import build_storage
 
 ZMB_CATEGORIES: list[tuple[str, str, bool]] = [
-    ("Basics, Access and IT", "Accounts, building access, booking, storage and the ZMB network.", False),
-    ("Sample Preparation", "Preparing samples for light microscopy: fixation, labelling and mounting.", False),
+    (
+        "Basics, Access and IT",
+        "Accounts, building access, booking, storage and the ZMB network.",
+        False,
+    ),
+    (
+        "Sample Preparation",
+        "Preparing samples for light microscopy: fixation, labelling and mounting.",
+        False,
+    ),
     ("Light Microscopy", "Widefield, confocal, superresolution and live-cell systems.", False),
-    ("Electron Microscopy", "Transmission and scanning electron microscopy, from resin to image.", False),
-    ("Image Analysis", "Segmentation, quantification, batch processing and reproducible pipelines.", False),
-    ("Internal Guides", "Procedures for ZMB staff: maintenance, handover and instrument checks.", False),
+    (
+        "Electron Microscopy",
+        "Transmission and scanning electron microscopy, from resin to image.",
+        False,
+    ),
+    (
+        "Image Analysis",
+        "Segmentation, quantification, batch processing and reproducible pipelines.",
+        False,
+    ),
+    (
+        "Internal Guides",
+        "Procedures for ZMB staff: maintenance, handover and instrument checks.",
+        False,
+    ),
     ("CryoEM", "Vitrification, screening and single-particle data collection.", False),
     ("Spatial Biology", "Spatial transcriptomics and multiplexed imaging workflows.", False),
     (
@@ -103,44 +123,124 @@ EXAMPLE_STEPS: list[tuple[str, list[tuple[str, str, str | None, int]]]] = [
     (
         "Book the system and check the room",
         [
-            ("Confirm your booking in the ZMB calendar before you enter the room.", "black", None, 0),
-            ("The previous user has 10 minutes to finish; do not interrupt an acquisition.", "blue", "note", 0),
-            ("If the room is dark and the door sign says LIVE CELL, knock before entering.", "orange", "caution", 1),
+            (
+                "Confirm your booking in the ZMB calendar before you enter the room.",
+                "black",
+                None,
+                0,
+            ),
+            (
+                "The previous user has 10 minutes to finish; do not interrupt an acquisition.",
+                "blue",
+                "note",
+                0,
+            ),
+            (
+                "If the room is dark and the door sign says LIVE CELL, knock before entering.",
+                "orange",
+                "caution",
+                1,
+            ),
         ],
     ),
     (
         "Power up in order",
         [
-            ("Switch on the mains strip, then the scanner, then the PC. Wait for each to settle.", "black", None, 0),
-            ("Never switch the lasers on before the scanner has finished its self-test.", "red", "caution", 0),
-            ("The 405 nm laser needs about 10 minutes to reach a stable output.", "light_blue", None, 1),
-            ("Log in with your ZMB account, not with the local Administrator account.", "violet", "reminder", 0),
+            (
+                "Switch on the mains strip, then the scanner, then the PC. Wait for each to settle.",
+                "black",
+                None,
+                0,
+            ),
+            (
+                "Never switch the lasers on before the scanner has finished its self-test.",
+                "red",
+                "caution",
+                0,
+            ),
+            (
+                "The 405 nm laser needs about 10 minutes to reach a stable output.",
+                "light_blue",
+                None,
+                1,
+            ),
+            (
+                "Log in with your ZMB account, not with the local Administrator account.",
+                "violet",
+                "reminder",
+                0,
+            ),
         ],
     ),
     (
         "Choose and clean the objective",
         [
-            ("Select the objective in the software first so the turret moves under control.", "black", None, 0),
-            ("Clean the front lens with lens tissue and a single drop of solvent, one pass only.", "orange", "caution", 0),
-            ("Never let solvent run down the barrel; it dissolves the cement inside.", "red", "caution", 1),
-            ("Use the immersion medium printed on the objective, not the one already on the bench.", "black", None, 1),
+            (
+                "Select the objective in the software first so the turret moves under control.",
+                "black",
+                None,
+                0,
+            ),
+            (
+                "Clean the front lens with lens tissue and a single drop of solvent, one pass only.",
+                "orange",
+                "caution",
+                0,
+            ),
+            (
+                "Never let solvent run down the barrel; it dissolves the cement inside.",
+                "red",
+                "caution",
+                1,
+            ),
+            (
+                "Use the immersion medium printed on the objective, not the one already on the bench.",
+                "black",
+                None,
+                1,
+            ),
         ],
     ),
     (
         "Mount the sample and find focus",
         [
-            ("Place the slide coverslip-down and clamp it before adding immersion medium.", "black", None, 0),
-            ("Find focus in widefield at low magnification, then switch to scanning.", "green", None, 0),
+            (
+                "Place the slide coverslip-down and clamp it before adding immersion medium.",
+                "black",
+                None,
+                0,
+            ),
+            (
+                "Find focus in widefield at low magnification, then switch to scanning.",
+                "green",
+                None,
+                0,
+            ),
             ("Start with the lowest laser power that gives a visible signal.", "yellow", "note", 0),
         ],
     ),
     (
         "Acquire, save and shut down",
         [
-            ("Save to your group folder on the server, never to the local desktop.", "black", None, 0),
+            (
+                "Save to your group folder on the server, never to the local desktop.",
+                "black",
+                None,
+                0,
+            ),
             ("Local disks are wiped without warning during maintenance.", "red", "caution", 1),
-            ("Export the acquisition settings alongside the images so the run is reproducible.", "blue", "note", 0),
-            ("Log the session in the booking system, including any fault you noticed.", "violet", "reminder", 0),
+            (
+                "Export the acquisition settings alongside the images so the run is reproducible.",
+                "blue",
+                "note",
+                0,
+            ),
+            (
+                "Log the session in the booking system, including any fault you noticed.",
+                "violet",
+                "reminder",
+                0,
+            ),
         ],
     ),
 ]

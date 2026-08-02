@@ -251,4 +251,6 @@ def test_choosing_s3_without_a_bucket_fails_at_startup_not_at_first_upload():
 
 
 def test_the_backend_name_is_not_case_sensitive(tmp_path):
-    assert isinstance(build_storage(Settings(storage_backend="LOCAL", media_root=tmp_path)), LocalStorage)
+    assert isinstance(
+        build_storage(Settings(storage_backend="LOCAL", media_root=tmp_path)), LocalStorage
+    )

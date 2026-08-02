@@ -20,7 +20,9 @@ from sqlalchemy.orm import Session as DbSession
 
 from .models import AuditLog, User
 
-FORBIDDEN_DETAIL_KEYS = frozenset({"password", "newPassword", "currentPassword", "token", "passwordHash"})
+FORBIDDEN_DETAIL_KEYS = frozenset(
+    {"password", "newPassword", "currentPassword", "token", "passwordHash"}
+)
 
 
 def record(

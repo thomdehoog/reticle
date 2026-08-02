@@ -58,8 +58,10 @@ def list_tags(db: DbDep, user: AnyUser) -> list[TagOut]:
     a viewer is never shown a tag whose entire membership is drafts — following
     it would land them on an empty page and look like a broken link.
     """
-    countable = select(func.count(GuideTag.id)).select_from(GuideTag).join(
-        Guide, Guide.id == GuideTag.guide_id
+    countable = (
+        select(func.count(GuideTag.id))
+        .select_from(GuideTag)
+        .join(Guide, Guide.id == GuideTag.guide_id)
     )
     if user.role == "viewer":
         countable = countable.where(Guide.status == READER_STATUS)
@@ -68,9 +70,7 @@ def list_tags(db: DbDep, user: AnyUser) -> list[TagOut]:
 
     guide_count = countable.where(GuideTag.tag_id == Tag.id).correlate(Tag).scalar_subquery()
 
-    rows = db.execute(
-        select(Tag, guide_count.label("guide_count")).order_by(Tag.slug)
-    ).all()
+    rows = db.execute(select(Tag, guide_count.label("guide_count")).order_by(Tag.slug)).all()
     return [tag_out(tag, count) for tag, count in rows if count > 0]
 
 
@@ -87,7 +87,10 @@ def search(
     pattern = f"%{_escape_like(term)}%"
 
     step_count = (
-        select(func.count(Step.id)).where(Step.guide_id == Guide.id).correlate(Guide).scalar_subquery()
+        select(func.count(Step.id))
+        .where(Step.guide_id == Guide.id)
+        .correlate(Guide)
+        .scalar_subquery()
     )
     # A reader searching for "immersion oil" is looking for the step that says
     # it, and at ZMB that phrase is usually in a bullet rather than in a title
@@ -107,7 +110,9 @@ def search(
         .exists()
     )
 
-    guides = select(Guide, step_count.label("step_count"), thumbnail_subquery().label("thumb")).where(
+    guides = select(
+        Guide, step_count.label("step_count"), thumbnail_subquery().label("thumb")
+    ).where(
         or_(
             Guide.title.ilike(pattern, escape="\\"),
             Guide.summary.ilike(pattern, escape="\\"),

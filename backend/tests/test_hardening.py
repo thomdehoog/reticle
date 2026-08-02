@@ -35,7 +35,9 @@ def test_a_spoofed_forwarded_header_is_ignored_by_default(client_factory, make_u
     assert blocked.status_code == 429
 
 
-def test_a_forwarded_header_is_honoured_once_a_proxy_is_declared(monkeypatch, db_session, make_user):
+def test_a_forwarded_header_is_honoured_once_a_proxy_is_declared(
+    monkeypatch, db_session, make_user
+):
     monkeypatch.setenv("RETICLE_TRUST_FORWARDED_FOR", "true")
     get_settings.cache_clear()
     make_user("proxied@zmb.uzh.ch")

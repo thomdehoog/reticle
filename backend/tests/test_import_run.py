@@ -206,9 +206,7 @@ def test_a_private_guide_arrives_as_a_draft_rather_than_being_disclosed(
     db_session, author_account, media_root
 ):
     client = FakeDozuki([_guide(public=False)])
-    importer = Importer(
-        db_session, client, _options(include_private=True), get_settings()
-    )
+    importer = Importer(db_session, client, _options(include_private=True), get_settings())
     importer.import_guides()
 
     guide = db_session.scalars(select(Guide)).one()
@@ -255,9 +253,7 @@ def test_an_unrecognised_value_is_reported_and_leaves_the_run_unbalanced(
     assert importer.report.balanced is False
 
 
-def test_a_failing_download_fails_its_guide_and_not_the_run(
-    db_session, author_account, media_root
-):
+def test_a_failing_download_fails_its_guide_and_not_the_run(db_session, author_account, media_root):
     client = FakeDozuki([_guide(1), _guide(2, title="Second guide")])
     client.failing_urls.add("https://example.test/one.png")
 
@@ -288,12 +284,14 @@ def test_a_step_carrying_more_images_than_the_cap_fails_loudly(
     importer = _run(db_session, FakeDozuki([payload]))
 
     assert importer.report.balanced is False
-    assert any("above the configured maximum" in failure for tally in importer.report.guides for failure in tally.failures)
+    assert any(
+        "above the configured maximum" in failure
+        for tally in importer.report.guides
+        for failure in tally.failures
+    )
 
 
-def test_a_category_wiki_becomes_the_categorys_landing_page(
-    db_session, author_account, media_root
-):
+def test_a_category_wiki_becomes_the_categorys_landing_page(db_session, author_account, media_root):
     client = FakeDozuki(
         [_guide()],
         {

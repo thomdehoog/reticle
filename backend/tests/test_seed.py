@@ -80,7 +80,9 @@ def test_the_admin_password_comes_from_the_environment(seeded):
     assert admin.password_hash.startswith("$argon2id$")
 
 
-def test_seeding_without_an_admin_password_refuses_rather_than_inventing_one(db_session, monkeypatch):
+def test_seeding_without_an_admin_password_refuses_rather_than_inventing_one(
+    db_session, monkeypatch
+):
     """A hardcoded fallback would ship a known credential into production."""
     monkeypatch.delenv("RETICLE_ADMIN_PASSWORD", raising=False)
     monkeypatch.setenv("RETICLE_ADMIN_EMAIL", "zmb.admin@zmb.uzh.ch")
@@ -125,7 +127,10 @@ def test_reseeding_does_not_reset_a_changed_admin_password(seeded):
 
     seed(seeded, get_settings())
 
-    assert seeded.scalars(select(User).where(User.role == "admin")).one().password_hash == "$argon2id$changed-by-the-operator"
+    assert (
+        seeded.scalars(select(User).where(User.role == "admin")).one().password_hash
+        == "$argon2id$changed-by-the-operator"
+    )
 
 
 def test_the_example_guide_is_published_and_richly_annotated(seeded):

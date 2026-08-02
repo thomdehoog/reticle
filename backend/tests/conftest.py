@@ -298,14 +298,18 @@ def webm_bytes(padding: int = 64) -> bytes:
     return b"\x1a\x45\xdf\xa3" + b"\x01\x00\x00\x00\x00\x00\x00\x1f" + b"\x00" * padding
 
 
-def upload_media(client: ApiClient, payload: bytes | None = None, filename: str = "step.png") -> dict:
+def upload_media(
+    client: ApiClient, payload: bytes | None = None, filename: str = "step.png"
+) -> dict:
     files = {"file": (filename, payload if payload is not None else image_bytes(), "image/png")}
     response = client.post("/api/media", files=files)
     assert response.status_code == 201, response.text
     return response.json()
 
 
-def upload_video(client: ApiClient, payload: bytes | None = None, filename: str = "stage.mp4") -> dict:
+def upload_video(
+    client: ApiClient, payload: bytes | None = None, filename: str = "stage.mp4"
+) -> dict:
     """Upload a clip through the same endpoint images use, and prove it landed as one."""
     files = {"file": (filename, payload if payload is not None else mp4_bytes(), "video/mp4")}
     response = client.post("/api/media", files=files)
@@ -415,7 +419,13 @@ def annotated(media: dict, *shapes: dict) -> dict:
     return entry
 
 
-def bullet(text: str, color: str = "black", icon: str | None = None, level: int = 0, bullet_id: str | None = None) -> dict:
+def bullet(
+    text: str,
+    color: str = "black",
+    icon: str | None = None,
+    level: int = 0,
+    bullet_id: str | None = None,
+) -> dict:
     entry: dict[str, Any] = {"text": text, "color": color, "icon": icon, "level": level}
     if bullet_id is not None:
         entry["id"] = bullet_id

@@ -183,7 +183,9 @@ def test_editing_a_guide_leaves_its_readership_alone(author, viewer, category):
     viewer.get(f"/api/guides/{created['slug']}")
 
     fresh = author.get(f"/api/guides/{created['id']}").json()
-    saved = author.put(f"/api/guides/{created['id']}", json=document_from(fresh, title="Renamed")).json()
+    saved = author.put(
+        f"/api/guides/{created['id']}", json=document_from(fresh, title="Renamed")
+    ).json()
 
     assert saved["viewCount"] == 2
 

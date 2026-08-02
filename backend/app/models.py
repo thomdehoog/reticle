@@ -81,7 +81,9 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, onupdate=utcnow)
 
-    sessions: Mapped[list[Session]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    sessions: Mapped[list[Session]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Session(Base):
@@ -144,7 +146,9 @@ class Category(Base):
     slug: Mapped[str] = mapped_column(String(200), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
-    parent_id: Mapped[str | None] = mapped_column(ForeignKey("categories.id"), nullable=True, index=True)
+    parent_id: Mapped[str | None] = mapped_column(
+        ForeignKey("categories.id"), nullable=True, index=True
+    )
     order_index: Mapped[int] = mapped_column(Integer, default=0)
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
     hero_media_id: Mapped[str | None] = mapped_column(ForeignKey("media.id"), nullable=True)
@@ -228,7 +232,9 @@ class Tag(Base):
     name: Mapped[str] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
 
-    guide_links: Mapped[list[GuideTag]] = relationship(back_populates="tag", cascade="all, delete-orphan")
+    guide_links: Mapped[list[GuideTag]] = relationship(
+        back_populates="tag", cascade="all, delete-orphan"
+    )
 
 
 class GuideTag(Base):
@@ -427,7 +433,9 @@ class Page(Base):
     slug: Mapped[str] = mapped_column(String(240), unique=True, index=True)
     title: Mapped[str] = mapped_column(String(240))
     summary: Mapped[str] = mapped_column(Text, default="")
-    category_id: Mapped[str | None] = mapped_column(ForeignKey("categories.id"), nullable=True, index=True)
+    category_id: Mapped[str | None] = mapped_column(
+        ForeignKey("categories.id"), nullable=True, index=True
+    )
     is_landing: Mapped[bool] = mapped_column(Boolean, default=False)
     body: Mapped[str] = mapped_column(Text, default="")
     hero_media_id: Mapped[str | None] = mapped_column(ForeignKey("media.id"), nullable=True)

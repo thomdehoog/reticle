@@ -69,13 +69,17 @@ def test_session_cookie_is_httponly_lax_and_not_secure_in_dev(anon, make_user):
 
     response = anon.login("flags@zmb.uzh.ch")
 
-    session_cookie = next(h for h in response.headers.get_list("set-cookie") if h.startswith("reticle_session="))
+    session_cookie = next(
+        h for h in response.headers.get_list("set-cookie") if h.startswith("reticle_session=")
+    )
     assert "HttpOnly" in session_cookie
     assert "SameSite=lax" in session_cookie.replace("SameSite=Lax", "SameSite=lax")
     assert "Path=/" in session_cookie
     assert "Secure" not in session_cookie
 
-    csrf_cookie = next(h for h in response.headers.get_list("set-cookie") if h.startswith("reticle_csrf="))
+    csrf_cookie = next(
+        h for h in response.headers.get_list("set-cookie") if h.startswith("reticle_csrf=")
+    )
     assert "HttpOnly" not in csrf_cookie
 
 
@@ -217,7 +221,9 @@ def test_safe_requests_do_not_need_the_csrf_header(author):
     assert author.raw.get("/api/auth/me").status_code == 200
 
 
-@pytest.mark.parametrize("method,path", [("POST", "/api/guides"), ("PATCH", "/api/users/x"), ("DELETE", "/api/guides/x")])
+@pytest.mark.parametrize(
+    "method,path", [("POST", "/api/guides"), ("PATCH", "/api/users/x"), ("DELETE", "/api/guides/x")]
+)
 def test_csrf_applies_to_every_mutating_verb(author, method, path):
     assert author.raw.request(method, path, json={}).status_code == 403
 

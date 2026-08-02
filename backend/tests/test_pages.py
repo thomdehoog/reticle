@@ -50,9 +50,23 @@ def test_page_response_matches_the_domain_model_exactly(author, category):
     body = create_page(author, category_id=category.id)
 
     assert set(body) == {
-        "id", "slug", "title", "summary", "categoryId", "isLanding", "body",
-        "heroMediaId", "status", "author", "lastEditedBy", "contributors",
-        "viewCount", "createdAt", "updatedAt", "publishedAt", "version",
+        "id",
+        "slug",
+        "title",
+        "summary",
+        "categoryId",
+        "isLanding",
+        "body",
+        "heroMediaId",
+        "status",
+        "author",
+        "lastEditedBy",
+        "contributors",
+        "viewCount",
+        "createdAt",
+        "updatedAt",
+        "publishedAt",
+        "version",
     }
 
 
@@ -62,8 +76,16 @@ def test_page_summary_projection_matches_the_domain_model(author, category):
     entry = author.get("/api/pages").json()[0]
 
     assert set(entry) == {
-        "id", "slug", "title", "summary", "categoryId", "isLanding", "status",
-        "heroImageUrl", "updatedAt", "publishedAt",
+        "id",
+        "slug",
+        "title",
+        "summary",
+        "categoryId",
+        "isLanding",
+        "status",
+        "heroImageUrl",
+        "updatedAt",
+        "publishedAt",
     }
 
 
@@ -135,8 +157,12 @@ def test_a_page_can_be_moved_between_categories_and_out_of_them(author, admin, c
     other = admin.post("/api/categories", json={"name": "Electron Microscopy"}).json()
     created = create_page(author, category_id=category.id)
 
-    moved = author.put(f"/api/pages/{created['id']}", json=page_document_from(created, categoryId=other["id"])).json()
-    detached = author.put(f"/api/pages/{created['id']}", json=page_document_from(moved, categoryId=None)).json()
+    moved = author.put(
+        f"/api/pages/{created['id']}", json=page_document_from(created, categoryId=other["id"])
+    ).json()
+    detached = author.put(
+        f"/api/pages/{created['id']}", json=page_document_from(moved, categoryId=None)
+    ).json()
 
     assert moved["categoryId"] == other["id"]
     assert detached["categoryId"] is None
@@ -217,9 +243,13 @@ def test_a_stale_updated_at_conflicts_and_changes_nothing(author, as_role, categ
     colleague = as_role("author", "colleague@zmb.uzh.ch")
 
     fresh = author.get(f"/api/pages/{created['id']}").json()
-    colleague.put(f"/api/pages/{created['id']}", json=page_document_from(fresh, title="Colleague's title"))
+    colleague.put(
+        f"/api/pages/{created['id']}", json=page_document_from(fresh, title="Colleague's title")
+    )
 
-    response = author.put(f"/api/pages/{created['id']}", json=page_document_from(fresh, title="My title"))
+    response = author.put(
+        f"/api/pages/{created['id']}", json=page_document_from(fresh, title="My title")
+    )
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "conflict"
@@ -259,7 +289,9 @@ def test_publishing_increments_the_version_and_stamps_the_time(author, category)
 
 def test_publishing_writes_an_immutable_snapshot(author, category):
     created = create_page(author, category_id=category.id)
-    author.put(f"/api/pages/{created['id']}", json=page_document_from(created, body="Original body"))
+    author.put(
+        f"/api/pages/{created['id']}", json=page_document_from(created, body="Original body")
+    )
     author.post(f"/api/pages/{created['id']}/publish")
 
     reloaded = author.get(f"/api/pages/{created['id']}").json()
@@ -358,7 +390,9 @@ def test_archived_pages_are_excluded_unless_asked_for(author, admin, category):
     admin.delete(f"/api/pages/{created['id']}")
 
     assert author.get("/api/pages").json() == []
-    assert [p["id"] for p in author.get("/api/pages", params={"status": "archived"}).json()] == [created["id"]]
+    assert [p["id"] for p in author.get("/api/pages", params={"status": "archived"}).json()] == [
+        created["id"]
+    ]
 
 
 def test_a_viewer_gets_not_found_rather_than_forbidden_for_a_draft(author, viewer, category):
@@ -390,7 +424,10 @@ def test_viewers_cannot_create_save_or_publish_a_page(author, viewer, category):
     created = create_page(author, category_id=category.id)
 
     assert viewer.post("/api/pages", json={"title": "Nope"}).status_code == 403
-    assert viewer.put(f"/api/pages/{created['id']}", json=page_document_from(created)).status_code == 403
+    assert (
+        viewer.put(f"/api/pages/{created['id']}", json=page_document_from(created)).status_code
+        == 403
+    )
     assert viewer.post(f"/api/pages/{created['id']}/publish").status_code == 403
     assert viewer.post(f"/api/pages/{created['id']}/unpublish").status_code == 403
 
@@ -401,14 +438,20 @@ def test_the_listing_filters_by_category_and_free_text(author, admin, category):
     create_page(author, "Cryo Sectioning", category_id=other["id"])
     author.put(
         f"/api/pages/{here['id']}",
-        json=page_document_from(here, summary="Oils and their objectives.", body="Never mix the media."),
+        json=page_document_from(
+            here, summary="Oils and their objectives.", body="Never mix the media."
+        ),
     )
 
-    assert [p["title"] for p in author.get("/api/pages", params={"categoryId": other["id"]}).json()] == [
-        "Cryo Sectioning"
+    assert [
+        p["title"] for p in author.get("/api/pages", params={"categoryId": other["id"]}).json()
+    ] == ["Cryo Sectioning"]
+    assert [p["title"] for p in author.get("/api/pages", params={"q": "objectives"}).json()] == [
+        "Immersion Oil"
     ]
-    assert [p["title"] for p in author.get("/api/pages", params={"q": "objectives"}).json()] == ["Immersion Oil"]
-    assert [p["title"] for p in author.get("/api/pages", params={"q": "never mix"}).json()] == ["Immersion Oil"]
+    assert [p["title"] for p in author.get("/api/pages", params={"q": "never mix"}).json()] == [
+        "Immersion Oil"
+    ]
 
 
 def test_a_landing_page_belongs_to_exactly_one_category(author, category):
@@ -430,7 +473,9 @@ def test_a_second_landing_cannot_be_promoted_through_a_save_either(author, categ
     create_page(author, "Light Microscopy", category_id=category.id, is_landing=True)
     other = create_page(author, "Immersion Oil", category_id=category.id)
 
-    response = author.put(f"/api/pages/{other['id']}", json=page_document_from(other, isLanding=True))
+    response = author.put(
+        f"/api/pages/{other['id']}", json=page_document_from(other, isLanding=True)
+    )
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "conflict"
@@ -439,7 +484,9 @@ def test_a_second_landing_cannot_be_promoted_through_a_save_either(author, categ
 def test_a_landing_page_can_be_saved_without_conflicting_with_itself(author, category):
     landing = create_page(author, "Light Microscopy", category_id=category.id, is_landing=True)
 
-    saved = author.put(f"/api/pages/{landing['id']}", json=page_document_from(landing, body="Updated"))
+    saved = author.put(
+        f"/api/pages/{landing['id']}", json=page_document_from(landing, body="Updated")
+    )
 
     assert saved.status_code == 200
     assert saved.json()["isLanding"] is True

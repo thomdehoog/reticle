@@ -37,7 +37,12 @@ def test_authors_and_viewers_cannot_manage_users(author, viewer, make_user):
 
     assert author.get("/api/users").status_code == 403
     assert viewer.get("/api/users").status_code == 403
-    assert author.post("/api/users", json={"email": "x@zmb.uzh.ch", "password": NEW_PASSWORD, "role": "admin"}).status_code == 403
+    assert (
+        author.post(
+            "/api/users", json={"email": "x@zmb.uzh.ch", "password": NEW_PASSWORD, "role": "admin"}
+        ).status_code
+        == 403
+    )
     assert author.patch(f"/api/users/{other.id}", json={"role": "admin"}).status_code == 403
 
 
@@ -62,7 +67,10 @@ def test_an_admin_creates_a_user_who_can_then_log_in(admin, client_factory):
 
 
 def test_a_created_user_password_is_hashed_not_stored(admin, db_session):
-    admin.post("/api/users", json={"email": "hashed@zmb.uzh.ch", "role": "viewer", "password": NEW_PASSWORD})
+    admin.post(
+        "/api/users",
+        json={"email": "hashed@zmb.uzh.ch", "role": "viewer", "password": NEW_PASSWORD},
+    )
 
     stored = db_session.scalars(select(User).where(User.email == "hashed@zmb.uzh.ch")).one()
     assert stored.password_hash.startswith("$argon2id$")
@@ -70,29 +78,39 @@ def test_a_created_user_password_is_hashed_not_stored(admin, db_session):
 
 
 def test_a_duplicate_email_conflicts(admin):
-    response = admin.post("/api/users", json={"email": "admin@zmb.uzh.ch", "role": "viewer", "password": NEW_PASSWORD})
+    response = admin.post(
+        "/api/users", json={"email": "admin@zmb.uzh.ch", "role": "viewer", "password": NEW_PASSWORD}
+    )
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "conflict"
 
 
 def test_a_weak_password_is_refused(admin):
-    response = admin.post("/api/users", json={"email": "weak@zmb.uzh.ch", "role": "viewer", "password": "short"})
+    response = admin.post(
+        "/api/users", json={"email": "weak@zmb.uzh.ch", "role": "viewer", "password": "short"}
+    )
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_failed"
 
 
 def test_an_unknown_role_is_refused(admin):
-    assert admin.post(
-        "/api/users", json={"email": "x@zmb.uzh.ch", "role": "superuser", "password": NEW_PASSWORD}
-    ).status_code == 422
+    assert (
+        admin.post(
+            "/api/users",
+            json={"email": "x@zmb.uzh.ch", "role": "superuser", "password": NEW_PASSWORD},
+        ).status_code
+        == 422
+    )
 
 
 def test_an_admin_changes_a_role_and_a_display_name(admin, make_user):
     target = make_user("promote@zmb.uzh.ch", role="viewer")
 
-    body = admin.patch(f"/api/users/{target.id}", json={"role": "author", "displayName": "Promoted Person"}).json()
+    body = admin.patch(
+        f"/api/users/{target.id}", json={"role": "author", "displayName": "Promoted Person"}
+    ).json()
 
     assert body["role"] == "author"
     assert body["displayName"] == "Promoted Person"
@@ -120,7 +138,10 @@ def test_an_admin_cannot_lock_themselves_out(admin):
 
 
 def test_patching_an_unknown_user_is_not_found(admin):
-    assert admin.patch("/api/users/01JQNOTAREALULID00000000", json={"role": "viewer"}).status_code == 404
+    assert (
+        admin.patch("/api/users/01JQNOTAREALULID00000000", json={"role": "viewer"}).status_code
+        == 404
+    )
 
 
 def test_a_user_changes_their_own_password_with_the_current_one(author, client_factory):
@@ -152,7 +173,12 @@ def test_the_wrong_current_password_is_refused(author):
 def test_a_self_change_must_supply_the_current_password(author):
     me = author.get("/api/auth/me").json()
 
-    assert author.post(f"/api/users/{me['id']}/password", json={"newPassword": NEW_PASSWORD}).status_code == 422
+    assert (
+        author.post(
+            f"/api/users/{me['id']}/password", json={"newPassword": NEW_PASSWORD}
+        ).status_code
+        == 422
+    )
 
 
 def test_a_user_cannot_change_someone_else_s_password(author, make_user):
@@ -169,7 +195,12 @@ def test_a_user_cannot_change_someone_else_s_password(author, make_user):
 def test_an_admin_resets_another_password_without_knowing_it(admin, make_user, client_factory):
     target = make_user("forgot@zmb.uzh.ch", role="viewer")
 
-    assert admin.post(f"/api/users/{target.id}/password", json={"newPassword": NEW_PASSWORD}).status_code == 204
+    assert (
+        admin.post(
+            f"/api/users/{target.id}/password", json={"newPassword": NEW_PASSWORD}
+        ).status_code
+        == 204
+    )
     assert client_factory("192.0.2.70").login("forgot@zmb.uzh.ch", NEW_PASSWORD).status_code == 200
 
 
@@ -185,7 +216,10 @@ def test_changing_a_password_revokes_every_session_of_that_user(admin, as_role, 
 def test_a_password_change_keeps_the_actor_s_own_session_alive(author, client_factory):
     me = author.get("/api/auth/me").json()
 
-    author.post(f"/api/users/{me['id']}/password", json={"currentPassword": TEST_PASSWORD, "newPassword": NEW_PASSWORD})
+    author.post(
+        f"/api/users/{me['id']}/password",
+        json={"currentPassword": TEST_PASSWORD, "newPassword": NEW_PASSWORD},
+    )
 
     assert author.get("/api/auth/me").status_code == 200
 

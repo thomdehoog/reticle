@@ -154,9 +154,7 @@ def middleware():
         ("/api/media/01ABC", "GET", 600),
     ],
 )
-def test_an_upload_is_held_to_a_lower_ceiling_than_a_page_view(
-    middleware, path, method, expected
-):
+def test_an_upload_is_held_to_a_lower_ceiling_than_a_page_view(middleware, path, method, expected):
     """A guide's worth of photographs is tens of megabytes and every one is
     decoded and re-encoded. A limit generous enough for reads would let a loop
     fill the disk."""

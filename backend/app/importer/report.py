@@ -144,14 +144,26 @@ class MigrationReport:
         ]
 
         totals = {
-            "steps": (sum(t.source_steps for t in self.guides), sum(t.imported_steps for t in self.guides)),
-            "bullets": (sum(t.source_bullets for t in self.guides), sum(t.imported_bullets for t in self.guides)),
-            "images": (sum(t.source_images for t in self.guides), sum(t.imported_images for t in self.guides)),
+            "steps": (
+                sum(t.source_steps for t in self.guides),
+                sum(t.imported_steps for t in self.guides),
+            ),
+            "bullets": (
+                sum(t.source_bullets for t in self.guides),
+                sum(t.imported_bullets for t in self.guides),
+            ),
+            "images": (
+                sum(t.source_images for t in self.guides),
+                sum(t.imported_images for t in self.guides),
+            ),
             "annotations": (
                 sum(t.source_annotations for t in self.guides),
                 sum(t.imported_annotations for t in self.guides),
             ),
-            "videos": (sum(t.source_videos for t in self.guides), sum(t.imported_videos for t in self.guides)),
+            "videos": (
+                sum(t.source_videos for t in self.guides),
+                sum(t.imported_videos for t in self.guides),
+            ),
         }
         lines.append("Totals, site versus Reticle")
         for name, (expected, actual) in totals.items():
@@ -174,7 +186,9 @@ class MigrationReport:
             lines.append("")
 
         if self.questions:
-            lines.append(f"Fields the source carries that Reticle does not read ({len(self.questions)})")
+            lines.append(
+                f"Fields the source carries that Reticle does not read ({len(self.questions)})"
+            )
             lines.append("Not losses — but this is where a missing feature shows up.")
             for value, count in self.question_summary():
                 lines.append(f"  {count:>5}  {value}")

@@ -72,7 +72,10 @@ class Settings(BaseSettings):
     cookie_domain: str | None = None
     session_lifetime_hours: int = 12
 
-    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    cors_origins: Annotated[list[str], NoDecode] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
 
     # A ceiling on everything that is not a login. Set where a person cannot
     # reach it and a runaway script can: an author saving every few seconds, a
