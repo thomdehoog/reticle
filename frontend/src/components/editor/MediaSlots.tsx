@@ -1,3 +1,15 @@
+/**
+ * Adding and arranging the pictures for one step.
+ *
+ * A step can hold up to four pictures and one short video. This is where an
+ * author drops files in, reorders them, removes one, or opens the drawing tools
+ * to mark up a picture.
+ *
+ * The first picture is the large one a reader sees; the others appear as small
+ * thumbnails they can click to swap in. So the order is not cosmetic, and this is
+ * where it is decided.
+ */
+
 import { useRef, useState, type DragEvent } from 'react'
 
 import { MAX_MEDIA_PER_STEP, type Media } from '../../domain/types'

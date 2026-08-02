@@ -1,3 +1,7 @@
+/**
+ * All the wiki pages, in one place.
+ */
+
 import { Link } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'

@@ -1,3 +1,12 @@
+/**
+ * A guide as a reader sees it.
+ *
+ * Step by step, big picture on the left with any shapes drawn over it, coloured
+ * points on the right. This is the screen the whole product exists to produce,
+ * and it is intentionally plain: somebody is reading it with one hand while doing
+ * something with the other.
+ */
+
 import { Link, useParams } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'

@@ -1,3 +1,19 @@
+/**
+ * Fetching something from the server without the usual mess.
+ *
+ * Almost every screen needs the same three things: show a spinner while data is
+ * loading, show the data when it arrives, show an error if it does not. Writing
+ * that out on every screen means writing the same bug on every screen.
+ *
+ * This puts it in one place. Give it a function that fetches, and it hands back
+ * the data, the error, and whether it is still loading.
+ *
+ * The subtle part it also handles: if you switch from one category to another
+ * quickly, the first request may finish *after* the second. Without care, the old
+ * category's guides would appear under the new category's heading. Results that
+ * arrive too late are thrown away.
+ */
+
 import { useCallback, useEffect, useState } from 'react'
 
 interface AsyncState<T> {

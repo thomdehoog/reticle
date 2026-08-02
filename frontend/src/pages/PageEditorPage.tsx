@@ -1,3 +1,16 @@
+/**
+ * The screen where a wiki page is written.
+ *
+ * The wiki counterpart of the guide editor. A wiki page is one body of text
+ * rather than numbered steps, so this is much simpler - but it saves the same
+ * way, refuses to overwrite a colleague's changes the same way, and publishes the
+ * same way.
+ *
+ * Wiki pages can also embed a live list of guides carrying a given tag, so a
+ * "Confocal" page always lists every confocal guide without anybody maintaining
+ * the list by hand.
+ */
+
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 

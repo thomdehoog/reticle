@@ -1,3 +1,7 @@
+/**
+ * Taking a guide or a page out of circulation.
+ */
+
 import { useState } from 'react'
 
 import { useAuth } from '../../auth/AuthContext'

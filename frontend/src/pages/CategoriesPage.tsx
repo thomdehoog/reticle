@@ -1,3 +1,14 @@
+/**
+ * Where an administrator arranges the categories.
+ *
+ * Categories are the shelves the guides sit on - Light Microscopy, Electron
+ * Microscopy, and so on. They can be nested, reordered, given a cover picture, or
+ * hidden from the front page while still being reachable by tag.
+ *
+ * Only administrators see this. A category is shared by everybody, so renaming
+ * one changes what the whole institute sees.
+ */
+
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 

@@ -1,3 +1,7 @@
+/**
+ * Shared setup for component tests.
+ */
+
 import { render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router'

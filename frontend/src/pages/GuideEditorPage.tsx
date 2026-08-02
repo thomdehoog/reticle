@@ -1,3 +1,17 @@
+/**
+ * The screen where a guide is written.
+ *
+ * This is the biggest screen in the application and the one that has to be
+ * trusted most, because somebody is putting real work into it. It holds the
+ * guide's title and summary, its tags, and every step with its points and
+ * pictures.
+ *
+ * It saves by itself, a couple of seconds after you stop typing, so there is no
+ * Save button to forget. It also refuses to overwrite somebody else's changes: if
+ * a colleague edited the same guide while this copy was open, saving stops and
+ * says so rather than quietly discarding their work.
+ */
+
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 

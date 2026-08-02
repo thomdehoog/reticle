@@ -1,3 +1,11 @@
+/**
+ * The small window that appears when you start a new wiki page.
+ *
+ * The wiki half of the same idea as the new-guide window. A wiki page is a page
+ * of explanation rather than a numbered procedure, so it needs even less to get
+ * started: a title, and optionally which category it sits under.
+ */
+
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 

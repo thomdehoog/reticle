@@ -1,3 +1,15 @@
+/**
+ * The sign-in screen.
+ *
+ * The only screen anybody can reach without an account, so it is also the only
+ * place the facility's name is shown to someone who has not signed in - which is
+ * why the application asks the server who it belongs to before anyone logs in.
+ *
+ * It never says whether an email address exists. "That did not work" is the same
+ * answer for a wrong password and an unknown account, because a different answer
+ * would let somebody discover who has an account here.
+ */
+
 import { useState, type FormEvent } from 'react'
 
 import { ApiError } from '../api/client'

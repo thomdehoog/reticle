@@ -1,3 +1,14 @@
+/**
+ * The small window that appears when you start a new guide.
+ *
+ * It asks for the two things a guide cannot exist without - a title and which
+ * category it belongs to - and then creates it and opens the editor. Everything
+ * else about a guide can be filled in later.
+ *
+ * Asking for the minimum is deliberate. A long form in front of somebody who has
+ * just had an idea is how the idea gets lost.
+ */
+
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 

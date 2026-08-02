@@ -1,3 +1,15 @@
+/**
+ * One step in the editor, all of it.
+ *
+ * A step is a title, some coloured points, and up to four pictures plus a video.
+ * This file assembles those pieces into the card an author edits, and handles
+ * dragging a step to a new position in the guide.
+ *
+ * It is a separate file mostly because a guide can have thirty steps: keeping one
+ * step's editing entirely inside one component is what stops a change to step
+ * four re-drawing the other twenty-nine.
+ */
+
 import { useState, type DragEvent } from 'react'
 
 import { createBullet, indentBullet } from '../../domain/guide'

@@ -1,3 +1,11 @@
+/**
+ * Your own account: your name, and changing your password.
+ *
+ * Deliberately small. This is the one screen every user reaches regardless of
+ * role, so it does only what it says. Managing *other* people's accounts is a
+ * different screen, for administrators.
+ */
+
 import { useState, type FormEvent } from 'react'
 
 import { ApiError } from '../api/client'

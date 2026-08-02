@@ -1,3 +1,17 @@
+/**
+ * The coloured points written beside a step's picture.
+ *
+ * A step in a guide is a picture on the left and a short list of points on the
+ * right. Each point has a colour, and that colour is not decoration: a red point
+ * matches the red shape drawn on the picture, so "the switch marked in red" needs
+ * no further explanation. Some points also carry a flag - Note, Caution or
+ * Reminder - and points can be indented under one another.
+ *
+ * This file draws that list. It is separate from the editor that writes it,
+ * because a reader must see exactly what an author wrote, and the safest way to
+ * guarantee that is for both to use this same component.
+ */
+
 import type { ComponentType } from 'react'
 
 import type { Bullet, BulletIcon } from '../domain/types'

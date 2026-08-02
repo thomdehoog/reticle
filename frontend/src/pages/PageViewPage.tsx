@@ -1,3 +1,7 @@
+/**
+ * A wiki page as a reader sees it.
+ */
+
 import { Link, useParams } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'

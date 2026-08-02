@@ -1,3 +1,15 @@
+/**
+ * The list of times a guide was published.
+ *
+ * Every time somebody publishes, Reticle keeps a complete copy of how the guide
+ * read at that moment. This panel lists those copies and lets an author look at
+ * one.
+ *
+ * That matters at a facility more than it might elsewhere. If an instrument was
+ * damaged in March, the question is what the procedure said in March - not what
+ * it says now, after somebody corrected it.
+ */
+
 import { useState, type ReactNode } from 'react'
 
 import type { RevisionSummary } from '../../api/reticle'

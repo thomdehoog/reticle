@@ -1,3 +1,11 @@
+/**
+ * Every tag, with how many guides carry it.
+ *
+ * Tags are the real index of this corpus - one guide about the LAS X software
+ * belongs under ten different instruments, which is something categories alone
+ * cannot express. This page is the way in to that.
+ */
+
 import { Link } from 'react-router'
 
 import { useApi } from '../auth/AuthContext'

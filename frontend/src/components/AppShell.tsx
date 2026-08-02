@@ -1,3 +1,13 @@
+/**
+ * The frame that stays put while the middle changes.
+ *
+ * The header, the search box, the sign-out button and the side navigation are the
+ * same on every screen, so they are drawn once here and the actual page is
+ * dropped into the middle. Moving between guides swaps only the middle, which is
+ * why navigation feels instant and why the scroll position of the sidebar is not
+ * thrown away every time you click something.
+ */
+
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router'
 

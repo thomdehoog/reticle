@@ -1,3 +1,12 @@
+/**
+ * Where an administrator manages accounts.
+ *
+ * Creating accounts, changing what somebody is allowed to do, and deactivating
+ * people who have left. Deactivating rather than deleting: guides record who
+ * wrote them, and a departed colleague's name should stay on the procedure they
+ * wrote.
+ */
+
 import { useState, type FormEvent } from 'react'
 
 import { useApi, useAuth } from '../auth/AuthContext'

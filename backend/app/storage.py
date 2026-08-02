@@ -1,21 +1,24 @@
-"""Where uploaded files live, behind one interface.
+"""Where uploaded photographs and videos are kept.
 
-Reticle stored media by calling ``Path.write_bytes`` from four different
-modules. That works for one server and forecloses everything else: files on a
-local disk cannot be shared between processes, do not survive the instance
-being replaced, and are backed up by tarring tens of gigabytes nightly.
+Every picture in a guide is a file that has to live somewhere. On the server
+ZMB runs, "somewhere" is a folder on its hard disk. If Reticle is ever hosted
+for several facilities at once, it becomes a bucket in cloud storage instead,
+because a folder on one machine's disk cannot be shared between machines and
+disappears if that machine is replaced.
 
-This module is the seam. ``LocalStorage`` is the default and behaves exactly as
-before; ``S3Storage`` is the same interface against object storage. Nothing
-above this layer knows which one it is talking to.
+This file exists so that the rest of the program never has to know which of
+those two it is. Everywhere else just says "save this file" and "give me that
+file back", and this module decides how. Swapping one for the other is a
+setting, not a rewrite.
 
-**The rule that must survive the move**, because it is the one most easily
-lost: media stay behind the login. Reticle refuses a viewer a file unless a
-published guide or page actually shows it, and that has been fixed twice
-because each new way of displaying a file was a fresh copy of the same hole. A
-public bucket throws all of it away. ``S3Storage`` therefore issues
-**short-lived signed URLs** after the application has performed that check — it
-never makes an object public.
+One rule governs everything here: **a file is only ever handed to someone
+allowed to see it.** Guides contain photographs of access badges, licence keys
+taped to instruments, and results that are not published yet. Cloud storage
+makes it very easy to mark a file "anyone with the link can read this", and
+that cannot be undone later — whatever was copied while it was open stays
+copied. So files are always stored privately, and when one is needed the
+application checks first, then hands out a link that stops working within
+minutes.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """

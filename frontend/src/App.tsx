@@ -1,3 +1,16 @@
+/**
+ * The map from a web address to a screen.
+ *
+ * Every address the application understands is listed here once: `/g/something`
+ * is a guide, `/w/something` is a wiki page, `/search` is the search results.
+ * React Router matches the address in the browser's bar against this list and
+ * draws the matching screen.
+ *
+ * Keeping the whole list in one small file means you can answer "what pages does
+ * this thing have?" by reading twenty lines, and you cannot add a page that
+ * nobody can reach.
+ */
+
 import { Navigate, Route, Routes, useLocation } from 'react-router'
 
 import { AppShell } from './components/AppShell'

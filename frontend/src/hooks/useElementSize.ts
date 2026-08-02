@@ -1,3 +1,7 @@
+/**
+ * Measuring how big something actually is on screen.
+ */
+
 import { useEffect, useRef, useState } from 'react'
 
 export interface Size {

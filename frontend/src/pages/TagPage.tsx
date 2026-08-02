@@ -1,3 +1,7 @@
+/**
+ * Everything carrying one tag.
+ */
+
 import { Link, useParams } from 'react-router'
 
 import { useApi } from '../auth/AuthContext'

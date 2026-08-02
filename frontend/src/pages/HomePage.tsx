@@ -1,3 +1,11 @@
+/**
+ * The front page: the categories, as pictures.
+ *
+ * The first screen after signing in. It shows the top-level categories with their
+ * cover images rather than a list of links, because the fastest way to find the
+ * confocal instructions is to recognise the confocal.
+ */
+
 import { useApi, useAuth } from '../auth/AuthContext'
 import { CategoryTile, GuideCard, TileGrid } from '../components/BrowseCards'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'

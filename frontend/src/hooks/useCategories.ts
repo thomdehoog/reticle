@@ -1,3 +1,7 @@
+/**
+ * Turning the flat list of categories into a tree.
+ */
+
 import { useApi } from '../auth/AuthContext'
 import type { Category } from '../domain/types'
 import { useAsync } from './useAsync'

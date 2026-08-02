@@ -1,3 +1,11 @@
+/**
+ * Search results, across guides and wiki pages together.
+ *
+ * Somebody looking for "immersion oil" does not know or care whether the answer
+ * was written as a step-by-step guide or as a page of explanation, and a search
+ * that covered only one would send them to the one place the answer is not.
+ */
+
 import { useSearchParams } from 'react-router'
 
 import { useApi } from '../auth/AuthContext'

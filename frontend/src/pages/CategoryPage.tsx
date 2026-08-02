@@ -1,3 +1,12 @@
+/**
+ * One category, opened up.
+ *
+ * Shows what is inside a category: any sub-categories, the wiki page that
+ * introduces it if there is one, and the guides it holds - as pictures rather
+ * than a list of titles, because people recognise the instrument they used far
+ * faster than they recall what the procedure was called.
+ */
+
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 

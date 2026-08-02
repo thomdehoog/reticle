@@ -1,3 +1,15 @@
+/**
+ * Writing the coloured points beside a step.
+ *
+ * This is the authoring side of `BulletList`. It lets somebody type a point,
+ * choose its colour, indent it under the point above, and mark it as a Note,
+ * Caution or Reminder.
+ *
+ * The colour picker matters more than it looks: the colour chosen here is the
+ * same colour the author will draw on the picture, and that pairing is how a
+ * reader knows which point refers to which part of the image.
+ */
+
 import {
   useEffect,
   useLayoutEffect,

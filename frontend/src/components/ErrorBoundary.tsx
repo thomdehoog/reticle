@@ -1,25 +1,17 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react'
-
 /**
- * The last thing between a rendering bug and a white screen.
+ * The safety net under the whole interface.
  *
- * React unmounts the entire tree when a render throws and nothing catches it.
- * There is no message, no navigation and no back button that helps — the tab is
- * simply blank, which reads as "the system is down" rather than "one guide has
- * something odd in it". For documentation somebody is standing at an instrument
- * trying to follow, that difference decides whether they retry or give up.
+ * If any part of React fails while drawing the page, React's response is to
+ * remove everything - the tab simply goes white, with no message and no way back.
+ * For somebody standing at a microscope following a procedure, that looks like
+ * the whole system is down rather than one guide having something odd in it.
  *
- * Two deliberate choices:
- *
- * **Reset on navigation is not offered.** A boundary that silently re-renders
- * the same broken subtree loops. The escape here is a real page load, which also
- * discards whatever corrupt client state caused it.
- *
- * **It does not claim unsaved work is safe.** The editor autosaves, but a crash
- * mid-edit may have lost the last few seconds, and telling somebody their work
- * is fine when it may not be is worse than saying nothing. The wording states
- * what is known and no more.
+ * This file catches that failure and shows a page explaining what happened, with
+ * a way out. It also quietly tells the server, so the bug reaches somebody who
+ * can fix it instead of living in a browser console nobody opens.
  */
+
+import { Component, type ErrorInfo, type ReactNode } from 'react'
 
 interface Props {
   children: ReactNode
@@ -70,6 +62,17 @@ interface State {
   error: Error | null
 }
 
+/**
+ * Two deliberate choices worth knowing before changing this.
+ *
+ * **There is no "try again" button.** Re-drawing the same broken thing in place
+ * would just fail again, in a loop. The way out is a real page reload, which
+ * also throws away whatever confused state caused it.
+ *
+ * **It does not promise your work is safe.** The editor saves by itself, but a
+ * crash may have lost the last few seconds, and telling somebody their work is
+ * fine when it might not be is worse than saying nothing.
+ */
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { error: null }
 
