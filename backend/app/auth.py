@@ -54,26 +54,33 @@ def parse_ip_address(value: str | None) -> str | None:
         return None
 
 
-def _warn_about_untrusted_forwarding(peer: str | None) -> None:
+def _warn_about_collapsed_attribution(peer: str) -> None:
     """Say once that the throttle is counting the proxy, not the caller.
 
-    This is the misconfiguration that looks like nothing at all. With
-    ``trust_forwarded_for`` off behind a reverse proxy — which is the deployment
-    the README describes — every request reports the proxy's address, so the
-    per-address login limit buckets the entire institute and twenty mistyped
-    passwords lock everybody out at once. Nothing in the logs says so unless
-    something says so.
+    This is the misconfiguration that looks like nothing at all: every request
+    reports the proxy's address, so the per-address login limit buckets the
+    entire institute and twenty mistyped passwords lock everybody out at once.
+    Nothing in the logs says so unless something says so.
+
+    It fires only when attribution really has collapsed — the caller's own
+    address has been lost. The shipped multi-facility unit runs uvicorn with
+    ``--proxy-headers --forwarded-allow-ips 127.0.0.1``, which rewrites the peer
+    address to the forwarded one before any of this code sees it, so on that
+    deployment there is nothing to warn about and telling the operator to set
+    ``RETICLE_TRUST_FORWARDED_FOR`` would make things worse: with a proxy that
+    appends rather than overwrites, the value read back is one the caller chose.
     """
     global _untrusted_forwarding_warned
     if _untrusted_forwarding_warned:
         return
     _untrusted_forwarding_warned = True
     logger.warning(
-        "Requests carry X-Forwarded-For but RETICLE_TRUST_FORWARDED_FOR is false, so every caller is "
-        "being attributed to %s and the per-address login throttle now covers all of them at once. "
-        "Set RETICLE_TRUST_FORWARDED_FOR=true if — and only if — that proxy overwrites the header "
-        "rather than appending to it.",
-        peer or "the peer address",
+        "Requests carry X-Forwarded-For, the peer address is still the proxy at %s, and "
+        "RETICLE_TRUST_FORWARDED_FOR is false — so every caller is attributed to that one address "
+        "and the per-address login throttle now covers all of them at once. Either run uvicorn with "
+        "--proxy-headers --forwarded-allow-ips <proxy>, or set RETICLE_TRUST_FORWARDED_FOR=true if "
+        "— and only if — the proxy overwrites the header rather than appending to it.",
+        peer,
     )
 
 
@@ -85,12 +92,18 @@ def client_address(request: Request) -> str | None:
     would let any client pick its own throttle bucket.
     """
     forwarded = request.headers.get(FORWARDED_HEADER)
+    peer = request.client.host if request.client else None
     if get_settings().trust_forwarded_for:
         if forwarded:
             return parse_ip_address(forwarded.split(",")[0])
-    elif forwarded:
-        _warn_about_untrusted_forwarding(request.client.host if request.client else None)
-    return request.client.host if request.client else None
+    elif forwarded and peer is not None:
+        # Only when the peer really is somebody else. If uvicorn's own
+        # --proxy-headers already rewrote the peer to the forwarded address,
+        # attribution is correct and there is nothing to say.
+        claimed = parse_ip_address(forwarded.split(",")[0])
+        if claimed != peer:
+            _warn_about_collapsed_attribution(peer)
+    return peer
 
 
 def get_session_row(

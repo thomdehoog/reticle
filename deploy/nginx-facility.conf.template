@@ -5,6 +5,12 @@
 # build is shared — one copy of the JavaScript on disk, served to all of them —
 # because nothing in it is facility-specific: the organisation's name arrives at
 # runtime from /api/config, which is exactly why that endpoint exists.
+#
+# The security headers are NOT in this file. They live in
+# /etc/nginx/snippets/reticle-{{SLUG}}-headers.conf and are included below once
+# per block. Read the comment at the top of that file before moving them back
+# here — nginx's add_header does not inherit into a block that sets one of its
+# own, and putting them in one place is what breaks the policy.
 
 server {
     listen 80;
@@ -31,24 +37,9 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
 
-    # HSTS is set here rather than in the application because it must also
-    # cover responses the application never sees — static files, redirects, and
-    # errors nginx answers itself.
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-
-    # The application sets these on its JSON responses, but the page that
-    # actually runs JavaScript and can be put in a frame is served from disk by
-    # nginx and never reaches the application at all.
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header Referrer-Policy "no-referrer" always;
-
-    # Everything the interface needs comes from this origin. No third-party
-    # scripts, no CDN, no analytics - so the policy can be as tight as it
-    # looks, and anything injected into a guide cannot phone out.
-    #   img-src data: - the annotation overlay renders inline SVG
-    #   style-src 'unsafe-inline' - Vite emits inline styles for critical CSS
-    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+    # Covers responses nginx answers itself — a 404, a redirect, a TLS error
+    # page — which match no location below.
+    include /etc/nginx/snippets/reticle-{{SLUG}}-headers.conf;
 
     # Uploads are capped in the application too; this stops a large body being
     # read into the proxy at all.
@@ -63,6 +54,8 @@ server {
         # real file has to return index.html rather than 404 — otherwise
         # reloading the page on /g/some-guide gives nginx's error page.
         try_files $uri $uri/ /index.html;
+
+        include /etc/nginx/snippets/reticle-{{SLUG}}-headers.conf;
     }
 
     # Hashed asset filenames change whenever their contents do, so they can be
@@ -71,10 +64,15 @@ server {
     location /assets/ {
         expires 1y;
         add_header Cache-Control "public, immutable";
+        include /etc/nginx/snippets/reticle-{{SLUG}}-headers.conf;
     }
 
+    # try_files above and `index` both redirect internally to this exact path,
+    # so this block — not `location /` — is what actually answers with the HTML
+    # document. It is the one response where the CSP matters most.
     location = /index.html {
         add_header Cache-Control "no-cache";
+        include /etc/nginx/snippets/reticle-{{SLUG}}-headers.conf;
     }
 
     location /api/ {
@@ -105,5 +103,7 @@ server {
         # Uploads are streamed rather than buffered to disk first: a 200 MB
         # video would otherwise be written to the proxy's spool and read back.
         proxy_request_buffering off;
+
+        include /etc/nginx/snippets/reticle-{{SLUG}}-headers.conf;
     }
 }

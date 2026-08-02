@@ -6,11 +6,18 @@ pytest~=9.1
 pytest-cov~=7.1
 httpx~=0.28
 
-# The PostgreSQL driver, for the CI job that runs the whole suite against a
-# real server. SQLite accepts things PostgreSQL rejects - a NUL byte in a text
+# The PostgreSQL driver lives in requirements.txt, because production runs on
+# PostgreSQL. The CI job that runs the whole suite against a real server gets it
+# from there. SQLite accepts things PostgreSQL rejects - a NUL byte in a text
 # column was found exactly this way - so a suite that has only run on SQLite is
 # evidence about SQLite.
-psycopg[binary]~=3.2
+
+# pip-tools, which compiles the two lock files, is deliberately NOT listed
+# here. It depends on pip and setuptools themselves, so a lock generated with it
+# in the set pins pip inside a file that pip is being asked to install — which
+# needs --allow-unsafe and installs a pip over the running one. Install it into
+# a throwaway environment when the locks need regenerating; the command is in
+# requirements.lock.
 
 # Linting. `ruff format` is deliberately not enforced - see pyproject.toml.
 ruff~=0.15

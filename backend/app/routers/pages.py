@@ -192,12 +192,15 @@ def publish_page(page_id: str, request: Request, db: DbDep, user: AuthorUser) ->
         raise errors.conflict("Restore this page before publishing it.")
 
     now = utcnow()
-    page.status = "published"
+    # Publishing is not a contribution. The by-line lists who changed the
+    # document, so an admin clicking Publish on a colleague's page must not be
+    # added to it — see ``documents.record_contribution`` and the guide half,
+    # which does the same.
+    page.status = READER_STATUS
     page.version += 1
     page.published_at = now
     page.updated_at = next_updated_at(page.updated_at)
     page.last_edited_by_id = user.id
-    record_contribution(db, page, user)
     db.flush()
 
     db.add(

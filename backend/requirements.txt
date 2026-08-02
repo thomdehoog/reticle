@@ -7,6 +7,23 @@
 # Bounds are "compatible release": patch and minor updates are accepted, a major
 # version bump is not, so a dependency cannot silently change behaviour under a
 # facility that only reboots the server twice a year.
+#
+# THIS FILE IS NOT WHAT PRODUCTION INSTALLS. A range resolves to whatever is
+# newest on the day, so a deploy and a rollback three days later build two
+# different environments, and neither is the one CI tested. `requirements.lock`
+# beside this file pins every package and every transitive package to one exact
+# version with a hash, and that is what the deploy and CI install. This file is
+# the *input* to that lock: edit it, then regenerate.
+#
+# Regenerating, on Python 3.12 to match CI and the server:
+#
+#     python3.12 -m venv /tmp/lock && /tmp/lock/bin/pip install 'pip<25.1' pip-tools
+#     cd backend
+#     /tmp/lock/bin/pip-compile --generate-hashes -o requirements.lock requirements.txt
+#     /tmp/lock/bin/pip-compile --generate-hashes -o requirements-dev.lock requirements-dev.txt
+#
+# The `pip<25.1` is not superstition: pip-tools 7.6 imports a private pip symbol
+# that pip removed in 25.1, and pip-compile dies on import without it.
 
 fastapi~=0.141
 uvicorn~=0.52
@@ -16,6 +33,14 @@ sqlalchemy~=2.0
 # existing one, so without this a column added in a release simply never
 # reaches a database that already exists.
 alembic~=1.18
+
+# The PostgreSQL driver. Production is one database per facility on PostgreSQL,
+# and `provision-facility.sh` writes `postgresql+psycopg://…` into every
+# facility's environment file — so this is a runtime dependency, not a test one.
+# Without it here the first provisioning run stops at the migration step, after
+# the role and the database already exist.
+# SQLite needs nothing extra; it is part of Python.
+psycopg[binary]~=3.2
 
 # The [email] extra pulls in email-validator, which pydantic's EmailStr needs at
 # import time. The conda environment happens to get it transitively, so leaving

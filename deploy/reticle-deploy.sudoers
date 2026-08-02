@@ -1,0 +1,50 @@
+# Install as /etc/sudoers.d/reticle-deploy, owned by root, mode 0440:
+#
+#     sudo install -o root -g root -m 0440 \
+#          deploy/reticle-deploy.sudoers /etc/sudoers.d/reticle-deploy
+#     sudo visudo -c -f /etc/sudoers.d/reticle-deploy
+#
+# Check it with visudo before you trust it. A syntax error in a file under
+# sudoers.d can make sudo refuse to run at all, and the machine you would use to
+# fix that is the machine you just locked yourself out of.
+#
+# ---------------------------------------------------------------------------
+# There are two accounts, and they are not the same account.
+#
+#   reticle         runs the application. Created with `--system --shell
+#                   /usr/sbin/nologin`: it owns the databases' credentials and
+#                   the media, and nobody logs in as it, ever.
+#
+#   reticle-deploy  receives the deploy over SSH. It has a real shell, because
+#                   an account with no shell cannot accept an ssh command, and
+#                   it owns /opt/reticle/releases so unpacking a release and
+#                   building a virtualenv need no privilege at all.
+#
+# The two rules below are the entire gap between them. Anything a deploy does
+# that is not one of these it does as itself.
+#
+# Be clear-eyed about the second rule: running an arbitrary command as `reticle`
+# is, in practice, everything `reticle` can do — including reading every
+# facility's database password. That is not a leak in the rule, it is what a
+# deploy *is*: it installs the code that runs as `reticle`. The rule is
+# narrow in the direction that matters, which is that it is not root.
+# ---------------------------------------------------------------------------
+
+# Restarting one facility's service after the release symlink moves, and again
+# on rollback. The wildcard covers the slug and nothing else — sudo matches each
+# argument on its own, so `reticle@zmb` matches and `reticle@zmb --now-do-this`
+# does not.
+reticle-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart reticle@*
+
+# migrate-all.sh backs up and migrates each facility as the account that owns
+# the data. A database URL and a secret key sit in each facility's env file,
+# mode 0600 and owned by `reticle`, so this cannot be done as anyone else.
+reticle-deploy ALL=(reticle) NOPASSWD: /bin/bash
+
+# Deliberately NOT granted, so that the list is a decision rather than an
+# accident:
+#   * systemctl daemon-reload, enable, stop  — unit files change with the OS,
+#     not with a release, and stopping a facility is a person's decision.
+#   * nginx -t / reload  — vhosts are written by provision-facility.sh, which
+#     an operator runs as root. A deploy never touches them.
+#   * anything as root beyond the one restart above.

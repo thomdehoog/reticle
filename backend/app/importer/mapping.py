@@ -897,7 +897,6 @@ _WIKI_HEADING = re.compile(r"^(={2,6})\s*(.+?)\s*\1\s*$", re.MULTILINE)
 _WIKI_BOLD = re.compile(r"'''(.+?)'''", re.DOTALL)
 _WIKI_ITALIC = re.compile(r"''(.+?)''", re.DOTALL)
 _WIKI_LINK = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
-_WIKI_GUIDE_TAG = re.compile(r"\[guide\|(\d+)(?:\|([^\]]*))?\]", re.IGNORECASE)
 _WIKI_LIST = re.compile(r"^\*\s+", re.MULTILINE)
 
 
@@ -905,13 +904,21 @@ def wiki_to_markdown(source: str) -> str:
     """Convert the vendor's wiki syntax into Markdown.
 
     Only the constructs the corpus actually uses are translated — headings,
-    bold, italic, links, bullet lists and the guide embed. Anything else is left
-    as literal text rather than half-converted, so a reviewer comparing the two
-    sides sees the untranslated marker and can decide, instead of finding a
-    silently mangled paragraph.
+    bold, italic, links and bullet lists. Anything else is left as literal text
+    rather than half-converted, so a reviewer comparing the two sides sees the
+    untranslated marker and can decide, instead of finding a silently mangled
+    paragraph.
 
-    A guide embed becomes a Reticle ``guidelist`` block keyed by tag, which is
-    the mechanism the category pages are built from on this side.
+    A guide embed — ``[guide|1234|Align the laser]`` — is one of the things left
+    alone, and that is the deliberate choice rather than an omission. Reticle's
+    own embed is :func:`guide_list_block`, which selects guides **by tag**; the
+    vendor's selects **one guide by its numeric id**. Nothing maps an id to a
+    tag, so the closest automatic translation would emit a ``guidelist`` keyed
+    on "1234", which renders as an empty list — a reader would see nothing at
+    all where the source showed a guide, and the reconciliation counts would not
+    notice. Left as text, the marker is visible on the page and whoever reviews
+    the migrated category pages can replace it with the embed they meant.
+    ``docs/MIGRATION.md`` says the same.
     """
     if not source:
         return ""

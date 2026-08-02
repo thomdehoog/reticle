@@ -1,0 +1,46 @@
+# Security headers for one facility.
+#
+# provision-facility.sh substitutes {{SLUG}}, {{DOMAIN}} and {{MEDIA_ORIGIN}}
+# and writes the result to /etc/nginx/snippets/reticle-{{SLUG}}-headers.conf.
+# The vhost includes this file from every block that answers a request.
+#
+# WHY a separate file, included over and over, instead of writing these once at
+# the top of the server block:
+#
+#   nginx's `add_header` does not stack across levels. The rule is "inherited
+#   from the previous level only if this level defines no add_header of its
+#   own" — so one `add_header Cache-Control ...` inside a location throws away
+#   every header it would otherwise have inherited. The HTML document is served
+#   by such a location, so the whole policy below would reach nothing that runs
+#   JavaScript. Including this file in a block counts as defining the headers at
+#   that level, which is exactly what makes them survive.
+#
+# The rule to follow when editing the vhost: any block that contains an
+# add_header must also contain this include.
+
+# Tells the browser to use HTTPS for this host and never plain HTTP again. Set
+# here rather than in the application because it must also cover responses the
+# application never sees — static files, redirects, and errors nginx answers
+# itself.
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+# The application sets these on its JSON responses, but the page that actually
+# runs JavaScript and can be put in a frame is served from disk by nginx and
+# never reaches the application at all.
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+add_header Referrer-Policy "no-referrer" always;
+
+# Everything the interface needs comes from this origin. No third-party
+# scripts, no CDN, no analytics — so the policy can be as tight as it looks,
+# and anything injected into a guide cannot phone out.
+#   img-src data:  — the annotation overlay renders inline SVG
+#   img-src blob:  — the editor previews a picked file before it is uploaded
+#   style-src 'unsafe-inline' — Vite emits inline styles for critical CSS
+#
+# {{MEDIA_ORIGIN}} is normally empty. It is filled in only when this facility
+# stores media in object storage (RETICLE_STORAGE_BACKEND=s3): media requests
+# then answer 302 to a signed URL on the storage provider, and a browser judges
+# that final URL against this policy. Without the provider's origin named here
+# every image and every video is blocked. See DEPLOYMENT.md, "Object storage".
+add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob: {{MEDIA_ORIGIN}}; media-src 'self' blob: {{MEDIA_ORIGIN}}; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;

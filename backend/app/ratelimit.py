@@ -127,10 +127,8 @@ class RateLimitMiddleware:
     of a limit is to be cheap, and a limiter that first lets the request be
     parsed has already paid most of the cost it was meant to avoid.
 
-    The key is the session cookie where there is one, and the client address
-    otherwise. Using the cookie means one signed-in user on a shared
-    institutional NAT cannot exhaust the allowance of everyone behind it —
-    which, at a university, is the normal case rather than the exotic one.
+    The key is the client address and the bucket the request falls in — see
+    ``_identify`` for why the session cookie is not part of it.
     """
 
     def __init__(self, app: ASGIApp, settings) -> None:

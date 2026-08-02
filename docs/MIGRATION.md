@@ -180,9 +180,17 @@ fails loudly rather than being truncated.
 
 `CATEGORY` wikis become the landing page of the category of the same name;
 everything else becomes an ordinary wiki page. Wiki syntax converts to Markdown:
-headings, bold, italic, links, bullet lists. Guide embeds become Reticle
-`guidelist` blocks, which is how a category page pulls its guides in by tag on
-this side.
+headings, bold, italic, links, bullet lists.
+
+**Guide embeds are left as literal text** — `[guide|1234|Align the laser]`
+arrives on the page exactly as written. Reticle's own embed, the `guidelist`
+block, selects guides *by tag*; the vendor's selects *one guide by its numeric
+id*, and nothing maps an id to a tag. Translating it would produce a `guidelist`
+keyed on "1234", which renders as an empty list — the reader would see nothing
+where the source showed a guide, and the reconciliation counts cannot detect
+that. Left as text the marker is visible, so whoever reviews the migrated
+category pages can replace each one with the embed it should have been. Search
+the imported pages for `[guide|` to find them all.
 
 If a category already has a landing page, a second one is imported as an
 ordinary article and noted in the report, rather than overwriting what is there.
