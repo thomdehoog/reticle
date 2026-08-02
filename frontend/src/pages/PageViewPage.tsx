@@ -19,6 +19,7 @@ import { Link, useParams } from 'react-router'
 import { useApi, useAuth } from '../auth/AuthContext'
 import { IconEdit, IconPrint } from '../components/icons'
 import { MarkdownBody } from '../components/MarkdownBody'
+import { Revision } from '../components/Revision'
 import { SectionNav } from '../components/SectionNav'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
 import { useAsync } from '../hooks/useAsync'
@@ -104,6 +105,17 @@ export function PageViewPage() {
             </Link>
           )}
         </div>
+      </div>
+
+      {/* The same stamp a guide carries, in the same shape. A wiki page is as
+          capable of being out of date as a procedure, and a reader should not
+          have to learn a second convention for reading the date on one. */}
+      <div className="guide__meta">
+        <Revision
+          version={page.version}
+          publishedAt={page.publishedAt}
+          updatedAt={page.updatedAt}
+        />
       </div>
 
       {/* Decorative: the title and the body already say what the page is, and a

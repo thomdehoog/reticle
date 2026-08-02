@@ -1482,6 +1482,24 @@ a:hover {
   color: var(--ink-700);
 }
 
+/* Quieter than the difficulty and the duration beside it. Those two decide
+   whether somebody starts now or after lunch; this one is only consulted when
+   there is a reason to doubt the page is current. */
+.revision {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 450;
+  color: var(--ink-500);
+}
+
+.revision__sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
 /*
  * Difficulty drawn as five marks, filled up to the level.
  *

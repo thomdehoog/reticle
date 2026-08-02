@@ -17,6 +17,7 @@ import { Link, useParams } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { BulletList } from '../components/BulletList'
+import { Revision } from '../components/Revision'
 import { SectionNav } from '../components/SectionNav'
 import { StepGallery } from '../components/StepGallery'
 import { IconEdit, IconPrint } from '../components/icons'
@@ -137,15 +138,21 @@ export function GuideViewPage() {
         </div>
       </div>
 
-      {/* Two facts, no labels. Both change whether somebody starts the procedure
-          now or after lunch, and neither needs a caption to be understood. The
-          step count, the view count and the version number that used to sit here
-          answered questions nobody standing at an instrument was asking. */}
+      {/* Difficulty and duration carry no labels: both change whether somebody
+          starts the procedure now or after lunch, and neither needs a caption.
+          The version and date sit with them, quieter, because they answer a
+          different question - is what I am reading still the current
+          procedure - which is asked less often but has no other answer. */}
       <div className="guide__meta">
         <DifficultyMeter difficulty={guide.difficulty} />
         <span className="guide__time">
           {formatDurationRange(guide.timeRequiredMinMinutes, guide.timeRequiredMaxMinutes)}
         </span>
+        <Revision
+          version={guide.version}
+          publishedAt={guide.publishedAt}
+          updatedAt={guide.updatedAt}
+        />
       </div>
 
       {guide.introduction && <p className="guide__intro">{guide.introduction}</p>}
