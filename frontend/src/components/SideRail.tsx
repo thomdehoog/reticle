@@ -22,8 +22,9 @@
 import type { ReactNode } from 'react'
 import { Link, NavLink, useLocation } from 'react-router'
 
-import { useAuth } from '../auth/AuthContext'
+import { useApi, useAuth } from '../auth/AuthContext'
 import type { Category } from '../domain/types'
+import { useAsync } from '../hooks/useAsync'
 import { useBrowsableCategories } from '../hooks/useCategories'
 import { IconBook, IconHome, IconTag, ReticleMark } from './icons'
 
@@ -82,6 +83,15 @@ function categorySlug(pathname: string): string | null {
   return match ? decodeURIComponent(match[1]) : null
 }
 
+/** The guide or wiki page being read, so the rail can find its category. */
+function documentPath(pathname: string): { kind: 'guide' | 'page'; key: string } | null {
+  const guide = pathname.match(/^\/g\/([^/]+)/)
+  if (guide) return { kind: 'guide', key: decodeURIComponent(guide[1]) }
+  const page = pathname.match(/^\/w\/([^/]+)/)
+  if (page) return { kind: 'page', key: decodeURIComponent(page[1]) }
+  return null
+}
+
 /**
  * The heading and the list under it, drawn the same in the rail and in the
  * phone drawer — they are the same list, and a reader who learns it on a
@@ -93,8 +103,34 @@ function categorySlug(pathname: string): string | null {
  */
 export function RailPlaces() {
   const { pathname } = useLocation()
+  const api = useApi()
   const { data: browsable } = useBrowsableCategories()
-  const { heading, places, currentId } = railPlaces(browsable ?? [], categorySlug(pathname))
+
+  /*
+   * Reading a guide is being somewhere. The rail knew that on a category page
+   * and nowhere else, so opening a procedure left the column showing the whole
+   * institute with nothing marked — the two questions it exists to answer,
+   * where am I and what is beside me, both went unanswered exactly when a
+   * reader is deepest in.
+   *
+   * The category is not in the path, so it is asked for. One request, only on
+   * the screens that need it, and until it lands the rail simply shows the
+   * categories as before rather than flickering.
+   */
+  const here = documentPath(pathname)
+  const { data: withinCategory } = useAsync(async () => {
+    if (!here) return null
+    const document =
+      here.kind === 'guide' ? await api.getGuide(here.key) : await api.getPage(here.key)
+    return document.categoryId
+  }, [api, here?.kind, here?.key])
+
+  const slug =
+    categorySlug(pathname) ??
+    (browsable ?? []).find((category) => category.id === withinCategory)?.slug ??
+    null
+
+  const { heading, places, currentId } = railPlaces(browsable ?? [], slug)
 
   if (places.length === 0) return null
 
