@@ -1042,7 +1042,7 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 0.9rem;
-  padding: 0.7rem 0.9rem;
+  padding: 0.85rem 0.9rem;
   color: inherit;
   border-bottom: 1px solid var(--border);
 }
@@ -1077,15 +1077,16 @@ a:hover {
   color: var(--ink-500);
 }
 
-/* Small, because it is the confirmation that you have the right guide rather
-   than the thing you are reading.
+/* Big enough to recognise the instrument from, which is usually faster than
+   reading the title. That sets the height of the row rather than the other way
+   round: the row is as tall as a legible picture needs.
    The selector names the parent on purpose: `.thumb`, which every picture also
    carries, sets width and height to 100% further down the sheet, and a single
    class here loses to it and lets the picture eat the title. */
 .guide-row > .guide-row__thumb {
   flex: 0 0 auto;
-  width: 68px;
-  height: 46px;
+  width: 112px;
+  height: 72px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -2546,11 +2547,11 @@ a:hover {
     padding-left: 2rem;
   }
 
-  /* The title gets the width it needs to be told apart from its neighbours;
-     the picture shrinks, because it is only confirming the choice. */
+  /* Narrower than on a desktop so a three-word title still gets a line to
+     itself, but not so narrow that the instrument stops being recognisable. */
   .guide-row > .guide-row__thumb {
-    width: 54px;
-    height: 38px;
+    width: 88px;
+    height: 58px;
   }
 
   /**
