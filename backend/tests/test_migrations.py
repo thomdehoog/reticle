@@ -25,7 +25,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 
 from app import models  # noqa: F401  -- registers every mapper
-from app.db import Base, build_engine, init_db
+from app.db import Base, init_db
 
 BACKEND = __import__("pathlib").Path(__file__).resolve().parents[1]
 
@@ -66,15 +66,15 @@ def schema_of(engine) -> dict:
 
 
 @pytest.fixture
-def migrated(tmp_path):
-    engine = build_engine(f"sqlite:///{tmp_path / 'migrated.db'}")
+def migrated(scratch_engine):
+    engine = scratch_engine("migrated")
     command.upgrade(alembic_config(engine), "head")
     return engine
 
 
 @pytest.fixture
-def from_models(tmp_path):
-    engine = build_engine(f"sqlite:///{tmp_path / 'models.db'}")
+def from_models(scratch_engine):
+    engine = scratch_engine("models")
     Base.metadata.create_all(engine)
     return engine
 
@@ -114,7 +114,7 @@ def test_autogenerate_finds_nothing_left_to_do(migrated):
 # --- the history itself ----------------------------------------------------
 
 
-def test_there_is_exactly_one_head(tmp_path):
+def test_there_is_exactly_one_head():
     """Two heads means two people generated a migration from the same parent.
 
     Alembic will not upgrade past it, and the failure appears during a deploy
@@ -125,13 +125,13 @@ def test_there_is_exactly_one_head(tmp_path):
     assert len(scripts.get_heads()) == 1
 
 
-def test_every_migration_can_be_undone(tmp_path):
+def test_every_migration_can_be_undone(scratch_engine):
     """A migration without a working downgrade is a one-way door.
 
     Rolling a release back is the cheapest incident response there is, and it
     stops being available the moment a downgrade is left as ``pass``.
     """
-    engine = build_engine(f"sqlite:///{tmp_path / 'roundtrip.db'}")
+    engine = scratch_engine("roundtrip")
     config = alembic_config(engine)
 
     command.upgrade(config, "head")
@@ -146,31 +146,31 @@ def test_every_migration_can_be_undone(tmp_path):
 # --- how a server actually starts ------------------------------------------
 
 
-def test_a_fresh_database_comes_up_migrated_and_stamped(tmp_path):
-    engine = build_engine(f"sqlite:///{tmp_path / 'fresh.db'}")
+def test_a_fresh_database_comes_up_migrated_and_stamped(scratch_engine):
+    engine = scratch_engine("fresh")
 
     init_db(engine)
 
     with engine.connect() as connection:
         stamped = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
     assert stamped is not None
-    assert schema_of(engine) == schema_of_metadata(tmp_path)
+    assert schema_of(engine) == schema_of_metadata(scratch_engine)
 
 
-def schema_of_metadata(tmp_path):
-    engine = build_engine(f"sqlite:///{tmp_path / 'reference.db'}")
+def schema_of_metadata(scratch_engine):
+    engine = scratch_engine("reference")
     Base.metadata.create_all(engine)
     return schema_of(engine)
 
 
-def test_a_database_from_before_migrations_existed_is_adopted_not_broken(tmp_path):
+def test_a_database_from_before_migrations_existed_is_adopted_not_broken(scratch_engine):
     """The upgrade path for the installation already running.
 
     Its tables were made by ``create_all`` and it has no ``alembic_version``.
     Running migrations against it would try to create tables that are already
     there and fail on the first one — during a deploy, on somebody's server.
     """
-    engine = build_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
+    engine = scratch_engine("legacy")
     Base.metadata.create_all(engine)
     assert "alembic_version" not in inspect(engine).get_table_names()
 
@@ -182,9 +182,9 @@ def test_a_database_from_before_migrations_existed_is_adopted_not_broken(tmp_pat
     assert stamped == heads[0]
 
 
-def test_starting_twice_changes_nothing(tmp_path):
+def test_starting_twice_changes_nothing(scratch_engine):
     """Startup runs this, and servers restart."""
-    engine = build_engine(f"sqlite:///{tmp_path / 'twice.db'}")
+    engine = scratch_engine("twice")
 
     init_db(engine)
     once = schema_of(engine)

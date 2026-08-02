@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     Windows PowerShell both write a byte-order mark by default, and a BOM
     attaches itself to the first variable name, so the first line of the file
     silently fails to load — which on this deployment is usually the secret key.
+
+    ``hide_input_in_errors`` keeps the offending value out of the message.
+    Anything rejected here is printed at start-up and pasted into a ticket, and
+    the two settings most likely to be wrong are the secret key and a database
+    URL with a password in it.
     """
 
     model_config = SettingsConfigDict(
@@ -65,6 +70,7 @@ class Settings(BaseSettings):
         env_file=DEFAULT_ENV_FILE,
         env_file_encoding="utf-8-sig",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     secret_key: str = Field(min_length=16)

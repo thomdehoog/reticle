@@ -285,12 +285,19 @@ def _redacted(url: str) -> str:
 
     ``postgresql://reticle:hunter2@db/reticle`` in a startup log is a password
     in a log, and startup logs are the ones people paste into tickets.
+
+    A URL with no password in it is left alone rather than given a ``***`` it
+    never had — a facility connecting over a socket with peer authentication has
+    one, and the mask would send somebody looking for a password that does not
+    exist.
     """
     if "@" not in url:
         return url
     prefix, _, host = url.rpartition("@")
     scheme, _, credentials = prefix.partition("://")
-    user = credentials.partition(":")[0]
+    user, separator, _ = credentials.partition(":")
+    if not separator:
+        return url
     return f"{scheme}://{user}:***@{host}"
 
 

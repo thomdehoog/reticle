@@ -13,7 +13,12 @@ from pydantic import ValidationError
 
 from app.settings import ENV_FILE_VARIABLE, Settings
 
-MINIMAL = "RETICLE_SECRET_KEY=a-secret-key-long-enough\n"
+# The two settings with no default. Everything else in this file is layered on
+# top of them, because a Settings that omits either does not load at all.
+MINIMAL = (
+    "RETICLE_SECRET_KEY=a-secret-key-long-enough\n"
+    "RETICLE_DATABASE_URL=postgresql+psycopg://reticle@localhost/reticle\n"
+)
 
 
 def load(tmp_path, body: str, encoding: str = "utf-8") -> Settings:
@@ -94,6 +99,36 @@ def test_a_short_secret_key_is_refused(monkeypatch):
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_startup_refuses_without_a_database_url(monkeypatch):
+    """A default that worked would be a default that runs: the server would come
+    up against a database nobody meant to use and serve an empty library, which
+    reads as a facility that has documented nothing."""
+    monkeypatch.delenv("RETICLE_DATABASE_URL", raising=False)
+
+    with pytest.raises(ValidationError, match="RETICLE_DATABASE_URL is not set"):
+        Settings(_env_file=None)
+
+
+def test_a_url_for_another_engine_is_refused_by_name(monkeypatch):
+    """The leftover line in an environment file written before PostgreSQL was
+    the only engine. Refusing it here names the variable; letting it through
+    would fail later, inside a driver, with a message about a dialect."""
+    monkeypatch.setenv("RETICLE_DATABASE_URL", "sqlite:///./reticle.db")
+
+    with pytest.raises(ValidationError, match="must be a PostgreSQL URL"):
+        Settings(_env_file=None)
+
+
+def test_the_refusal_does_not_repeat_the_password_back(monkeypatch):
+    """Configuration errors are printed at start-up and pasted into tickets."""
+    monkeypatch.setenv("RETICLE_DATABASE_URL", "mysql://reticle:hunter2@localhost/reticle")
+
+    with pytest.raises(ValidationError) as raised:
+        Settings(_env_file=None)
+
+    assert "hunter2" not in str(raised.value)
 
 
 def test_the_env_file_location_is_configurable(monkeypatch, tmp_path):

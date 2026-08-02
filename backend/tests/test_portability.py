@@ -158,7 +158,9 @@ def test_tags_survive_because_they_are_the_navigation(admin, category, db_sessio
     assert document["guides"][0]["tags"] == ["confocal", "stellaris"]
 
 
-def test_a_quick_link_is_still_a_quick_link_after_a_restore(admin, category, db_session, tmp_path):
+def test_a_quick_link_is_still_a_quick_link_after_a_restore(
+    admin, category, db_session, tmp_path, empty_database
+):
     """Named on its own as well as being covered by the whole-document round
     trip, because a boolean is the easiest thing in an export to lose: nothing
     looks wrong, the guide simply stops being on the front page."""
@@ -168,24 +170,10 @@ def test_a_quick_link_is_still_a_quick_link_after_a_restore(admin, category, db_
     exporter.write_to_directory(db_session, get_settings(), tmp_path / "out")
     document, files = read_export(tmp_path / "out")
 
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    from sqlalchemy.pool import StaticPool
+    restore(empty_database, get_settings(), document, files)
 
-    from app.db import Base
-
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    fresh = sessionmaker(bind=engine, autoflush=False, future=True)()
-
-    restore(fresh, get_settings(), document, files)
-
-    assert exporter.build_document(fresh, get_settings())["guides"][0]["isQuickLink"] is True
-
-    fresh.close()
-    engine.dispose()
+    served = exporter.build_document(empty_database, get_settings())
+    assert served["guides"][0]["isQuickLink"] is True
 
 
 def test_publish_history_survives(admin, category, db_session):
@@ -326,7 +314,7 @@ def test_the_archive_downloads_as_a_named_file(admin, category):
 
 
 def test_a_corpus_survives_being_exported_and_restored(
-    admin, category, db_session, tmp_path, make_user
+    admin, category, db_session, tmp_path, make_user, empty_database
 ):
     """The whole promise, asserted in one place.
 
@@ -338,33 +326,17 @@ def test_a_corpus_survives_being_exported_and_restored(
     before = export_of(db_session)
     exporter.write_to_directory(db_session, get_settings(), tmp_path / "out")
 
-    # A second database, empty, standing in for the machine being moved to.
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    from sqlalchemy.pool import StaticPool
-
-    from app.db import Base
-
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    fresh = sessionmaker(bind=engine, autoflush=False, future=True)()
-
     document, files = read_export(tmp_path / "out")
-    report = restore(fresh, get_settings(), document, files)
+    report = restore(empty_database, get_settings(), document, files)
 
     assert report.intact, report.to_text()
 
-    after = exporter.build_document(fresh, get_settings())
+    after = exporter.build_document(empty_database, get_settings())
 
     # The header carries the moment of export, which is legitimately different.
     before.pop("reticleExport")
     after.pop("reticleExport")
     assert after == before
-
-    fresh.close()
-    engine.dispose()
 
 
 def test_a_restore_refuses_a_database_that_already_holds_content(
@@ -385,7 +357,7 @@ def test_a_restore_refuses_a_format_it_does_not_understand(db_session):
 
 
 def test_a_truncated_file_is_reported_rather_than_restored_silently(
-    admin, category, db_session, tmp_path
+    admin, category, db_session, tmp_path, empty_database
 ):
     """Otherwise a broken transfer is discovered by whoever opens that guide."""
     build_corpus(admin, category)
@@ -396,58 +368,29 @@ def test_a_truncated_file_is_reported_rather_than_restored_silently(
     first = next(iter(damaged))
     damaged[first] = damaged[first][: len(damaged[first]) // 2]
 
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    from sqlalchemy.pool import StaticPool
-
-    from app.db import Base
-
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    fresh = sessionmaker(bind=engine, autoflush=False, future=True)()
-
-    report = restore(fresh, get_settings(), document, damaged)
+    report = restore(empty_database, get_settings(), document, damaged)
 
     assert not report.intact
     assert first in report.checksum_failures
     assert "did not match" in report.to_text()
 
-    fresh.close()
-    engine.dispose()
-
 
 def test_a_restored_account_cannot_be_signed_into_with_a_known_password(
-    admin, category, db_session, tmp_path
+    admin, category, db_session, tmp_path, empty_database
 ):
     """Accounts arrive without credentials, and must not gain a guessable one."""
     build_corpus(admin, category)
     exporter.write_to_directory(db_session, get_settings(), tmp_path / "out")
     document, files = read_export(tmp_path / "out")
 
-    from sqlalchemy import create_engine, select
-    from sqlalchemy.orm import sessionmaker
-    from sqlalchemy.pool import StaticPool
-
-    from app.db import Base
     from app.security import verify_password
 
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    fresh = sessionmaker(bind=engine, autoflush=False, future=True)()
+    restore(empty_database, get_settings(), document, files)
 
-    restore(fresh, get_settings(), document, files)
-
-    restored = fresh.scalars(select(User)).first()
+    restored = empty_database.scalars(select(User)).first()
     assert restored is not None
     assert not verify_password("", restored.password_hash)
     assert not verify_password("password", restored.password_hash)
-
-    fresh.close()
-    engine.dispose()
 
 
 def test_an_archive_and_a_directory_restore_identically(admin, category, db_session, tmp_path):
@@ -491,7 +434,7 @@ def test_a_restored_slug_cannot_escape_the_directory_it_is_written_into(db_sessi
 
 
 def test_a_restore_writes_media_through_the_configured_storage_backend(
-    admin, category, db_session, tmp_path, monkeypatch
+    admin, category, db_session, tmp_path, monkeypatch, empty_database
 ):
     """On an S3 installation, writing straight to local disk puts every image
     somewhere ``Media.storage_path`` is never read from — so the restore reports
@@ -502,18 +445,7 @@ def test_a_restore_writes_media_through_the_configured_storage_backend(
     exporter.write_to_directory(db_session, get_settings(), tmp_path / "out")
     document, files = read_export(tmp_path / "out")
 
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    from sqlalchemy.pool import StaticPool
-
     from app import importer
-    from app.db import Base
-
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    fresh = sessionmaker(bind=engine, autoflush=False, future=True)()
 
     elsewhere = tmp_path / "bucket"
     written: list[str] = []
@@ -526,13 +458,10 @@ def test_a_restore_writes_media_through_the_configured_storage_backend(
     monkeypatch.setattr(
         importer.reticle, "build_storage", lambda settings: RecordingStorage(elsewhere)
     )
-    restore(fresh, get_settings(), document, files)
+    restore(empty_database, get_settings(), document, files)
 
     assert written, "the restore bypassed the storage interface"
-    stored = fresh.scalars(select(Media)).all()
+    stored = empty_database.scalars(select(Media)).all()
     assert {media.storage_path for media in stored} >= set(written)
     for storage_path in written:
         assert (elsewhere / storage_path).is_file()
-
-    fresh.close()
-    engine.dispose()

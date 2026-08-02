@@ -212,7 +212,11 @@ def test_configuring_twice_does_not_double_every_line():
 @pytest.mark.parametrize(
     ("url", "expected"),
     [
-        ("sqlite:///./reticle.db", "sqlite:///./reticle.db"),
+        # Peer authentication over a socket: no password, nothing to hide.
+        (
+            "postgresql+psycopg://reticle@/reticle?host=/var/run/postgresql",
+            "postgresql+psycopg://reticle@/reticle?host=/var/run/postgresql",
+        ),
         (
             "postgresql+psycopg://reticle:hunter2@db.internal/reticle",
             "postgresql+psycopg://reticle:***@db.internal/reticle",

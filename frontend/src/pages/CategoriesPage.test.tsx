@@ -39,6 +39,19 @@ describe('CategoriesPage', () => {
     expect(screen.getByRole('button', { name: 'Hidden — show it' })).toBeInTheDocument()
   })
 
+  /* The browse surfaces leave out a category with nothing published under it.
+     This screen is where somebody goes to look at it, rename it or delete it,
+     so it lists every category there is. */
+  it('lists empty categories too, since browsing no longer reaches them', async () => {
+    const server = createFakeServer({
+      categories: [categoryFixture({ id: 'c-cryo', slug: 'cryoem', name: 'CryoEM' })],
+      guides: [],
+    })
+    renderCategories(server)
+
+    expect(await screen.findByRole('link', { name: 'CryoEM' })).toHaveAttribute('href', '/c/cryoem')
+  })
+
   it('creates a category', async () => {
     const server = createFakeServer({ categories: twoCategories(), guides: [] })
     const user = userEvent.setup()
