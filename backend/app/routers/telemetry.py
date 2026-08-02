@@ -1,14 +1,13 @@
 """Where a browser-side crash goes.
 
-Reticle catches render failures and shows a page instead of a blank tab, and
-until now that was the end of it: the detail went to ``console.error``, which
-lives on one person's laptop and is seen only if somebody thinks to open
-devtools and describe what they see. In practice a rendering bug reached
-whoever wrote it as "it did not work this morning", if at all.
+Reticle catches render failures and shows a page instead of a blank tab. The
+detail behind that page is otherwise ``console.error`` on one person's laptop,
+seen only if somebody thinks to open devtools and describe what they see — which
+means a rendering bug reaches whoever wrote it as "it did not work this
+morning", if at all.
 
-This endpoint moves that into the same log stream as everything else, with a
-request id, so a report is one line in the place the operator is already
-looking.
+This endpoint puts it in the same log stream as everything else, with a request
+id, so a report is one line in the place the operator is already looking.
 
 The whole design consideration is that this accepts text from a client and
 writes it to a log file. Three consequences, all handled below: the text is
