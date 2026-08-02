@@ -19,7 +19,7 @@
  * into a menu, and the header stays one row tall.
  */
 
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router'
 
 import { useAuth } from '../auth/AuthContext'
@@ -43,10 +43,32 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [creatingGuide, setCreatingGuide] = useState(false)
   const [creatingPage, setCreatingPage] = useState(false)
+  const headerRef = useRef<HTMLElement>(null)
 
   // Arriving somewhere is the end of using the menu. Left open, it covers the
   // screen the reader just asked for.
   useEffect(() => setMenuOpen(false), [pathname])
+
+  useEffect(() => {
+    if (!menuOpen) return
+
+    // The panel covers the top of the page, so tapping the page is somebody
+    // asking for it to go away. There is no Escape key on a phone, but there is
+    // one on the tablet at the bench.
+    function dismiss(event: MouseEvent) {
+      if (!headerRef.current?.contains(event.target as Node)) setMenuOpen(false)
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+
+    document.addEventListener('mousedown', dismiss)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', dismiss)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [menuOpen])
 
   function onSearch(event: FormEvent) {
     event.preventDefault()
@@ -56,7 +78,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="app">
-      <header className="app__header">
+      <header className="app__header" ref={headerRef}>
         <Link to="/" className="app__brand">
           <ReticleMark />
           Reticle

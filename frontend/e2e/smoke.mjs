@@ -6,6 +6,18 @@
  * matter — sign in, read a guide, open the editor — at desktop, tablet and
  * phone widths, and fails on console errors or sideways scrolling.
  *
+ * It also measures the phone. Reticle is read one-handed at an instrument, so
+ * every screen is checked for text too small to read at arm's length in a dark
+ * room and for controls too small to hit with a thumb. Those are the two things
+ * a desk-sized browser window will never show you, and they come back one
+ * declaration at a time unless something fails on them.
+ *
+ * The narrow viewport is 320px rather than a modern phone's 390: a layout that
+ * survives 320 survives everything, and plenty of phones still report that many
+ * CSS pixels. It runs with `hasTouch` and `isMobile` so that `@media (hover:
+ * none)` rules — which is where the larger touch targets live — apply as they
+ * will in the reader's hand.
+ *
  * Requires the backend on :8000 and the dev server on :5173, and an account
  * matching RETICLE_E2E_EMAIL / RETICLE_E2E_PASSWORD.
  *
@@ -31,16 +43,85 @@ if (!EMAIL || !PASSWORD) {
 }
 
 const VIEWPORTS = [
-  { name: 'desktop', width: 1440, height: 900 },
-  { name: 'tablet', width: 768, height: 1024 },
-  { name: 'phone', width: 390, height: 844 },
+  { name: 'desktop', width: 1440, height: 900, touch: false },
+  { name: 'tablet', width: 768, height: 1024, touch: true },
+  { name: 'phone', width: 320, height: 568, touch: true },
 ]
+
+/** WCAG 2.2 Target Size (Minimum). 44px is the aim; this is the floor. */
+const MINIMUM_TARGET_PX = 24
+
+const MINIMUM_TEXT_PX = 12
 
 const results = []
 
 function record(step, ok, detail = '') {
   results.push({ step, ok, detail })
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${step}${detail ? ' — ' + detail : ''}`)
+}
+
+/**
+ * Everything on the current screen that is too small to read or to hit.
+ *
+ * Runs inside the page because both answers are rendered facts: a target's
+ * height comes from padding and line-height as much as from any rule, and a
+ * font size given in `em` is not knowable until it has a parent. Text is read
+ * off leaf elements only, so a paragraph is not blamed for the size of a span
+ * inside it.
+ */
+function measureReadability(page) {
+  return page.evaluate(
+    ({ minTarget, minText }) => {
+      const targets = new Set()
+      for (const element of document.querySelectorAll(
+        'button, a, input, select, textarea, summary, [role="button"]',
+      )) {
+        const box = element.getBoundingClientRect()
+        /* Nothing rendered has no size to answer for: a control inside a closed
+           menu is not on the screen yet. */
+        if (box.width === 0 && box.height === 0) continue
+        if (element.type === 'hidden') continue
+        if (box.width < minTarget || box.height < minTarget) {
+          const name = (element.getAttribute('aria-label') ?? element.textContent ?? '').trim()
+          targets.add(
+            `${element.tagName.toLowerCase()}.${element.className.toString().split(' ')[0]} "${name.slice(0, 20)}" ${Math.round(box.width)}x${Math.round(box.height)}`,
+          )
+        }
+      }
+
+      const text = new Set()
+      for (const element of document.querySelectorAll('*')) {
+        if (element.children.length > 0) continue
+        if ((element.textContent ?? '').trim() === '') continue
+        const style = getComputedStyle(element)
+        if (style.display === 'none' || style.visibility === 'hidden') continue
+        const size = parseFloat(style.fontSize)
+        if (size < minText) {
+          text.add(
+            `${element.tagName.toLowerCase()}.${element.className.toString().split(' ')[0]} ${size}px`,
+          )
+        }
+      }
+
+      return { targets: [...targets], text: [...text] }
+    },
+    { minTarget: MINIMUM_TARGET_PX, minText: MINIMUM_TEXT_PX },
+  )
+}
+
+/** Records both floors for one screen, naming what broke them. */
+async function checkReadability(page, viewport, screen) {
+  const { targets, text } = await measureReadability(page)
+  record(
+    `[${viewport.name}] ${screen}: every control is at least ${MINIMUM_TARGET_PX}px`,
+    targets.length === 0,
+    targets.join(' | ').slice(0, 400),
+  )
+  record(
+    `[${viewport.name}] ${screen}: no text under ${MINIMUM_TEXT_PX}px`,
+    text.length === 0,
+    text.join(' | ').slice(0, 400),
+  )
 }
 
 /**
@@ -61,6 +142,8 @@ const browser = await launchBrowser()
 for (const viewport of VIEWPORTS) {
   const context = await browser.newContext({
     viewport: { width: viewport.width, height: viewport.height },
+    hasTouch: viewport.touch,
+    isMobile: viewport.touch,
   })
   const page = await context.newPage()
 
@@ -84,6 +167,23 @@ for (const viewport of VIEWPORTS) {
   const categories = await page.locator('.tile').count()
   record(`[${viewport.name}] home lists categories`, categories > 0, `${categories} cards`)
   await page.screenshot({ path: join(SHOTS, `${viewport.name}-2-home.png`), fullPage: true })
+  await checkReadability(page, viewport, 'home')
+
+  /* One row, on every screen in the application. Wrapped, it took 233px of a
+     568px phone before any content at all. */
+  const headerHeight = await page
+    .locator('.app__header')
+    .evaluate((element) => Math.round(element.getBoundingClientRect().height))
+  record(`[${viewport.name}] the header is one row`, headerHeight <= 64, `${headerHeight}px`)
+
+  /* With the menu open too, because on a phone that panel holds every link and
+     every action in the application and is only measurable while it is up. */
+  const menu = page.getByRole('button', { name: 'Menu' })
+  if (await menu.isVisible()) {
+    await menu.click()
+    await checkReadability(page, viewport, 'menu')
+    await menu.click()
+  }
 
   /**
    * Signing in legitimately produces a 401: the app asks who it is talking to
@@ -122,6 +222,7 @@ for (const viewport of VIEWPORTS) {
   await listing
   await page.waitForSelector('.tile--guide, .empty-state')
   await page.screenshot({ path: join(SHOTS, `${viewport.name}-3-category.png`), fullPage: true })
+  await checkReadability(page, viewport, 'category')
 
   const guideRow = page.locator('.tile--guide').first()
   if (await guideRow.count()) {
@@ -130,6 +231,24 @@ for (const viewport of VIEWPORTS) {
     const steps = await page.locator('.step').count()
     record(`[${viewport.name}] guide renders steps`, steps > 0, `${steps} steps`)
     await page.screenshot({ path: join(SHOTS, `${viewport.name}-4-guide.png`), fullPage: true })
+    await checkReadability(page, viewport, 'guide')
+
+    /**
+     * The point of the whole exercise: nothing but the guide's own front matter
+     * stands between the top of the screen and step 1.
+     *
+     * Measured as "no navigation below the header" rather than "step 1 is in the
+     * first screenful", because how far down step 1 lands also depends on how
+     * long its author made the introduction — which is content, and not this
+     * test's business.
+     */
+    const navBelowStep = await page.evaluate(() => {
+      const nav = document.querySelector('.section-nav')
+      const step = document.querySelector('.step')
+      if (!nav || !step) return true
+      return nav.getBoundingClientRect().top > step.getBoundingClientRect().top
+    })
+    record(`[${viewport.name}] the section list does not precede step 1`, navBelowStep)
 
     const edit = page.getByRole('link', { name: 'Edit' })
     if (await edit.count()) {
@@ -138,6 +257,7 @@ for (const viewport of VIEWPORTS) {
       const editorSteps = await page.locator('.editor-step').count()
       record(`[${viewport.name}] editor opens`, editorSteps > 0, `${editorSteps} step cards`)
       await page.screenshot({ path: join(SHOTS, `${viewport.name}-5-editor.png`), fullPage: true })
+      await checkReadability(page, viewport, 'editor')
     }
   } else {
     record(`[${viewport.name}] guide renders steps`, false, 'no guides in Light Microscopy')

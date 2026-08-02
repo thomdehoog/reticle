@@ -1,6 +1,7 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
+import { Route, Routes, useNavigate } from 'react-router'
 
 import type { User } from '../domain/types'
 import { createFakeServer } from '../test/fakeServer'
@@ -76,5 +77,85 @@ describe('AppShell', () => {
        that into weight and a rule rather than a shade of the header blue. */
     expect(await screen.findByRole('link', { name: 'Wiki' })).toHaveClass('active')
     expect(screen.getByRole('link', { name: 'Tags' })).not.toHaveClass('active')
+  })
+})
+
+/**
+ * On a phone everything but the brand and the search box lives behind one
+ * button, so the state of that button is the state of the whole navigation.
+ * The links are in the document either way — the stylesheet decides whether the
+ * panel holding them is a header row or a drop-down — so what is worth asserting
+ * is that the control says what it is doing and that the panel does not stay
+ * open over the screen it just took the reader to.
+ */
+describe('AppShell menu', () => {
+  it('says whether the menu is open', async () => {
+    const user = userEvent.setup()
+    renderShell(AUTHOR)
+
+    const toggle = await screen.findByRole('button', { name: 'Menu' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('points the button at the panel it opens', async () => {
+    renderShell(AUTHOR)
+
+    const toggle = await screen.findByRole('button', { name: 'Menu' })
+    const controlled = toggle.getAttribute('aria-controls')
+    expect(controlled).toBeTruthy()
+    expect(document.getElementById(controlled as string)).toContainElement(
+      screen.getByRole('link', { name: 'Wiki' }),
+    )
+  })
+
+  it('gets out of the way when the page behind it is tapped', async () => {
+    const user = userEvent.setup()
+    renderShell(AUTHOR)
+
+    const toggle = await screen.findByRole('button', { name: 'Menu' })
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    await user.click(screen.getByText('Content'))
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('closes itself once it has taken the reader somewhere', async () => {
+    const user = userEvent.setup()
+    const server = createFakeServer({ user: AUTHOR })
+
+    function GoToWiki() {
+      const navigate = useNavigate()
+      return (
+        <button type="button" onClick={() => navigate('/w')}>
+          Go to the wiki
+        </button>
+      )
+    }
+
+    renderWithApp(
+      <AppShell>
+        <Routes>
+          <Route path="/" element={<GoToWiki />} />
+          <Route path="/w" element={<div>Wiki index</div>} />
+        </Routes>
+      </AppShell>,
+      { route: '/', fetchImpl: server.fetchImpl },
+    )
+
+    const toggle = await screen.findByRole('button', { name: 'Menu' })
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    await user.click(screen.getByRole('button', { name: 'Go to the wiki' }))
+
+    expect(await screen.findByText('Wiki index')).toBeInTheDocument()
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
   })
 })
