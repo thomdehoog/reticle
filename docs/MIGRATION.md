@@ -39,6 +39,57 @@ converted to Markdown. Reticle renders Markdown to React elements and has no
 is what keeps the stored-XSS surface at zero and keeps the provenance clean.
 Reticle's look is its own; see `NOTICE.md`.
 
+## Do it in stages, not in one run
+
+**Ten guides first, then the rest.** Not caution for its own sake — the mapping
+in `app/importer/mapping.py` was written without access to the API, against a
+census recorded in prose. It is a considered hypothesis about what Dozuki
+returns, and ten real guides will correct it faster than any amount of reading
+it. Narrow it from a payload, never from a desk.
+
+Each stage answers one question, and none of the first three writes anything you
+cannot throw away.
+
+| # | Command | The question it answers |
+| --- | --- | --- |
+| 1 | `--limit 10 --dry-run --skip-media` | What does their API actually return, and does the mapping recognise it? Writes nothing, fetches no images, costs nothing to repeat. |
+| 2 | `--limit 10 --dry-run` | Do the images come back, and how large is the corpus really going to be? |
+| 3 | `--limit 10` | What do ten imported guides look like on the screen? Read them. Open one in the editor. |
+| 4 | `--verify` | Do those ten still match the source, field by field? This is the step people skip. |
+| 5 | `--dry-run` (everything) | Anything in the other 247 the ten did not show. |
+| 6 | full run | The migration. |
+
+**Between stage 3 and stage 4, look at the guides.** Not the report — the
+guides. The report can only tell you that a field arrived; it cannot tell you
+that a caution bullet came through as a note, that an arrow points at the wrong
+knob, or that a procedure reads as nonsense because its steps arrived in the
+wrong order. Ten is a number a person can actually read.
+
+**Stage 4 is the one that gets skipped.** `--verify` re-reads what was imported
+from the source and compares it field by field, reporting both what differs and
+what Reticle holds that the source does not. On ten guides you can check that by
+eye. On 257 you cannot, which is the whole argument for doing ten first.
+
+If a stage exits non-zero, that is the tool refusing to let you trust the
+result. Read the report before deciding whether `--allow-unmapped` is the right
+answer — sometimes it is, and it should be a decision rather than a reflex.
+
+### Starting over between stages
+
+The first stages are meant to be thrown away. Reticle's own database is the
+cheap thing here; the source is untouched by any of this.
+
+```bash
+python -m app.portability export --archive before-import.tar.gz   # keep what exists
+# import, look, decide
+python -m app.portability restore --from before-import.tar.gz     # or reseed
+```
+
+Re-running the importer over content it has already imported updates in place
+rather than duplicating — see *Re-running* below — so a second stage on top of a
+first is safe. Starting from empty is still clearer while the mapping is being
+corrected.
+
 ## Running it
 
 The public catalogue needs no credentials. A token is only required to include
