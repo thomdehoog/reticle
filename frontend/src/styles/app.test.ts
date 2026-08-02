@@ -135,12 +135,42 @@ describe('the desktop-only gate', () => {
  * reader's.
  */
 describe('the shared step grid', () => {
+  /**
+   * Where each of the three lands, not merely that a rule mentions it. The
+   * placements are the layout: the picture and its thumbnails share the left
+   * column, one above the other, and the points take the whole of the right.
+   * Asserting only that the selectors exist would have passed just as happily
+   * with the strip back in the text column, which is what it is moving out of.
+   */
   it.each([
-    ['the stage', '.step__body > .step__stage,\n.editor-step__body > .media-stage'],
-    ['the strip', '.step__body > .step__thumbs,\n.editor-step__body > .media-strip'],
-    ['the points', '.step__body > .bullets,\n.editor-step__body > .editor-step__points'],
-  ])('places %s from one rule', (_what, selector) => {
-    expect(stylesheet).toContain(selector)
+    ['the stage', '.step__body > .step__stage,\n.editor-step__body > .media-stage', 1, '1'],
+    ['the strip', '.step__body > .step__thumbs,\n.editor-step__body > .media-strip', 1, '2'],
+    ['the points', '.step__body > .bullets,\n.editor-step__body > .editor-step__points', 2, '1 / 3'],
+  ])('places %s from one rule', (_what, selector, column, row) => {
+    const at = stylesheet.indexOf(selector)
+    expect(at).toBeGreaterThan(-1)
+
+    const body = stylesheet.slice(stylesheet.indexOf('{', at), stylesheet.indexOf('}', at))
+    expect(body).toContain(`grid-column: ${column};`)
+    expect(body).toContain(`grid-row: ${row};`)
+  })
+
+  it('gives the thumbnails the width of the picture, not of a thumbnail', () => {
+    /* Under the picture they have its whole column, so a fixed per-thumbnail
+       cap would leave the strip short of the picture's right edge. Both strips
+       size from the row instead — the reader in tracks that fit, the editor in
+       three equal ones, because it always has exactly three. */
+    /* Searched with a leading newline: the placement rule above ends in
+       `> .media-strip {`, and a bare search finds that instead of the rule that
+       actually sizes the tracks. */
+    const reader = stylesheet.slice(stylesheet.indexOf('\n.step__thumbs {'))
+    expect(reader.slice(0, reader.indexOf('}'))).toMatch(/grid-template-columns:\s*repeat\(auto-fill/)
+
+    const editor = stylesheet.slice(stylesheet.indexOf('\n.media-strip {'))
+    expect(editor.slice(0, editor.indexOf('}'))).toMatch(/grid-template-columns:\s*repeat\(3/)
+
+    const thumb = stylesheet.slice(stylesheet.indexOf('\n.step__thumb {'))
+    expect(thumb.slice(0, thumb.indexOf('}'))).not.toContain('max-width')
   })
 
   /**

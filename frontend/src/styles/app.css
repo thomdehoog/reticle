@@ -1615,17 +1615,17 @@ a:hover {
  * because a screenshot of an acquisition dialog stops being readable long
  * before a line of text does.
  *
- * The thumbnail strip is the first thing in the right-hand column, above the
- * instructions, rather than under the picture: which picture you are looking at
- * is a choice made before reading the points, and a strip under the picture
- * moves down the screen every time a portrait shot is swapped in for a
- * landscape one. Put beside the text it cannot move at all, because the row it
- * is in does not depend on the picture's height.
+ * The thumbnail strip sits under the picture it belongs to, in the same column
+ * and at the same width, so the small pictures read as versions of the large
+ * one rather than as a second thing beside the text. It costs something: the
+ * strip moves down the screen whenever a portrait shot is swapped in for a
+ * landscape one, which it would not do beside the text. Grouping beat holding
+ * still — a strip in the text column looked like part of the instructions.
  *
- * Hence the three explicit placements below. The picture spans both rows, the
- * strip takes the first, the points take the second — and the row gap is zero,
- * so a step with no strip starts its points level with the top of the picture
- * exactly as one with a strip does.
+ * Hence the three explicit placements below. The picture takes the first row of
+ * the left column and the strip the second, while the points take the whole of
+ * the right — so the instructions start level with the top of the picture
+ * whether the step has a strip or not.
  *
  * The editor's step card is placed by the same rules, listed here beside the
  * reader's rather than copied into the editor's own section. An author
@@ -1646,22 +1646,23 @@ a:hover {
 .step__body > .step__stage,
 .editor-step__body > .media-stage {
   grid-column: 1;
-  grid-row: 1 / 3;
+  grid-row: 1;
   min-width: 0;
 }
 
 .step__body > .step__thumbs,
 .editor-step__body > .media-strip {
-  grid-column: 2;
-  grid-row: 1;
-  margin-top: 0;
-  margin-bottom: 0.9rem;
+  grid-column: 1;
+  grid-row: 2;
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+  min-width: 0;
 }
 
 .step__body > .bullets,
 .editor-step__body > .editor-step__points {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 1 / 3;
 }
 
 /* A reader's step with no pictures at all gives its whole width to the points.
@@ -1722,17 +1723,21 @@ a:hover {
 }
 
 /**
- * The strip divides its row, so its edges line up with the picture and the text
- * around it instead of stopping short and leaving a ragged gap.
+ * Under the picture, in tracks of a fixed size rather than a fixed number.
  *
- * The cap is what keeps that honest when there are only two. Dividing a row
- * between two thumbnails makes each one large enough to compete with the
- * picture it is a thumbnail of, so past a certain size they stop growing and
- * the pair stays at the left, leading edge still against the picture's.
+ * The reader's strip shows every item, including the one currently large, so a
+ * step with four pictures has four thumbnails and one with a clip has five.
+ * Dividing the row between however many there are would give a two-picture step
+ * two thumbnails half the width of the picture they are thumbnails of; fixing
+ * the count at three would wrap the fourth onto a row of its own.
+ *
+ * `auto-fill` sizes the tracks from the strip instead: as many as fit at 7rem
+ * or more, all the same width, filled from the left so the strip's leading edge
+ * stays against the picture's whether there are two of them or five.
  */
 .step__thumbs {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
   gap: 0.5rem;
   margin-top: 0.6rem;
 }
@@ -1744,8 +1749,7 @@ a:hover {
  */
 .step__thumb {
   position: relative;
-  flex: 1 1 0;
-  max-width: 9.5rem;
+  min-width: 0;
   aspect-ratio: 16 / 10;
   padding: 0;
   overflow: hidden;
@@ -3329,13 +3333,6 @@ a:hover {
   .step__body > .bullets {
     grid-column: 1;
     grid-row: auto;
-  }
-
-  /* No cap on a phone: the row is narrow enough that even two thumbnails
-     sharing it stay smaller than the picture above, and letting them fill it
-     keeps the strip flush with that picture's edges. */
-  .step__thumb {
-    max-width: none;
   }
 
 
