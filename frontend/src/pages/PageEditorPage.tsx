@@ -377,6 +377,16 @@ export function PageEditorPage() {
             <button type="button" className="button button--sm" onClick={() => insertBlock('| Column | Column |\n| --- | --- |\n| Value | Value |')}>
               Table
             </button>
+            {/* One named guide, beside the block that gathers many by tag. The
+                two are different jobs: "every confocal guide" keeps itself up
+                to date, "this guide, here, in this sentence" does not. */}
+            <button
+              type="button"
+              className="button button--sm"
+              onClick={() => insertBlock('```guide\nthe-guide-address\n```')}
+            >
+              Insert one guide
+            </button>
             <button type="button" className="button button--sm button--primary" onClick={() => setInsertingList(true)}>
               Insert guide list
             </button>

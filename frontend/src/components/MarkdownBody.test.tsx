@@ -102,3 +102,71 @@ describe('MarkdownBody without guide lists', () => {
     expect(screen.getByRole('heading', { name: 'Confocal start-up' })).toBeInTheDocument()
   })
 })
+
+describe('embedding one named guide', () => {
+  /** Answers the guide fetch with a real guide, and everything else emptily. */
+  function apiWithGuide() {
+    return vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/guides/oil-immersion')) {
+        return new Response(
+          JSON.stringify({
+            id: 'g1',
+            slug: 'oil-immersion',
+            title: 'Immersion oil: which and when',
+            summary: '',
+            categoryId: 'c1',
+            tags: [],
+            isQuickLink: false,
+            difficulty: 'easy',
+            timeRequiredMinMinutes: null,
+            timeRequiredMaxMinutes: null,
+            introduction: '',
+            conclusion: '',
+            status: 'published',
+            steps: [],
+            author: { id: 'u1', displayName: 'A' },
+            lastEditedBy: { id: 'u1', displayName: 'A' },
+            contributors: [],
+            viewCount: 0,
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            publishedAt: '2026-01-01T00:00:00Z',
+            version: 1,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }) as unknown as typeof fetch
+  }
+
+  it('renders the named guide as an ordinary row', async () => {
+    renderWithApp(<MarkdownBody body={'Windows:\n\n```guide\noil-immersion\n```'} />, {
+      fetchImpl: apiWithGuide(),
+    })
+
+    expect(await screen.findByText('Immersion oil: which and when')).toBeInTheDocument()
+    expect(screen.getByText('Windows:')).toBeInTheDocument()
+  })
+
+  it('keeps a single embed when the guide lists are suppressed', async () => {
+    /* Suppression exists because a parent category repeated the whole list of
+       guides living one level below it. One deliberately named link inside a
+       sentence is not that, and removing it would break the prose around it. */
+    renderWithApp(<MarkdownBody body={'Windows:\n\n```guide\noil-immersion\n```'} hideGuideLists />, {
+      fetchImpl: apiWithGuide(),
+    })
+
+    expect(await screen.findByText('Immersion oil: which and when')).toBeInTheDocument()
+  })
+
+  it('says nothing to a reader when the address matches no guide', async () => {
+    renderWithApp(<MarkdownBody body={'```guide\nnot-a-guide\n```'} />, { fetchImpl: emptyApi() })
+
+    /* Silent for a reader: a dead entry is noise, and confirming that a guide
+       exists but is not theirs to see is worse than saying nothing. */
+    expect(await screen.findByText(/./)).toBeTruthy()
+    expect(screen.queryByText(/No guide has the address/)).not.toBeInTheDocument()
+  })
+})

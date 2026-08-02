@@ -26,7 +26,8 @@ import ReactMarkdown from 'react-markdown'
 import { Link } from 'react-router'
 import remarkGfm from 'remark-gfm'
 
-import { useApi } from '../auth/AuthContext'
+import { useApi, useAuth } from '../auth/AuthContext'
+import type { Guide, GuideSummary } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 import { GuideRow, GuideRows } from './BrowseCards'
 import { EmptyState, ErrorAlert } from './ui'
@@ -36,6 +37,9 @@ const GUIDE_LIST_LANGUAGE = 'language-guidelist'
 
 /** The same fence as the parser sees it, before it becomes a class name. */
 const GUIDE_LIST_FENCE = 'guidelist'
+
+/** The fence that names one guide, by slug. */
+const GUIDE_LANGUAGE = 'language-guide'
 
 function isGuideList(node: RootContent | undefined): boolean {
   return node?.type === 'code' && node.lang === GUIDE_LIST_FENCE
@@ -116,6 +120,72 @@ export function parseGuideListSpec(source: string): GuideListSpec {
   }
 
   return spec
+}
+
+/**
+ * One named guide, rendered as the row it would be in any list.
+ *
+ * ZMB's wiki pages are built out of these: a sentence, then the one guide that
+ * answers it, then another sentence. Their "access your data" page is nothing
+ * but "Windows:" followed by a guide, "Mac:" followed by a guide.
+ *
+ * Selected by slug rather than by id. A slug is what the URL already shows and
+ * what an author can read back to check; an id is a number nobody can verify by
+ * looking at it.
+ */
+function GuideEmbed({ source }: { source: string }) {
+  const api = useApi()
+  const { can } = useAuth()
+  const slug = source.trim().split('\n')[0].trim()
+
+  const { data, error, loading } = useAsync(
+    () => (slug === '' ? Promise.resolve(null) : api.getGuide(slug).catch(() => null)),
+    [api, slug],
+  )
+
+  if (loading) return <p className="save-state">Loading guide…</p>
+
+  /*
+   * A slug that resolves to nothing fails loudly to an author and silently to a
+   * reader. An author has to know their link is broken — it is the only way it
+   * ever gets fixed. A reader must not be shown a dead entry, and must not be
+   * told that a guide exists which they are not allowed to open: "no such
+   * guide" and "not yours to see" have to look identical from outside.
+   */
+  if (!data) {
+    if (!can('author')) return null
+    return (
+      <div className="alert alert--warning">
+        No guide has the address “{slug}”. This link shows nothing to a reader.
+      </div>
+    )
+  }
+
+  return (
+    <section className="guidelist">
+      <ErrorAlert error={error} />
+      <GuideRows>
+        <GuideRow guide={asSummary(data)} />
+      </GuideRows>
+    </section>
+  )
+}
+
+/**
+ * The listing view of a guide we happen to have in full.
+ *
+ * Fetching one guide by slug returns the whole thing, steps and all, while the
+ * row wants the summary a listing would have given. The two derived fields are
+ * derived the same way the server derives them — the step count, and the first
+ * picture of the first step as the thumbnail — so an embedded row is
+ * indistinguishable from the same guide in any other list.
+ */
+function asSummary(guide: Guide): GuideSummary {
+  return {
+    ...guide,
+    stepCount: guide.steps.length,
+    thumbnailUrl: guide.steps.flatMap((step) => step.media)[0]?.url ?? null,
+  }
 }
 
 function GuideListEmbed({ source }: { source: string }) {
@@ -239,13 +309,21 @@ export function MarkdownBody({
           pre({ children }) {
             const first = Children.toArray(children)[0]
             if (isValidElement<{ className?: string }>(first)) {
-              if (first.props.className === GUIDE_LIST_LANGUAGE) return <>{first}</>
+              if (
+                first.props.className === GUIDE_LIST_LANGUAGE ||
+                first.props.className === GUIDE_LANGUAGE
+              ) {
+                return <>{first}</>
+              }
             }
             return <pre>{children}</pre>
           },
           code({ className, children, ...rest }) {
             if (className === GUIDE_LIST_LANGUAGE) {
               return <GuideListEmbed source={String(children)} />
+            }
+            if (className === GUIDE_LANGUAGE) {
+              return <GuideEmbed source={String(children)} />
             }
             return (
               <code className={className} {...rest}>
