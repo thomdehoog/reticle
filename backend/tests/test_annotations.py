@@ -337,9 +337,7 @@ def test_a_viewer_cannot_annotate(author, viewer, category):
 # --- one picture, one guide ------------------------------------------------
 
 
-def test_a_second_guide_cannot_take_over_a_picture_the_first_one_shows(
-    author, as_role, category
-):
+def test_a_second_guide_cannot_take_over_a_picture_the_first_one_shows(author, as_role, category):
     """The shapes hang off the media row, so two guides cannot hold different
     ones for the same file — the last save wins and the other guide loses its
     overlay.

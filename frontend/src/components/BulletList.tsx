@@ -109,7 +109,7 @@ export function BulletList({ step }: { step: Step }) {
   return (
     <ul className="bullets">
       {visible.map((bullet) => (
-        <BulletItem key={bullet.id} bullet={bullet}  />
+        <BulletItem key={bullet.id} bullet={bullet} shapeNumber={shapeNumbers[bullet.color]} />
       ))}
     </ul>
   )

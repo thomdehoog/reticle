@@ -357,7 +357,17 @@ def test_an_unanticipated_failure_still_returns_the_documented_envelope(author):
 
     assert response.status_code == 500
     assert response.json()["error"]["code"] == "internal_error"
-    assert response.json()["requestId"]
+    # A real id, not the "-" a ContextVar reads back as when it was never set.
+    # Starlette runs an `@app.exception_handler(Exception)` in the outermost
+    # layer of all, outside the middleware that assigns the id and outside the
+    # one that adds the headers - so a 500 built there is the one error a user
+    # is most likely to report and the one they cannot quote an id for.
+    assert response.json()["requestId"] not in (None, "", "-")
+    assert response.headers["X-Request-ID"] == response.json()["requestId"]
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Referrer-Policy"] == "no-referrer"
+    assert response.headers["Cross-Origin-Resource-Policy"] == "same-site"
     # The exception must not describe itself: the message could name a table, a
     # filesystem path, or echo submitted input.
     assert "database caught fire" not in response.text
@@ -429,7 +439,7 @@ def test_an_oversized_body_is_refused_however_it_is_declared(anon):
         content=oversized,
         headers={"Content-Type": "multipart/form-data; boundary=x"},
     )
-    assert pretending_to_be_an_upload.status_code != 200
+    assert pretending_to_be_an_upload.status_code == 413
 
     def chunks():
         yield oversized
@@ -438,3 +448,102 @@ def test_an_oversized_body_is_refused_however_it_is_declared(anon):
         "/api/auth/login", content=chunks(), headers={"Content-Type": "application/json"}
     )
     assert undeclared.status_code != 200
+
+
+def test_only_the_upload_route_gets_the_upload_cap(anon):
+    """The larger cap belongs to the route, not to a header the caller writes.
+
+    Keyed on the content type, any endpoint takes the 205 MB ceiling by
+    claiming to be an upload — including the login endpoint, which buffers its
+    whole body before it can tell it is not JSON and which is exempt from both
+    the rate limiter and CSRF.
+    """
+    from app.main import RequestSizeLimitMiddleware
+
+    middleware = RequestSizeLimitMiddleware(app=None, max_bytes=1000, upload_max_bytes=999_000)
+    multipart = [(b"content-type", b"multipart/form-data; boundary=x")]
+
+    assert (
+        middleware._cap_for({"path": "/api/auth/login", "method": "POST", "headers": multipart})
+        == 1000
+    )
+    assert middleware._cap_for({"path": "/api/media", "method": "POST", "headers": []}) == 999_000
+    # Reading a file is not uploading one.
+    assert middleware._cap_for({"path": "/api/media/01ABC", "method": "GET", "headers": []}) == 1000
+
+
+def test_a_refused_body_says_a_size_a_person_can_act_on(anon, monkeypatch):
+    """Whole megabytes render a sub-megabyte cap as "0 MB", which reads as a
+    server that accepts nothing at all."""
+    from app.main import _size_words
+
+    assert _size_words(2 * 1024 * 1024) == "2 MB"
+    assert _size_words(64 * 1024) == "64 KB"
+    assert _size_words(900) == "900 bytes"
+
+
+def test_a_413_carries_a_request_id_like_every_other_error(anon):
+    """It is issued by middleware rather than by a handler, which is how it
+    became the one error in the API with no id to quote."""
+    from app.settings import get_settings
+
+    oversized = b"x" * (get_settings().max_request_bytes + 100_000)
+    refused = anon.raw.post(
+        "/api/auth/login", content=oversized, headers={"Content-Type": "application/json"}
+    )
+
+    assert refused.status_code == 413
+    assert set(refused.json()) == {"error", "requestId"}
+    assert refused.json()["requestId"] not in (None, "", "-")
+    assert refused.headers["X-Request-ID"] == refused.json()["requestId"]
+
+
+# --- attribution behind a proxy --------------------------------------------
+
+
+def test_no_warning_when_the_proxy_has_already_rewritten_the_peer_address(monkeypatch, caplog):
+    """The shipped multi-facility unit runs uvicorn with ``--proxy-headers
+    --forwarded-allow-ips 127.0.0.1``, so the peer address *is* the real client
+    by the time any of this code runs and attribution is already correct.
+
+    Warning there fires forever and tells the operator to set
+    ``RETICLE_TRUST_FORWARDED_FOR``, which combined with a proxy that appends
+    rather than overwrites lets a client choose the address the login throttle
+    counts against.
+    """
+    import logging
+
+    from app import auth
+
+    monkeypatch.setattr(auth, "_untrusted_forwarding_warned", False)
+    request = _request_from("198.51.100.7", forwarded="198.51.100.7")
+
+    with caplog.at_level(logging.WARNING, logger="app.auth"):
+        assert auth.client_address(request) == "198.51.100.7"
+
+    assert caplog.records == []
+
+
+def test_a_warning_when_every_caller_really_is_being_attributed_to_the_proxy(monkeypatch, caplog):
+    """The misconfiguration that looks like nothing: twenty mistyped passwords
+    from anywhere in the institute lock everybody out at once."""
+    import logging
+
+    from app import auth
+
+    monkeypatch.setattr(auth, "_untrusted_forwarding_warned", False)
+    request = _request_from("10.0.0.1", forwarded="198.51.100.7")
+
+    with caplog.at_level(logging.WARNING, logger="app.auth"):
+        assert auth.client_address(request) == "10.0.0.1"
+
+    assert len(caplog.records) == 1
+    assert "10.0.0.1" in caplog.records[0].getMessage()
+
+
+def _request_from(peer: str, forwarded: str | None = None):
+    """The smallest thing ``auth.client_address`` reads: a peer and a header."""
+    from starlette.requests import Request
+
+    headers = [(b"x-forwarded-for", forwarded.encode())] if forwarded else []
+    return Request({"type": "http", "headers": headers, "client": (peer, 50000)})

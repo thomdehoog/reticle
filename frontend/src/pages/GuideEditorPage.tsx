@@ -147,7 +147,7 @@ export function GuideEditorPage() {
       /* This same function performs the save fired as the editor closes, and
          that one has no screen left to report on. The note is what the author
          is shown the next time they open this guide. */
-
+      rememberFailedSave(guide.id, cause instanceof Error ? cause.message : 'Something went wrong.')
 
       /* A refused write leaves this copy holding the `updatedAt` the server
          rejected, so every later autosave would carry it and be refused too.
@@ -178,7 +178,7 @@ export function GuideEditorPage() {
     setConflict(null)
   }
 
-  function useTheirVersion() {
+  function takeTheirVersion() {
     if (!conflict) return
     setGuide(conflict)
     dirtyRef.current = false
@@ -380,7 +380,7 @@ export function GuideEditorPage() {
           savedAt={conflict.updatedAt}
           myVersion={guideAsPlainText(guide)}
           onKeepMine={keepMyVersion}
-          onUseTheirs={useTheirVersion}
+          onUseTheirs={takeTheirVersion}
         />
       ) : (
         <ErrorAlert error={saveError} />

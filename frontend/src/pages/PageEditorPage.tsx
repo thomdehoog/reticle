@@ -3,8 +3,8 @@
  *
  * The wiki counterpart of the guide editor. A wiki page is one body of text
  * rather than numbered steps, so this is much simpler - but it saves the same
- * way, refuses to overwrite a colleague's changes the same way, and publishes the
- * same way.
+ * way, refuses to overwrite a colleague's changes the same way and asks the
+ * author which version wins, and publishes the same way.
  *
  * Wiki pages can also embed a live list of guides carrying a given tag, so a
  * "Confocal" page always lists every confocal guide without anybody maintaining
@@ -151,7 +151,7 @@ export function PageEditorPage() {
     setConflict(null)
   }
 
-  function useTheirVersion() {
+  function takeTheirVersion() {
     if (!conflict) return
     setPage(conflict)
     dirtyRef.current = false
@@ -350,7 +350,7 @@ export function PageEditorPage() {
           savedAt={conflict.updatedAt}
           myVersion={[page.title, '', page.body].join('\n').trim()}
           onKeepMine={keepMyVersion}
-          onUseTheirs={useTheirVersion}
+          onUseTheirs={takeTheirVersion}
         />
       ) : (
         <ErrorAlert error={saveError} />
