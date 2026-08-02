@@ -39,9 +39,8 @@ import {
 } from '../domain/guide'
 import { MAX_MEDIA_PER_STEP, type Difficulty, type Guide } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
+import { useAutosave } from '../hooks/useAutosave'
 import { useCategories } from '../hooks/useCategories'
-
-const AUTOSAVE_DELAY_MS = 1200
 
 type SaveState = 'clean' | 'pending' | 'saving' | 'saved' | 'error'
 
@@ -94,37 +93,38 @@ export function GuideEditorPage() {
    * saved the same guide in the meantime the server answers `conflict` and we
    * stop rather than overwriting their work.
    */
-  useEffect(() => {
-    if (!guide || !dirtyRef.current) return
+  const saveNow = useCallback(async () => {
+    if (!guide) return
+    dirtyRef.current = false
+    setSaveState('saving')
+    setSaveError(null)
 
-    const timer = setTimeout(async () => {
-      dirtyRef.current = false
-      setSaveState('saving')
-      setSaveError(null)
-
-      try {
-        const saved = await api.saveGuide(guide)
-        setGuide((current) =>
-          current && dirtyRef.current
-            ? {
-                ...current,
-                updatedAt: saved.updatedAt,
-                version: saved.version,
-                status: saved.status,
-                slug: saved.slug,
-              }
-            : saved,
-        )
-        setSaveState(dirtyRef.current ? 'pending' : 'saved')
-      } catch (cause) {
-        dirtyRef.current = true
-        setSaveError(cause)
-        setSaveState('error')
-      }
-    }, AUTOSAVE_DELAY_MS)
-
-    return () => clearTimeout(timer)
+    try {
+      const saved = await api.saveGuide(guide)
+      setGuide((current) =>
+        current && dirtyRef.current
+          ? {
+              ...current,
+              updatedAt: saved.updatedAt,
+              version: saved.version,
+              status: saved.status,
+              slug: saved.slug,
+            }
+          : saved,
+      )
+      setSaveState(dirtyRef.current ? 'pending' : 'saved')
+    } catch (cause) {
+      dirtyRef.current = true
+      setSaveError(cause)
+      setSaveState('error')
+    }
   }, [guide, api])
+
+  useAutosave({
+    document: guide,
+    isDirty: () => dirtyRef.current,
+    save: () => void saveNow(),
+  })
 
   useEffect(() => {
     function warn(event: BeforeUnloadEvent) {
@@ -194,9 +194,14 @@ export function GuideEditorPage() {
 
     setPublishing(true)
     setSaveError(null)
+    // Claim the work before awaiting. The autosave timer may already be
+    // running; if it fires while this save is in flight it would send a second
+    // write carrying the same expectedUpdatedAt, and one of the two would come
+    // back as a conflict - telling an author working alone that somebody else
+    // had edited their guide.
+    dirtyRef.current = false
     try {
       const saved = await api.saveGuide(guide)
-      dirtyRef.current = false
       const published = await api.publishGuide(saved.id)
       setGuide(published)
       setSaveState('saved')

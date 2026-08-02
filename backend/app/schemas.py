@@ -1,11 +1,21 @@
-"""The wire format: camelCase in, camelCase out.
+"""The translator between the database and the website.
 
-The backend owns the translation between snake_case columns and the camelCase
-contract so the frontend never adapts. Timestamps are serialised at a fixed
-microsecond precision rather than pydantic's variable-width default, because
-``updatedAt`` doubles as the optimistic-concurrency token and a token whose
-textual form depends on whether the microsecond happened to be zero is a token
-that sorts wrongly and round-trips inconsistently.
+The database and the browser disagree about spelling. Python and SQL write
+``time_required_min_minutes``; JavaScript writes ``timeRequiredMinMinutes``.
+Rather than making both sides cope, everything is translated here, in one file,
+on the way out and on the way in.
+
+This file also acts as the gate. Anything arriving from a browser is checked
+against the shapes described here before it reaches the rest of the program - a
+bullet colour has to be one of the eight allowed, a shape drawn on an image has
+to actually fit on the image. Something that fails the check is rejected with an
+explanation rather than being stored and causing a strange bug later.
+
+One small detail that matters more than it looks: times are always written with
+exactly six decimal places. ``updatedAt`` is not only for display - it is how
+Reticle notices that a colleague changed the same guide while you had it open.
+Comparing two timestamps only works if they are always written the same way, and
+the default behaviour drops the decimals when they happen to be zero.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """

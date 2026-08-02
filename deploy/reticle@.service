@@ -17,6 +17,15 @@ After=network.target
 #   After=network.target postgresql.service
 #   Wants=postgresql.service
 
+# A crash loop should be visible rather than infinite: after five failures in
+# five minutes systemd gives up and the unit sits failed, which is what an alert
+# and `systemctl --failed` can see. A service that restarts forever looks
+# healthy from outside while serving nothing.
+#
+# These belong in [Unit]. systemd has ignored them in [Service] since v230.
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
 [Service]
 Type=exec
 User=reticle
@@ -32,17 +41,16 @@ ExecStart=/opt/reticle/current/venv/bin/uvicorn app.main:app \
     --host 127.0.0.1 \
     --port ${RETICLE_PORT} \
     --proxy-headers \
-    --forwarded-allow-ips 127.0.0.1
+    --forwarded-allow-ips 127.0.0.1 \
+    --timeout-graceful-shutdown 25
 
 Restart=on-failure
 RestartSec=5s
 
-# A crash loop should be visible rather than infinite: after five failures in
-# five minutes systemd gives up and the unit sits failed, which is what an
-# alert and `systemctl --failed` can see. A service that restarts forever looks
-# healthy from the outside while serving nothing.
-StartLimitBurst=5
-StartLimitIntervalSec=300
+# An upload can be 200 MB and nginx streams it rather than buffering, so a
+# restart during one has real work to finish. Bounded so a stuck request cannot
+# hold a deploy open indefinitely.
+TimeoutStopSec=30s
 
 # Logs are JSON on stdout, so journald collects them as-is and anything that
 # ships journald output gets structured records without extra configuration.

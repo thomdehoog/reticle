@@ -323,3 +323,117 @@ def test_an_unmapped_http_error_still_uses_the_error_envelope(author):
     assert set(response.json()) == {"error", "requestId"}
     assert set(response.json()["error"]) == {"code", "message"}
     assert response.json()["error"]["code"] == "validation_failed"
+
+
+def test_an_unanticipated_failure_still_returns_the_documented_envelope(author):
+    """The catch-all handler has to survive being reached.
+
+    It builds its response with `ApiError`, which refuses a code it does not
+    know - so a missing entry in the code table meant the handler raised while
+    handling, and the caller got an empty 500 body with no request id. Every
+    other error path is exercised by some test; this one is only reached when
+    something has already gone unexpectedly wrong, which is exactly when nobody
+    is watching.
+    """
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    @app.get("/api/deliberate-explosion")
+    def explode() -> dict[str, str]:  # pragma: no cover - raises before returning
+        raise RuntimeError("the database caught fire")
+
+    # raise_server_exceptions=False makes the client behave like a browser:
+    # it reads the response the handler produced instead of re-raising the
+    # exception, which is the only way to see what a real caller would get.
+    original = list(app.router.routes)
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        client.cookies.update(author.raw.cookies)
+        response = client.get("/api/deliberate-explosion")
+    finally:
+        app.router.routes[:] = original
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "internal_error"
+    assert response.json()["requestId"]
+    # The exception must not describe itself: the message could name a table, a
+    # filesystem path, or echo submitted input.
+    assert "database caught fire" not in response.text
+
+
+# --- the order the middleware actually runs in -----------------------------
+
+
+def test_a_refused_request_still_gets_an_id_a_log_line_and_the_headers(anon, monkeypatch):
+    """`add_middleware` inserts at the front, so the last one added is the
+    outermost - and getting that backwards is invisible until something is
+    refused. Every 429 and 413 went out with no request id, no log line and no
+    security headers, because the layers that add those sat inside the layers
+    doing the refusing.
+
+    A 429 nobody can correlate is indistinguishable from an outage.
+    """
+    from app.main import app
+    from app.ratelimit import RateLimitMiddleware, SlidingWindow
+
+    limiters = []
+    stack, seen = [app.middleware_stack], set()
+    while stack:
+        current = stack.pop()
+        if current is None or id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, RateLimitMiddleware):
+            limiters.append(current)
+        for attribute in ("app", "next", "_app"):
+            stack.append(getattr(current, attribute, None))
+    assert limiters
+
+    for limiter in limiters:
+        monkeypatch.setattr(limiter.settings, "rate_limit_enabled", True, raising=False)
+        monkeypatch.setattr(limiter.settings, "rate_limit_reads_per_minute", 1, raising=False)
+        limiter.window = SlidingWindow()
+
+    anon.get("/api/health")  # exempt, so it does not spend the allowance
+    anon.get("/api/config")
+    refused = anon.get("/api/config")
+
+    assert refused.status_code == 429
+    assert refused.headers["X-Request-ID"] not in (None, "", "-")
+    assert refused.json()["requestId"] == refused.headers["X-Request-ID"]
+    assert refused.headers["X-Content-Type-Options"] == "nosniff"
+    assert refused.headers["X-Frame-Options"] == "DENY"
+
+
+def test_an_oversized_body_is_refused_however_it_is_declared(anon):
+    """Two escapes were open, both unauthenticated, both against the login
+    endpoint - which reads its whole body before it can tell it is not JSON.
+
+    Claiming to be a file upload used to skip the check entirely, and sending
+    no Content-Length at all meant there was no claim to check.
+    """
+    from app.settings import get_settings
+
+    cap = get_settings().max_request_bytes
+    oversized = b"x" * (cap + 100_000)
+
+    declared = anon.raw.post(
+        "/api/auth/login", content=oversized, headers={"Content-Type": "application/json"}
+    )
+    assert declared.status_code == 413
+
+    pretending_to_be_an_upload = anon.raw.post(
+        "/api/auth/login",
+        content=oversized,
+        headers={"Content-Type": "multipart/form-data; boundary=x"},
+    )
+    assert pretending_to_be_an_upload.status_code != 200
+
+    def chunks():
+        yield oversized
+
+    undeclared = anon.raw.post(
+        "/api/auth/login", content=chunks(), headers={"Content-Type": "application/json"}
+    )
+    assert undeclared.status_code != 200

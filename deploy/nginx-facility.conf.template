@@ -36,6 +36,20 @@ server {
     # errors nginx answers itself.
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
+    # The application sets these on its JSON responses, but the page that
+    # actually runs JavaScript and can be put in a frame is served from disk by
+    # nginx and never reaches the application at all.
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+
+    # Everything the interface needs comes from this origin. No third-party
+    # scripts, no CDN, no analytics - so the policy can be as tight as it
+    # looks, and anything injected into a guide cannot phone out.
+    #   img-src data: - the annotation overlay renders inline SVG
+    #   style-src 'unsafe-inline' - Vite emits inline styles for critical CSS
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+
     # Uploads are capped in the application too; this stops a large body being
     # read into the proxy at all.
     client_max_body_size 210M;
@@ -69,8 +83,15 @@ server {
 
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Overwrite, never append. $proxy_add_x_forwarded_for keeps whatever
+        # the client sent and adds the real address after it, and the
+        # application reads the leftmost entry - so a client could choose the
+        # address used for the per-IP login throttle and written into the audit
+        # log. $remote_addr is the address nginx actually accepted the
+        # connection from, and a client cannot influence it.
+        proxy_set_header X-Forwarded-For   $remote_addr;
 
         # Passed through so Reticle's logs join up with the proxy's. The
         # application only adopts an id that looks like one, and mints its own

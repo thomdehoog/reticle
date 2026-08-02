@@ -24,9 +24,8 @@ import { MarkdownBody } from '../components/MarkdownBody'
 import { AutoTextarea, ErrorAlert, Modal, Spinner, StatusBadge } from '../components/ui'
 import type { Page } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
+import { useAutosave } from '../hooks/useAutosave'
 import { useCategories } from '../hooks/useCategories'
-
-const AUTOSAVE_DELAY_MS = 1200
 
 type SaveState = 'clean' | 'pending' | 'saving' | 'saved' | 'error'
 
@@ -83,30 +82,37 @@ export function PageEditorPage() {
     setSaveState('pending')
   }, [])
 
-  useEffect(() => {
-    if (!page || !dirtyRef.current) return
-
-    const timer = setTimeout(async () => {
-      dirtyRef.current = false
-      setSaveState('saving')
-      setSaveError(null)
-      try {
-        const saved = await api.savePage(page)
-        setPage((current) =>
-          current && dirtyRef.current
-            ? { ...current, updatedAt: saved.updatedAt, version: saved.version, status: saved.status, slug: saved.slug }
-            : saved,
-        )
-        setSaveState(dirtyRef.current ? 'pending' : 'saved')
-      } catch (cause) {
-        dirtyRef.current = true
-        setSaveError(cause)
-        setSaveState('error')
-      }
-    }, AUTOSAVE_DELAY_MS)
-
-    return () => clearTimeout(timer)
+  const saveNow = useCallback(async () => {
+    if (!page) return
+    dirtyRef.current = false
+    setSaveState('saving')
+    setSaveError(null)
+    try {
+      const saved = await api.savePage(page)
+      setPage((current) =>
+        current && dirtyRef.current
+          ? {
+              ...current,
+              updatedAt: saved.updatedAt,
+              version: saved.version,
+              status: saved.status,
+              slug: saved.slug,
+            }
+          : saved,
+      )
+      setSaveState(dirtyRef.current ? 'pending' : 'saved')
+    } catch (cause) {
+      dirtyRef.current = true
+      setSaveError(cause)
+      setSaveState('error')
+    }
   }, [page, api])
+
+  useAutosave({
+    document: page,
+    isDirty: () => dirtyRef.current,
+    save: () => void saveNow(),
+  })
 
   useEffect(() => {
     function warn(event: BeforeUnloadEvent) {
@@ -190,8 +196,8 @@ export function PageEditorPage() {
     setPublishing(true)
     setSaveError(null)
     try {
-      const saved = await api.savePage(page)
       dirtyRef.current = false
+      const saved = await api.savePage(page)
       const published = await api.publishPage(saved.id)
       setPage(published)
       setSaveState('saved')

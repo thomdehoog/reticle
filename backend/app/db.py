@@ -73,8 +73,23 @@ def utcnow() -> datetime:
 
 
 def build_engine(url: str) -> Engine:
-    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    return create_engine(url, connect_args=connect_args, future=True)
+    """Open the connection pool.
+
+    The two pool settings only apply to a real database server, and they are
+    the difference between a PostgreSQL restart being invisible and being an
+    outage. A pooled connection whose far end has gone away looks fine until it
+    is used; without ``pool_pre_ping`` every request that picks up a dead one
+    fails, and the readiness probe flaps, until the pool happens to churn.
+    ``pool_recycle`` covers the quieter version of the same thing - a firewall
+    or NAT that drops an idle connection without telling either side.
+
+    SQLite gets neither, because there is no server to lose. It gets
+    ``check_same_thread=False`` instead: the driver refuses cross-thread use by
+    default, and a threaded web server legitimately does exactly that.
+    """
+    if url.startswith("sqlite"):
+        return create_engine(url, connect_args={"check_same_thread": False}, future=True)
+    return create_engine(url, future=True, pool_pre_ping=True, pool_recycle=1800)
 
 
 engine = build_engine(get_settings().database_url)

@@ -38,11 +38,18 @@ from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import errors
+from .auth import SAFE_METHODS
 from .observability import REQUEST_ID_HEADER, request_id
 
 WINDOW_SECONDS = 60.0
 
-SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+MAX_TRACKED_KEYS = 20_000
+"""How many distinct callers are tracked at once.
+
+Each key costs roughly a kilobyte, so this is about 20 MB - far more addresses
+than a university facility will ever have, and small enough that a flood cannot
+turn the limiter into the memory exhaustion it was added to prevent.
+"""
 
 # Uploads get their own, much lower ceiling. A guide's worth of photographs is
 # tens of megabytes and every one is decoded and re-encoded, so the cost of an
@@ -66,11 +73,23 @@ class SlidingWindow:
     costs a deque of at most ``limit`` floats per active key.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, max_keys: int = MAX_TRACKED_KEYS) -> None:
         self._hits: dict[str, deque[float]] = defaultdict(deque)
+        self.max_keys = max_keys
 
     def check(self, key: str, limit: int, now: float | None = None) -> Decision:
         moment = time.monotonic() if now is None else now
+
+        # A hard ceiling on how many callers are tracked at once. Without it a
+        # flood from many addresses grows this dictionary until the process
+        # runs out of memory - the limiter becoming the outage it exists to
+        # prevent. Past the ceiling, prune first; if that frees nothing, refuse
+        # rather than grow.
+        if key not in self._hits and len(self._hits) >= self.max_keys:
+            self.prune(moment)
+            if len(self._hits) >= self.max_keys:
+                return Decision(False, retry_after=int(WINDOW_SECONDS))
+
         hits = self._hits[key]
 
         cutoff = moment - WINDOW_SECONDS
@@ -183,18 +202,23 @@ class RateLimitMiddleware:
         return "read" if method in SAFE_METHODS else "write"
 
     def _identify(self, scope: Scope) -> str:
-        for key, value in scope.get("headers", []):
-            if key == b"cookie":
-                cookies = value.decode("latin-1", "replace")
-                for part in cookies.split(";"):
-                    name, _, token = part.strip().partition("=")
-                    if name == "reticle_session" and token:
-                        # The cookie value is never logged and never compared;
-                        # it is only used as a dictionary key, so the raw token
-                        # does not leave this process.
-                        return f"s:{token}"
+        """Which bucket this request counts against.
+
+        The address, always - never the session cookie. Keying on the cookie is
+        the obvious idea and it is wrong twice over. A caller can invent a fresh
+        cookie value per request, and since the value is not checked against the
+        session table until much later, every request would land in a brand new
+        bucket and the limit would not exist at all. The same trick fills the
+        window dictionary with one entry per request, which is a memory leak an
+        anonymous caller controls.
+
+        Keying on the address means a shared institutional NAT shares one
+        allowance. That is a real cost, and it is why the limits are set high
+        enough that ordinary use never reaches them: the job here is to stop a
+        runaway script, not to ration colleagues.
+        """
         client = scope.get("client")
-        return f"ip:{client[0] if client else 'unknown'}"
+        return client[0] if client else "unknown"
 
     def _maybe_prune(self) -> None:
         self._requests_since_prune += 1

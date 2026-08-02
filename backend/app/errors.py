@@ -21,6 +21,10 @@ STATUS_FOR_CODE = {
     "payload_too_large": 413,
     "validation_failed": 422,
     "rate_limited": 429,
+    # Nothing raises this deliberately. It is what the catch-all handler in
+    # `main` returns for an exception nobody anticipated, so that a caller gets
+    # the documented error envelope and a request id instead of an empty body.
+    "internal_error": 500,
 }
 
 

@@ -24,7 +24,7 @@ from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from . import errors
 from .auth import SAFE_METHODS, get_session_row
@@ -69,30 +69,85 @@ class RequestSizeLimitMiddleware:
     of a caller who has not authenticated and never will. A 210 MB login attempt
     was held in memory in full and only then rejected as invalid.
 
-    Multipart requests are exempt because uploads legitimately run to tens of
-    megabytes and ``media`` already streams them against its own, larger cap
-    instead of trusting the declared length.
+    Uploads get a larger cap rather than an exemption, and the body is counted
+    as it arrives rather than trusted from its declared length - see
+    ``_cap_for`` and the counting receive below for why each of those matters.
     """
 
-    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+    def __init__(self, app: ASGIApp, max_bytes: int, upload_max_bytes: int) -> None:
         self.app = app
         self.max_bytes = max_bytes
+        self.upload_max_bytes = upload_max_bytes
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and self._is_too_large(Headers(scope=scope)):
-            failure = errors.payload_too_large(
-                f"Requests must be at most {self.max_bytes // (1024 * 1024)} MB."
-            )
-            response = JSONResponse(status_code=failure.status_code, content=failure.body())
-            await response(scope, receive, send)
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
             return
-        await self.app(scope, receive, send)
 
-    def _is_too_large(self, headers: Headers) -> bool:
+        headers = Headers(scope=scope)
+        cap = self._cap_for(headers)
+
+        if self._declares_more_than(headers, cap):
+            await self._refuse(cap, scope, receive, send)
+            return
+
+        # A declared length is a claim, not a fact. A request with no
+        # Content-Length at all - chunked transfer encoding - carried no claim
+        # to check, and one declaring a small body could simply send more. So
+        # the body is also counted as it arrives, and the connection is dropped
+        # the moment it passes the cap.
+        counted = 0
+        refused = False
+
+        async def counting_receive() -> Message:
+            nonlocal counted, refused
+            message = await receive()
+            if message["type"] == "http.request":
+                counted += len(message.get("body", b""))
+                if counted > cap:
+                    refused = True
+                    # Reported as the end of the body. The endpoint sees a
+                    # truncated request and fails validation, and the response
+                    # below replaces whatever it was going to say.
+                    return {"type": "http.disconnect"}
+            return message
+
+        sent_start = False
+
+        async def guarded_send(message: Message) -> None:
+            nonlocal sent_start
+            if refused and not sent_start:
+                sent_start = True
+                await self._refuse(cap, scope, receive, send)
+                return
+            if refused:
+                return
+            if message["type"] == "http.response.start":
+                sent_start = True
+            await send(message)
+
+        await self.app(scope, counting_receive, guarded_send)
+
+    def _cap_for(self, headers: Headers) -> int:
+        """Uploads legitimately run to hundreds of megabytes; JSON does not.
+
+        Two caps rather than an exemption. The multipart route used to be let
+        through entirely, which meant any request could bypass the limit by
+        claiming to be an upload - including one aimed at the login endpoint,
+        which reads its whole body before it can tell that it is not JSON.
+        """
         if headers.get("content-type", "").startswith(MULTIPART_PREFIX):
-            return False
+            return self.upload_max_bytes
+        return self.max_bytes
+
+    def _declares_more_than(self, headers: Headers, cap: int) -> bool:
         declared = headers.get("content-length")
-        return bool(declared and declared.isdigit() and int(declared) > self.max_bytes)
+        return bool(declared and declared.isdigit() and int(declared) > cap)
+
+    async def _refuse(self, cap: int, scope: Scope, receive: Receive, send: Send) -> None:
+        failure = errors.payload_too_large(f"Requests must be at most {cap // (1024 * 1024)} MB.")
+        response = JSONResponse(status_code=failure.status_code, content=failure.body())
+        await response(scope, receive, send)
 
 
 class CsrfMiddleware(BaseHTTPMiddleware):
@@ -194,16 +249,44 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if settings.debug else None,
     )
 
-    application.add_middleware(SecurityHeadersMiddleware)
+    # ---- middleware ------------------------------------------------------
+    #
+    # READ THIS BEFORE REORDERING. `add_middleware` inserts at the front, so
+    # **the last one added is the outermost**, and the list below therefore
+    # reads inside-out. Getting this backwards is not cosmetic: it previously
+    # left every 429 and 413 with no log line, no request id and no security
+    # headers, because the layers that add those sat *inside* the layers that
+    # were rejecting.
+    #
+    # The resulting chain, outermost first:
+    #
+    #   CORS  →  SecurityHeaders  →  RequestContext  →  SizeLimit  →
+    #   RateLimit  →  CSRF  →  the route
+    #
+    # Each position is load-bearing:
+    #
+    #   CORS outermost         a rejected preflight must still answer with the
+    #                          CORS headers, or the browser reports a network
+    #                          error instead of the real refusal.
+    #   SecurityHeaders next   so *every* response carries them, including ones
+    #                          produced by a middleware that never reaches a
+    #                          route.
+    #   RequestContext next    so every response has an id and every request is
+    #                          logged - including the ones refused below it.
+    #   SizeLimit then         refuses an over-long body before anything reads
+    #                          it.
+    #   RateLimit then         cheap, and before the body is parsed.
+    #   CSRF innermost         it only guards routes.
     application.add_middleware(CsrfMiddleware)
-    # Outermost of the application's own middleware, so the id exists before
-    # anything else can fail and the timing covers the whole stack rather than
-    # the handler alone.
-    application.add_middleware(RequestContextMiddleware)
-    # Inside RequestContextMiddleware so a rejection still gets an id and a log
-    # line - a 429 nobody can correlate is indistinguishable from an outage.
     application.add_middleware(RateLimitMiddleware, settings=settings)
-    application.add_middleware(RequestSizeLimitMiddleware, max_bytes=settings.max_request_bytes)
+    application.add_middleware(
+        RequestSizeLimitMiddleware,
+        max_bytes=settings.max_request_bytes,
+        # Headroom over the video cap for multipart framing and the file name.
+        upload_max_bytes=settings.max_video_bytes + 5 * 1024 * 1024,
+    )
+    application.add_middleware(RequestContextMiddleware)
+    application.add_middleware(SecurityHeadersMiddleware)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

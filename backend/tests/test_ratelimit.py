@@ -172,27 +172,58 @@ def test_exhausting_one_allowance_does_not_close_the_others(middleware):
     assert buckets == {"read", "write", "upload"}
 
 
-def test_a_signed_in_user_is_counted_by_session_not_by_address(middleware):
-    """At a university everybody shares an address. Counting by address would
-    mean one person's runaway script throttles the whole institute."""
-    scope = {
+def test_a_caller_is_counted_by_address_and_not_by_a_cookie_they_choose(middleware):
+    """Keying on the session cookie is the obvious idea and it is bypassable.
+
+    The cookie value is not checked against the session table until much later,
+    so a caller can send a fresh random one on every request and land in a new
+    bucket each time - defeating the limit entirely and, worse, adding a
+    dictionary entry per request that they control. The address is the only
+    part of a request the caller cannot choose.
+    """
+    with_cookie = {
         "client": ("10.0.0.1", 5000),
-        "headers": [(b"cookie", b"reticle_csrf=abc; reticle_session=the-token")],
+        "headers": [(b"cookie", b"reticle_session=a-freshly-invented-value")],
     }
+    without = {"client": ("10.0.0.1", 5000), "headers": []}
 
-    assert middleware._identify(scope) == "s:the-token"
+    assert middleware._identify(with_cookie) == middleware._identify(without)
 
 
-def test_an_anonymous_caller_falls_back_to_the_address(middleware):
-    scope = {"client": ("10.0.0.1", 5000), "headers": []}
+def test_two_addresses_get_separate_allowances(middleware):
+    first = {"client": ("10.0.0.1", 5000), "headers": []}
+    second = {"client": ("10.0.0.2", 5000), "headers": []}
 
-    assert middleware._identify(scope) == "ip:10.0.0.1"
+    assert middleware._identify(first) != middleware._identify(second)
 
 
 def test_a_caller_with_no_address_at_all_is_still_counted(middleware):
-    """ASGI permits a missing client. Returning None here would make every such
+    """ASGI permits a missing client. Returning None would make every such
     request share a key with every other, or crash on the join."""
-    assert middleware._identify({"headers": []}) == "ip:unknown"
+    assert middleware._identify({"headers": []}) == "unknown"
+
+
+def test_the_number_of_tracked_callers_is_capped(clock):
+    """Otherwise a flood from many addresses grows the window dictionary until
+    the process runs out of memory - the limiter becoming the outage it was
+    added to prevent."""
+    window = SlidingWindow(max_keys=50)
+
+    for index in range(500):
+        window.check(f"10.0.{index // 256}.{index % 256}", limit=100, now=clock.now)
+
+    assert len(window._hits) <= 50
+
+
+def test_a_caller_already_being_tracked_is_not_refused_by_the_cap(clock):
+    """The cap must bite on new keys only. Refusing a caller who is already
+    inside their allowance would turn a flood elsewhere into an outage for
+    everybody."""
+    window = SlidingWindow(max_keys=2)
+    window.check("10.0.0.1", limit=10, now=clock.now)
+    window.check("10.0.0.2", limit=10, now=clock.now)
+
+    assert window.check("10.0.0.1", limit=10, now=clock.advance(1)).allowed is True
 
 
 # --- through the real application ------------------------------------------

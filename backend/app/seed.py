@@ -16,6 +16,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
+from . import images
 from .db import SessionLocal, init_db, utcnow
 from .models import (
     Annotation,
@@ -344,7 +345,7 @@ def _seed_example_image(db: DbSession, author: User, step: Step) -> None:
         original_filename="",
         uploaded_by_id=author.id,
     )
-    media.storage_path = f"{media.id[:2]}/{media.id[2:4]}/{media.id}.png"
+    media.storage_path = images.relative_storage_path(media.id, "png")
     db.add(media)
     db.flush()
 

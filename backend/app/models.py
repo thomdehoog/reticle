@@ -1,10 +1,26 @@
-"""The persistent model behind ``frontend/src/domain/types.ts``.
+"""The shape of everything Reticle stores.
 
-Column names are snake_case; the wire format is camelCase and the translation
-lives entirely in ``schemas``. Identifiers are ULIDs stored as text: they sort
-by creation time, which makes "newest first" a plain index scan, and they are
-safe to mint on the client so the editor can key a new step optimistically
-before the server has seen it.
+This is the blueprint for the database: one class here becomes one table, and
+one attribute becomes one column. A guide, a step, a bullet point, a picture, a
+shape drawn on a picture, an account, a category, a tag - if Reticle remembers
+it, it is described here.
+
+Reading this file is the fastest way to understand the whole system, because
+everything else is either putting things into these tables or taking them out
+again. Start with ``Guide``, then follow it down: a guide has steps, a step has
+bullets and pictures, a picture has shapes.
+
+Two conventions worth knowing before you read:
+
+Names here use under_scores, but the website speaks in camelCase. That
+translation happens in one place only, ``schemas.py``, so nothing else ever has
+to think about it.
+
+Identifiers are ULIDs - long random-looking strings like
+``01JQZK3T8P9WBRE2880TSQ1736``. Unlike counting from 1, two computers can
+generate them without ever colliding, which is what lets the editor create a new
+step and draw it immediately, before the server has heard about it. They also
+sort by the time they were made, so "newest first" is free.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
