@@ -2978,8 +2978,28 @@ a:hover {
   .step__body {
     grid-column: 1 / -1;
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
     margin-top: 0.75rem;
     gap: 0.9rem;
+  }
+
+  /**
+   * The wide layout pins each child to a column and a row so the strip can sit
+   * beside the picture rather than under it. Those placements have to be let go
+   * here, or they survive into a grid that has only one column: the thumbnails
+   * and the points stayed pinned to column 2, the browser invented a column to
+   * hold them, and the picture — spanning two rows sized by that invented
+   * column — collapsed to two pixels. The large picture was missing from every
+   * step on a phone, which is the half of the screen the guide is for.
+   *
+   * `auto` rather than explicit numbers so they simply follow the document,
+   * which already reads picture, thumbnails, points.
+   */
+  .step__body > .step__stage,
+  .step__body > .step__thumbs,
+  .step__body > .bullets {
+    grid-column: 1;
+    grid-row: auto;
   }
 
   /* No cap on a phone: the row is narrow enough that even two thumbnails

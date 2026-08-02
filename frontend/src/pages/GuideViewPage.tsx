@@ -140,19 +140,6 @@ export function GuideViewPage() {
           <h1>{guide.title}</h1>
           {guide.summary && <p className="page-header__sub">{guide.summary}</p>}
         </div>
-        <div className="page-actions">
-          {guide.status !== 'published' && <StatusBadge status={guide.status} />}
-          <button className="button" type="button" onClick={() => window.print()}>
-            <IconPrint />
-            Print
-          </button>
-          {can('author') && (
-            <Link className="button" to={`/g/${guide.id}/edit`}>
-              <IconEdit />
-              Edit
-            </Link>
-          )}
-        </div>
       </div>
 
       {/* Difficulty and duration carry no labels: both change whether somebody
@@ -181,6 +168,24 @@ export function GuideViewPage() {
       {guide.steps.map((step) => (
         <StepBlock key={step.id} step={step} number={numbers.get(step.id) ?? null} />
       ))}
+
+      {/* Printing and editing are staff controls, and neither is what somebody
+          standing at an instrument came for. They sit after the procedure, the
+          way a category's "edit landing page" does, so nothing between the
+          title and step 1 belongs to anybody but the reader. */}
+      <div className="page-actions page-actions--footer">
+        {guide.status !== 'published' && <StatusBadge status={guide.status} />}
+        <button className="button" type="button" onClick={() => window.print()}>
+          <IconPrint />
+          Print
+        </button>
+        {can('author') && (
+          <Link className="button" to={`/g/${guide.id}/edit`}>
+            <IconEdit />
+            Edit
+          </Link>
+        )}
+      </div>
 
       <footer className="guide__credits">
         <p className="guide__byline">

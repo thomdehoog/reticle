@@ -19,7 +19,7 @@
  * their own heading rather than as well as it.
  */
 
-import { DrawnFigure, monogram } from './Thumbnail'
+import { DrawnFigure } from './Thumbnail'
 
 export interface BannerProps {
   /** The heading, and the page's only ``h1``. */
@@ -44,10 +44,11 @@ export function Banner({ title, line, src, variant = 'section' }: BannerProps) {
           <img className="banner__image" src={src} alt="" />
         ) : (
           /* The same drawn cover the tiles use, so a category with no
-             photograph looks unfinished in neither place — and looks the same
-             in both. A flat grey slab across the top of every page would be
-             worse than having no banner at all. */
-          <DrawnFigure seed={title} label={monogram(title)} />
+             photograph looks unfinished in neither place. No monogram, unlike
+             the tiles: on a tile the letters stand in for a name that is
+             underneath in small type, and here the name is already across the
+             picture in the largest type on the screen. */
+          <DrawnFigure seed={title} />
         )}
       </div>
       <div className="banner__text">
