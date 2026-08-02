@@ -1320,6 +1320,25 @@ a:hover {
 /* A line of text is 21px tall, which is under the 24px floor and impossible to
    hit with a thumb. The height comes from padding rather than from a taller
    font, so the crumb still reads as a small line above the heading. */
+/**
+ * On a reader's screen the rail already says where this is.
+ *
+ * A guide and a wiki page both name their category in the rail, marked, from
+ * the moment the rail learned to follow a reader into one — so the breadcrumb
+ * above the title repeats it. It stays everywhere else: the tag pages and the
+ * two administration screens have nothing in the rail marking them, and there
+ * the breadcrumb is the only way back up.
+ *
+ * Below the breakpoint the rail is not drawn at all, so it comes back — the
+ * same fact delivered by whichever chrome exists at that width, rather than
+ * lost at one of them.
+ */
+@media (min-width: 861px) {
+  .guide > .breadcrumb {
+    display: none;
+  }
+}
+
 .breadcrumb a {
   display: inline-flex;
   align-items: center;
