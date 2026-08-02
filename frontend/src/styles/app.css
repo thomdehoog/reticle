@@ -357,10 +357,6 @@ a:hover {
   box-shadow: 0 0 0 3px var(--brand-100);
 }
 
-.input[aria-invalid='true'] {
-  border-color: var(--danger-600);
-}
-
 .textarea {
   resize: vertical;
   min-height: 4.5rem;
@@ -723,11 +719,6 @@ a:hover {
 
 .guidelist__heading {
   margin-bottom: 0.5rem;
-}
-
-.result-kind {
-  font-weight: 650;
-  color: var(--brand-700);
 }
 
 .result-count {
@@ -1207,44 +1198,6 @@ a:hover {
   grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
 }
 
-.category-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  padding: 1.1rem 1.25rem;
-  color: inherit;
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
-}
-
-.category-card:hover {
-  text-decoration: none;
-  border-color: var(--brand-600);
-  box-shadow: var(--shadow);
-  transform: translateY(-1px);
-}
-
-.category-card__name {
-  font-weight: 650;
-  font-size: 1.02rem;
-  color: var(--ink-900);
-}
-
-.category-card__desc {
-  font-size: 0.88rem;
-  color: var(--ink-500);
-}
-
-.category-card__count {
-  margin-top: 0.35rem;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--brand-700);
-}
-
 /*
  * A guide in a list of guides: title on the left, its first step image on the
  * right.
@@ -1338,12 +1291,6 @@ a:hover {
   color: var(--warning-600);
   background: var(--warning-050);
   border-color: #ecd9a8;
-}
-
-.badge--in_review {
-  color: var(--brand-700);
-  background: var(--brand-050);
-  border-color: var(--brand-100);
 }
 
 .badge--published {
@@ -3572,10 +3519,6 @@ a:hover {
   gap: 0.3rem;
   font-size: 0.8rem;
   color: var(--ink-500);
-}
-
-.tile__dot {
-  color: var(--border-strong);
 }
 
 /* A draft has to be obvious on a wall of pictures, so it sits on the image. */

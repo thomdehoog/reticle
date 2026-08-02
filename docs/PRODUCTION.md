@@ -44,9 +44,9 @@ lacks is a control plane: sign-up, per-facility administration, billing.
 
 | | |
 | --- | --- |
-| ✅ **758 backend tests** | Every one of them against PostgreSQL 16, which is what production is. |
-| ✅ **315 frontend tests** | Plus two browser suites: 18 checks across desktop, tablet and phone, and a 24-check authoring round trip that writes a guide and reads it back. Both run against the **production build behind nginx**, not the dev server, so the minified bundle and the Content-Security-Policy are exercised on every run. |
-| ✅ **Linting, both halves** | ESLint (the `react-hooks` rules are the point) and ruff. Both found real defects. |
+| ✅ **807 backend tests** | Every one of them against PostgreSQL 16, which is what production is. |
+| ✅ **384 frontend tests** | Plus two browser suites: 18 checks across desktop, tablet and phone, and a 24-check authoring round trip that writes a guide and reads it back. Both run against the **production build behind nginx**, not the dev server, so the minified bundle and the Content-Security-Policy are exercised on every run. |
+| ✅ **Linting and formatting, both halves** | ESLint (the `react-hooks` rules are the point) and `ruff check`. Both found real defects. `ruff format --check` is a gate beside the linter, so an unformatted file fails its own pull request instead of turning up as noise in somebody else's diff. |
 | ✅ **Dependency audit** | `pip-audit` and `npm audit`. Zero vulnerabilities. |
 | ✅ **Dependencies pinned** | `requirements.lock` and `requirements-dev.lock`, `pip-compile --generate-hashes`. CI and the server install the same versions with `--require-hashes`, so a rollback rebuilds the environment it is rolling back to. A requirement added without regenerating the lock fails CI. |
 | ✅ **The security headers are asserted** | CI serves the build through the real headers snippet and fails if any of the five is missing from the HTML document, an asset or an API response. nginx's `add_header` does not stack across levels, so this is otherwise a silent loss. |
@@ -100,18 +100,12 @@ claim about it.
 
 ### For one facility — nothing that blocks going live
 
-Two things are configured deliberately and not enforced, both documented at the
-point of decision:
+One thing is configured deliberately and not enforced:
 
-- **`ruff format`** is configured and not enforced. It currently reformats
-  nothing — `ruff format --check .` reports all 73 files already formatted — so
-  making it a gate is now a cheap change rather than one mechanical commit over
-  the whole tree. The comment in `pyproject.toml` still describes it as a large
-  diff and no longer matches the code.
-- **mypy** reports 100 errors across 15 files, almost all type narrowing it
-  cannot follow rather than defects. A gate that red is a gate somebody turns
-  off. Fix a file at a time, then make it a gate. Re-check with
-  `.venv/bin/mypy .` in `backend/` rather than trusting this number; it moves
+- **mypy** reports around a hundred errors across sixteen files, almost all type
+  narrowing it cannot follow rather than defects. A gate that red is a gate
+  somebody turns off. Fix a file at a time, then make it a gate. Re-check with
+  `.venv/bin/mypy .` in `backend/` rather than trusting that number; it moves
   with the code.
 
 ### For hosting as a service — two things, in this order
@@ -143,11 +137,11 @@ certificate makes both a one-time job rather than a per-facility one.
 
 ---
 
-## The decision that was outstanding
+## The tenancy model
 
-**Which tenancy model — settled.** A database per facility, one process per
-facility, one release for all of them. `MULTI_FACILITY.md` is the whole
-argument; `ARCHITECTURE.md` gives the reasoning behind it.
+A database per facility, one process per facility, one release for all of them.
+`MULTI_FACILITY.md` is the whole argument; `ARCHITECTURE.md` gives the reasoning
+behind it.
 
 It is not the cheapest and it is the one that lets you sleep: what Reticle holds
 is internal operating procedure, and the pooled alternative makes one forgotten

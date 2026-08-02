@@ -19,7 +19,7 @@ everyone aligns to.
   corpus actually does — guides live in hidden holding categories and surface
   through tags.
 - **Categories → guides → steps.** A guide has a title, summary, difficulty, a
-  time *range*, an introduction, ordered steps and a conclusion.
+  time *range*, an introduction and ordered steps.
 - **Steps** carry up to four images, an optional video, and a list of annotated
   bullets. Bullets have one of eight colours and an optional flag — note,
   caution or reminder — and can be indented two levels.
@@ -136,10 +136,11 @@ Administrators can take the same export over HTTP at `/api/export/archive`.
 
 ## Where the data lives
 
-GitHub holds the software. The server holds the data, in two places: a database
-file with all the text and structure, and a media folder with the actual images
-and videos. Nothing uploaded ever reaches the repository — `.gitignore` excludes
-both, deliberately.
+GitHub holds the software. The server holds the data, in two places: a
+PostgreSQL database with all the text and structure, and a media folder with the
+actual images and videos. Nothing uploaded ever reaches the repository —
+`.gitignore` excludes the media directory, and the database is not in the
+working tree at all.
 
 `docs/ARCHITECTURE.md` covers that in full, and sets out what running Reticle as
 a hosted service for several facilities would take: object storage instead of

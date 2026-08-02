@@ -18,11 +18,11 @@ httpx~=0.28
 # a throwaway environment when the locks need regenerating; the command is in
 # requirements.lock.
 
-# Linting. `ruff format` is deliberately not enforced - see pyproject.toml.
+# Linting and formatting. CI runs both `ruff check .` and `ruff format --check .`.
 ruff~=0.15
 
-# Configured in pyproject.toml but not a CI gate yet: it reports 48 errors
-# against the current code, almost all of them type-narrowing it cannot follow
-# rather than defects. A gate that red is a gate somebody turns off. Run it
-# locally, fix a file at a time, then make it a gate.
+# Configured in pyproject.toml but not a CI gate yet: it reports around a
+# hundred errors against the current code, almost all of them type-narrowing it
+# cannot follow rather than defects. A gate that red is a gate somebody turns
+# off. Run it locally, fix a file at a time, then make it a gate.
 mypy~=1.18

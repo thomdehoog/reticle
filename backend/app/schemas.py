@@ -31,7 +31,7 @@ from pydantic.alias_generators import to_camel
 from . import models
 
 Role = Literal["viewer", "author", "admin"]
-ContentStatus = Literal["draft", "in_review", "published", "archived"]
+ContentStatus = Literal["draft", "published", "archived"]
 Visibility = Literal["everyone", "staff"]
 """Who a guide is for, independently of how finished it is.
 

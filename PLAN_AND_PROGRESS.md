@@ -33,8 +33,8 @@ model that census replaced.
 
 | | |
 | --- | --- |
-| Backend tests | 551 passing |
-| Frontend tests | 305 passing |
+| Backend tests | 807 passing |
+| Frontend tests | 384 passing |
 | Browser smoke test | `e2e/smoke.mjs` — 18/18 at 1440 / 768 / 390 px |
 | Authoring round-trip | `e2e/cms.mjs` — 24/24, writes a guide and reads it back |
 
@@ -57,8 +57,10 @@ cd C:\ProgramData\MinicondaZMB\home\t.de\reticle\frontend
 Open <http://localhost:5173> and sign in as `thom.dehoog@zmb.uzh.ch`. The local
 admin password was set when the database was seeded during the build session; it
 is a throwaway development credential and is deliberately not recorded in this
-repository. If it is lost, remove `backend/reticle.db` and re-seed with a new
-`RETICLE_ADMIN_PASSWORD` — that discards local test content only.
+repository. If it is lost, drop and recreate the local PostgreSQL database named
+in `RETICLE_DATABASE_URL` and re-seed with a new `RETICLE_ADMIN_PASSWORD` — that
+discards local test content only. Seeding an existing administrator account is a
+no-op, so the password has to go with the database it was set in.
 
 Checks:
 
@@ -128,6 +130,8 @@ reticle/
 ├── docs/EXPORT.md       the export format, for whoever moves the data on next
 ├── docs/NEXT_SESSION.md the brief for the session that has the live site
 ├── docs/ARCHITECTURE.md where the data lives, and what hosting it as a service takes
+├── docs/MULTI_FACILITY.md one subdomain, database and process per facility
+├── docs/PRODUCTION.md   the readiness inventory, including what is deliberately not done
 ├── frontend/            React 19 + TypeScript + Vite
 └── backend/             FastAPI + SQLAlchemy + PostgreSQL
     └── app/importer/    the migration tool; nothing in app imports it

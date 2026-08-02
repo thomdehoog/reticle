@@ -139,7 +139,6 @@ def test_a_viewer_asking_for_drafts_explicitly_still_gets_nothing(author, viewer
     create_guide(author, category.id, "Unfinished Draft")
 
     assert viewer.get("/api/guides", params={"status": "draft"}).json() == []
-    assert viewer.get("/api/guides", params={"status": "in_review"}).json() == []
     assert viewer.get("/api/guides", params={"status": "archived"}).json() == []
 
 

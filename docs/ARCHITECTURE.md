@@ -66,38 +66,31 @@ trusting that estimate.
 
 ## Part two: running it as a service
 
-Everything below is a proposal. None of it blocks ZMB going live self-hosted,
-and doing ZMB first is the right order: one real facility in production teaches
-you more about what a service needs than any amount of designing for ten
-imaginary ones.
+Two of the three storage decisions below are taken and built; the remaining one
+is object storage, which is written and unproven. None of it blocks ZMB going
+live self-hosted, and doing ZMB first is the right order: one real facility in
+production teaches you more about what a service needs than any amount of
+designing for ten imaginary ones.
 
 ### The three storage decisions
 
-The first of them has since been taken and is recorded here as such; the other
-two are still proposals.
+#### 1. PostgreSQL, and nothing else
 
-#### 1. PostgreSQL, and nothing else — decided
+**Reticle runs on PostgreSQL, one database per facility, and speaks no other
+engine.** `provision-facility.sh` creates the role and the database and writes
+the URL into the facility's environment file, and `RETICLE_DATABASE_URL` has no
+default — a server that has not been told where its database is refuses to start
+rather than quietly creating an empty one and serving a library with nothing in
+it.
 
-This one is not a proposal. **Reticle runs on PostgreSQL, one database per
-facility, and speaks no other engine.** `provision-facility.sh` creates the role
-and the database and writes the URL into the facility's environment file, and
-`RETICLE_DATABASE_URL` has no default — a server that has not been told where
-its database is refuses to start rather than quietly creating an empty one and
-serving a library with nothing in it.
+It also buys the things a hosted service needs and an embedded database cannot
+give: concurrent writers, replication, point-in-time recovery measured in
+seconds, and a managed offering from providers in Switzerland and the EU — which
+matters here, see *Residency* below.
 
-The project began on a single-file embedded database, which is a genuinely good
-answer for one facility: one file, no daemon, backed up by copying it. It is the
-wrong answer for a hosted service, and for concrete reasons rather than
-snobbery. It permits one writer at a time, so it cannot be served by more than
-one process. It lives on one machine's disk, so the machine is the durability
-story. And its recovery model is "restore last night's file", which loses a day.
-PostgreSQL gives concurrent writers, replication, and point-in-time recovery
-measured in seconds; every managed provider offers it, in Switzerland and in the
-EU, which matters here — see *Residency* below.
-
-What settled it was not that list but two bugs, both found in this codebase
-rather than imagined, and both of a kind that only exists when development and
-production run different engines.
+The reason to keep, now that the argument is over, is what it cost to find out.
+The project began on a single-file embedded database, and two bugs came out of
+running one engine in development and another in production:
 
 - Every search in the application is an `ilike`, which the embedded engine
   rendered as `lower(a) LIKE lower(b)` — and its `lower()` folds A–Z and stops.
@@ -110,16 +103,13 @@ production run different engines.
   column cannot hold at all. It stored happily in development. Every login on
   the deployed system would have failed, on the first day, for everybody.
 
-Both prerequisites are done:
-
-- **Migrations.** Alembic is in `backend/migrations/` and runs on start-up,
-  handling an empty database, one that predates migrations, and one already
-  stamped. `deploy/migrate-all.sh` is the multi-facility equivalent.
-- **The suite runs on the engine production runs**, and only on it. There is no
-  second engine to fall back to, which is the whole point: a green run is
-  evidence about PostgreSQL. Every CI job that touches a database — the backend
-  suite, the restore rehearsal and the browser smoke test — brings up a
-  `postgres:16` service.
+That is why **the suite runs on the engine production runs, and only on it**:
+there is no second engine to fall back to, so a green run is evidence about
+PostgreSQL. Every CI job that touches a database — the backend suite, the
+restore rehearsal and the browser smoke test — brings up a `postgres:16`
+service. Schema changes go through Alembic in `backend/migrations/`, which runs
+on start-up and handles an empty database, one that predates migrations, and one
+already stamped; `deploy/migrate-all.sh` is the multi-facility equivalent.
 
 Moving a corpus between databases, if a facility ever needs to, is
 `portability export` followed by `restore`; that round trip is rehearsed on
@@ -148,13 +138,14 @@ real bucket rather than only the fake the suite uses.
 
 #### 3. Tenancy: a database per facility
 
-Three shapes, and the middle one is right here.
-
-| Shape | What it is | Why not / why |
-| --- | --- | --- |
-| **Pool** | One database, `tenant_id` on every table | Cheapest per tenant, and one missed `WHERE` leaks another institute's internal procedures. |
-| **Bridge** | One cluster, **one database per facility** | **Recommended.** |
-| **Silo** | Separate everything, per facility | Highest isolation, highest cost. Keep it available for the facility that insists. |
+**Decided, and built.** One cluster, one database, one media directory and one
+process per facility, from a single release; `MULTI_FACILITY.md` describes the
+shape and `deploy/provision-facility.sh` creates one in a command. The two
+alternatives are recorded because the choice is expensive to revisit, not
+because it is open: a pooled design — one database with `tenant_id` on every
+table — is cheapest per tenant, and a silo — separate everything — is the
+highest isolation at the highest cost and stays available for the facility that
+insists on it.
 
 The pool model is the default for consumer SaaS and the wrong default for this
 data. What Reticle holds is internal operating procedure: building access, what
@@ -255,7 +246,7 @@ The honest caveats:
 1. ~~**Alembic migrations.**~~ Done — `backend/migrations/`, run on start-up.
 2. ~~**Storage interface**, with the local implementation as the default.~~
    Done — `app/storage.py`.
-3. ~~**PostgreSQL support**, with CI running the suite against both engines.~~
+3. ~~**PostgreSQL, as the only engine**, with CI running the suite against it.~~
    Done — `RETICLE_TEST_DATABASE_URL` and the PostgreSQL job in CI.
 4. ~~**S3 storage implementation**, with signed URLs behind the existing
    visibility check.~~ Done — `S3Storage` writes with no ACL and issues
@@ -281,9 +272,6 @@ already carrying ZMB, which is the point: none of steps 1–5 and 7 was worth
 doing only for a hosted service, and each is worth having for the single
 institute running Reticle today.
 
-### The decision to take before step 5
-
-**Which tenancy model.** The recommendation above is a database per facility on
-a shared cluster. It is not the cheapest and it is the one that lets you sleep.
-Implementing the alternative later is a migration of every table in the
-product, so it is worth settling deliberately rather than discovering.
+The one thing not to reopen along the way is the tenancy model. A database per
+facility on a shared cluster is what steps 1–5 were built against, and switching
+to a pooled design later is a migration of every table in the product.

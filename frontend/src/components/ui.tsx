@@ -21,7 +21,6 @@ import { IconClose } from './icons'
 
 const STATUS_LABELS: Record<ContentStatus, string> = {
   draft: 'Draft',
-  in_review: 'In review',
   published: 'Published',
   archived: 'Archived',
 }

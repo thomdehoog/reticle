@@ -65,16 +65,6 @@ export function IconCaution(props: IconProps) {
   )
 }
 
-export function IconWarning(props: IconProps) {
-  return (
-    <svg {...svgProps(props)}>
-      <path d="M8.4 2.9h7.2L21.1 8.4v7.2l-5.5 5.5H8.4l-5.5-5.5V8.4L8.4 2.9Z" />
-      <path d="M12 8v4.6" />
-      <path d="M12 16.2h.01" />
-    </svg>
-  )
-}
-
 export function IconReminder(props: IconProps) {
   return (
     <svg {...svgProps(props)}>
@@ -106,15 +96,6 @@ export function IconDrag(props: IconProps) {
   return (
     <svg {...svgProps(props)} strokeWidth={2.4}>
       <path d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01" />
-    </svg>
-  )
-}
-
-export function IconSearch(props: IconProps) {
-  return (
-    <svg {...svgProps(props)}>
-      <circle cx="10.5" cy="10.5" r="6.5" />
-      <path d="M15.4 15.4 20 20" />
     </svg>
   )
 }
@@ -263,15 +244,6 @@ export function IconTag(props: IconProps) {
     <svg {...svgProps(props)}>
       <path d="M11.4 3.4H20v8.6l-8.4 8.4a1.6 1.6 0 0 1-2.3 0L3 14.1a1.6 1.6 0 0 1 0-2.3l8.4-8.4Z" />
       <circle cx="16.2" cy="7.8" r="1.5" />
-    </svg>
-  )
-}
-
-export function IconFolders(props: IconProps) {
-  return (
-    <svg {...svgProps(props)}>
-      <path d="M3 8.2V5.6h5l1.6 2.2H15v9.4H3V8.2Z" />
-      <path d="M7 19.4h14V10h-3" />
     </svg>
   )
 }

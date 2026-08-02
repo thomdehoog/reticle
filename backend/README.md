@@ -17,11 +17,18 @@ not used anywhere in this project.
 ```powershell
 C:\ProgramData\MinicondaZMB\Scripts\conda.exe create -y -n reticle `
   --override-channels -c conda-forge `
-  python=3.12 fastapi uvicorn sqlalchemy pydantic pydantic-settings `
-  argon2-cffi pillow python-multipart python-ulid pytest pytest-cov httpx
+  python=3.12 fastapi uvicorn sqlalchemy alembic psycopg pydantic pydantic-settings `
+  argon2-cffi pillow python-multipart python-ulid boto3 pytest pytest-cov httpx
 ```
 
-Every package resolved from conda-forge; nothing needed a pip fallback.
+Every package resolves from conda-forge; nothing needs a pip fallback.
+`psycopg` and `alembic` are not optional — PostgreSQL is the only engine and the
+schema is created by migrations. `boto3` is only used when
+`RETICLE_STORAGE_BACKEND=s3`, and `app/storage.py` imports it lazily, so a
+local-disk installation that omits it still runs.
+
+`requirements.txt` and the two `.lock` files beside it are the authoritative
+list; this command is the conda equivalent for the ZMB workstations.
 
 The environment lives under `C:\ProgramData\MinicondaZMB\envs\reticle`, which is
 AppLocker-whitelisted on the ZMB machines. Do not relocate it under a

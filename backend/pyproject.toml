@@ -52,17 +52,11 @@ ignore = [
 # file://, ftp:// and gopher://.
 "app/importer/client.py" = ["S310"]
 
+# `ruff format --check .` is a CI gate beside `ruff check .`, so an unformatted
+# file fails its own pull request instead of accumulating until somebody has to
+# reformat the whole tree again.
 [tool.ruff.format]
 quote-style = "double"
-
-# The whole backend is formatted: `ruff format --check .` reports every file
-# already formatted, and the mechanical commit that got it there has been taken,
-# so the cost this block used to weigh - one diff touching most of the codebase
-# and a `git blame` full of it - has been paid and cannot be paid again.
-#
-# It is therefore worth enforcing. `ruff format --check .` belongs in CI beside
-# `ruff check .`, so that the next unformatted file is caught in the pull
-# request rather than accumulating until somebody reformats everything again.
 
 [tool.mypy]
 python_version = "3.11"

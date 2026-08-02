@@ -19,7 +19,7 @@ export type Role = 'viewer' | 'author' | 'admin'
  * published version; editing happens in place and each publish writes an
  * immutable snapshot, which is what the revision endpoints expose.
  */
-export type ContentStatus = 'draft' | 'in_review' | 'published' | 'archived'
+export type ContentStatus = 'draft' | 'published' | 'archived'
 
 export type Difficulty =
   | 'very_easy'
