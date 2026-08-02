@@ -4,6 +4,14 @@ Written for whoever — person or agent — picks this up with access to
 zmb.dozuki.com and a browser. The build is done; what remains cannot be done
 without the live site.
 
+> **The platform work is finished and verified.** Migrations, PostgreSQL,
+> structured logging, rate limiting, a storage interface, linting on both
+> halves, dependency auditing, a restore rehearsal in CI, and a deploy that
+> backs up, migrates and rolls back on its own. `docs/PRODUCTION.md` is the
+> inventory, including what is deliberately *not* done and why. Read it before
+> deciding this needs more platform work — it probably does not. The four jobs
+> below are what is left.
+
 There are four jobs, in this order, because each one's result changes what the
 next one should check.
 
