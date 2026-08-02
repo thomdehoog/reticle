@@ -53,6 +53,25 @@ export function App() {
     return <LoginPage />
   }
 
+  /* The server could not be asked, which is not the same as being signed out.
+     Showing the login screen here tells somebody their session has ended when
+     it has not, and invites them to type a password at a server that is busy
+     or unreachable. Say what happened and offer the only thing that helps. */
+  if (status === 'unreachable') {
+    return (
+      <div className="page-state">
+        <h1>Reticle cannot be reached</h1>
+        <p>
+          The server did not answer when we checked your session. You are probably still
+          signed in — this is usually a moment&apos;s interruption.
+        </p>
+        <button className="button button--primary" type="button" onClick={() => window.location.reload()}>
+          Try again
+        </button>
+      </div>
+    )
+  }
+
   return (
     <AppShell>
       <ErrorBoundary scope="content" key={pathname}>

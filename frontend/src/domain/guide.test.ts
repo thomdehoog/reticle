@@ -49,6 +49,7 @@ function guideFixture(overrides: Partial<Guide> = {}): Guide {
     categoryId: 'c-light-microscopy',
     tags: [],
     isQuickLink: false,
+    visibility: 'everyone',
     difficulty: 'moderate',
     timeRequiredMinMinutes: 30,
     timeRequiredMaxMinutes: null,

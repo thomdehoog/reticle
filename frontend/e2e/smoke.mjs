@@ -252,32 +252,80 @@ for (const viewport of VIEWPORTS) {
     await checkReadability(page, viewport, 'guide')
 
     /**
-     * The point of the whole exercise: nothing but the guide's own front matter
-     * stands between the top of the screen and step 1.
+     * The guide gets the whole column it is in.
      *
-     * Measured as "the section list is not above step 1" rather than "step 1 is
-     * in the first screenful", because how far down step 1 lands also depends on
-     * how long its author made the introduction — which is content, and not this
-     * test's business.
+     * There used to be a second navigation column beside it, held in a
+     * two-track grid, and a guide with no neighbours to list rendered nothing
+     * into the first track and 236px of article into the second — the guide
+     * squeezed into the sidebar's column. The grid is gone with the sidebar, so
+     * that cannot happen again, and this is what says so: the article is as wide
+     * as the column allows, up to the reading measure its own rule sets.
      *
-     * Where the list is a column beside the guide rather than a block stacked
-     * above it, the question does not arise: it is not in the reader's way, it
-     * is next to them. That is detected from the boxes rather than from a width,
-     * so the check follows the stylesheet's breakpoint wherever it moves to.
+     * Measured against what is actually available rather than against a number,
+     * so it means the same thing at 1440px and at 320px.
      */
-    const stepOrder = await page.evaluate(() => {
-      const nav = document.querySelector('.section-nav')
-      const step = document.querySelector('.step')
-      if (!nav || !step) return { stacked: false, navAbove: false }
-      const navBox = nav.getBoundingClientRect()
-      const stepBox = step.getBoundingClientRect()
+    const column = await page.evaluate(() => {
+      const article = document.querySelector('article.guide')
+      const main = document.querySelector('.app__main')
+      if (!article || !main) return null
+      const style = getComputedStyle(main)
+      const available =
+        main.getBoundingClientRect().width -
+        parseFloat(style.paddingLeft) -
+        parseFloat(style.paddingRight)
       return {
-        stacked: navBox.right > stepBox.left,
-        navAbove: navBox.top < stepBox.top,
+        width: Math.round(article.getBoundingClientRect().width),
+        room: Math.round(available),
+        measure: Math.round(parseFloat(getComputedStyle(article).maxWidth) || available),
       }
     })
-    if (stepOrder.stacked) {
-      record(`[${viewport.name}] the section list does not precede step 1`, !stepOrder.navAbove)
+    if (column) {
+      const expected = Math.min(column.room, column.measure)
+      record(
+        `[${viewport.name}] the guide fills its column`,
+        Math.abs(column.width - expected) <= 1,
+        `${column.width}px of ${column.room}px available, measure ${column.measure}px`,
+      )
+    }
+
+    /**
+     * The rail followed the reader down to the guide.
+     *
+     * It lists what the section holds and marks the one open, which is the
+     * whole reason there is no longer a second list of the same procedures
+     * beside the article. On a wide screen that list is the rail; below the
+     * breakpoint the rail is not rendered and the same component is in the
+     * drawer, so the phone is asked the same question through the button it
+     * actually has.
+     */
+    const railMark = await page.evaluate(() => {
+      const item = document.querySelector('.rail .rail__item[aria-current="page"]')
+      return item ? item.textContent.trim() : null
+    })
+    if (await page.locator('.rail').count()) {
+      record(`[${viewport.name}] the rail marks the guide being read`, railMark !== null, railMark ?? '')
+    }
+
+    const drawer = page.getByRole('button', { name: 'Menu' })
+    if (await drawer.isVisible()) {
+      await drawer.click()
+      await page.waitForSelector('.menu-sheet')
+      /* The drawer is built when it opens, so its copy of the list asks for the
+         section from scratch. Waited for rather than read, or this measures how
+         fast the machine is. */
+      const sheetMark = await page
+        .locator('.menu-sheet .rail__item[aria-current="page"]')
+        .first()
+        .textContent({ timeout: 10000 })
+        .then((text) => text.trim())
+        .catch(() => null)
+      record(
+        `[${viewport.name}] the drawer marks the guide being read`,
+        sheetMark !== null,
+        sheetMark ?? '',
+      )
+      await page.keyboard.press('Escape')
+      await page.waitForSelector('.menu-sheet', { state: 'detached' })
     }
 
     /* What the reader actually scrolls past to reach the first instruction. */

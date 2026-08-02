@@ -43,6 +43,16 @@ export type BulletColor =
   | 'blue'
   | 'violet'
 
+/**
+ * Who may read a guide, independently of whether it is published.
+ *
+ * A procedure can be finished, current and deliberately internal — how to reach
+ * the server room, what the door code is. `status` says whether it is written;
+ * this says who it was written for. The server enforces it in the query, and a
+ * viewer is given 404 rather than 403 so its existence is not confirmed.
+ */
+export type Visibility = 'everyone' | 'staff'
+
 export type BulletIcon = 'note' | 'caution' | 'reminder'
 
 /** Indent depth of a bullet within its step. Levels 0, 1 and 2 are all in use. */
@@ -170,6 +180,7 @@ export interface Guide {
    * computes from view counts.
    */
   isQuickLink: boolean
+  visibility: Visibility
   difficulty: Difficulty
   /**
    * An estimate given as a range, because that is how long a procedure honestly
@@ -202,6 +213,7 @@ export interface GuideSummary {
   categoryId: string
   tags: string[]
   isQuickLink: boolean
+  visibility: Visibility
   difficulty: Difficulty
   timeRequiredMinMinutes: number | null
   timeRequiredMaxMinutes: number | null

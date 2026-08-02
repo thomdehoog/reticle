@@ -71,7 +71,7 @@ export function useAutosave({ snapshot, isDirty, save }: Options): void {
       // Asked again rather than assumed from when the timer was set. Publishing
       // takes the work first and clears the flag before it awaits; a timer that
       // fired anyway would send a second write carrying the same
-      // expectedUpdatedAt, and the server answers the loser of that pair with a
+      // updatedAt, and the server answers the loser of that pair with a
       // conflict - telling an author working alone that a colleague edited
       // their guide.
       if (dirty.current()) saveNow.current()

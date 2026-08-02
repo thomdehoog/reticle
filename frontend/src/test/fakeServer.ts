@@ -85,6 +85,7 @@ export function guideFixture(overrides: Partial<Guide> = {}): Guide {
     categoryId: 'c-light',
     tags: [],
     isQuickLink: false,
+    visibility: 'everyone',
     difficulty: 'moderate',
     timeRequiredMinMinutes: 30,
     timeRequiredMaxMinutes: null,
@@ -218,6 +219,7 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       categoryId: guide.categoryId,
       tags: guide.tags,
       isQuickLink: guide.isQuickLink,
+      visibility: guide.visibility,
       difficulty: guide.difficulty,
       timeRequiredMinMinutes: guide.timeRequiredMinMinutes,
       timeRequiredMaxMinutes: guide.timeRequiredMaxMinutes,
@@ -326,11 +328,18 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       if (method === 'GET') return json(guide)
 
       if (method === 'PUT') {
-        const incoming = body as Guide & { expectedUpdatedAt: string }
-        /* The real server refuses a write whose timestamp is not the one it
+        const incoming = body as Guide
+        /* The real server refuses a write whose `updatedAt` is not the one it
            holds, and the editor's whole conflict path hangs on that, so the
-           rule is applied here rather than faked with a flag. */
-        if (incoming.expectedUpdatedAt !== guide.updatedAt) {
+           rule is applied here rather than faked with a flag.
+
+           It reads the same field the real server reads. It used to compare a
+           separate `expectedUpdatedAt` that the real server ignores entirely —
+           so the conflict tests passed against a rule nothing enforced, and
+           would have kept passing if the guard had been removed. A fake that
+           agrees with the client rather than with the server proves only that
+           the client agrees with itself. */
+        if (incoming.updatedAt !== guide.updatedAt) {
           return error('conflict', 'Someone else saved this guide first.', 409)
         }
         const saved: Guide = {
@@ -425,8 +434,8 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       if (method === 'GET') return json(page)
 
       if (method === 'PUT') {
-        const incoming = body as Page & { expectedUpdatedAt: string }
-        if (incoming.expectedUpdatedAt !== page.updatedAt) {
+        const incoming = body as Page
+        if (incoming.updatedAt !== page.updatedAt) {
           return error('conflict', 'Someone else saved this page first.', 409)
         }
         const saved: Page = { ...page, ...incoming, updatedAt: nextTimestamp() }

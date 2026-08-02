@@ -16,11 +16,11 @@ import {
   type ReactNode,
 } from 'react'
 
-import { ApiClient } from '../api/client'
+import { ApiClient, ApiError } from '../api/client'
 import { ReticleApi } from '../api/reticle'
 import type { Organisation, Role, User } from '../domain/types'
 
-type SessionStatus = 'checking' | 'authenticated' | 'anonymous'
+type SessionStatus = 'checking' | 'authenticated' | 'anonymous' | 'unreachable'
 
 interface AuthContextValue {
   status: SessionStatus
@@ -95,10 +95,23 @@ export function AuthProvider({ children, fetchImpl }: AuthProviderProps) {
         setUser(me)
         setStatus('authenticated')
       })
-      .catch(() => {
+      .catch((cause: unknown) => {
         if (cancelled) return
         setUser(null)
-        setStatus('anonymous')
+        /*
+         * "Not signed in" and "could not ask" are different answers, and only
+         * one of them means show the login screen.
+         *
+         * This used to treat every failure as the first, so a rate-limited
+         * reply, a 500, or a lost connection at page load signed the reader
+         * out — and the rate limiter is the likely one, because a whole
+         * institute behind one address shares its budget. The limiter's own
+         * docstring promises it must never lock the facility out; the server
+         * kept that promise and the client broke it, by throwing away the ten
+         * error codes the client had carefully distinguished.
+         */
+        const refused = cause instanceof ApiError && cause.code === 'not_authenticated'
+        setStatus(refused ? 'anonymous' : 'unreachable')
       })
     return () => {
       cancelled = true

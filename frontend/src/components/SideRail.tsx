@@ -218,7 +218,10 @@ export function RailPlaces() {
    */
   const here = documentPath(pathname)
   const { data: within } = useAsync(async () => {
-    if (!here) return { categoryId: null }
+    /* Null, not an answer of "no category": this value survives into the first
+       render after a navigation, and a leftover answer there is what tells the
+       rail below that it need not hold anything. */
+    if (!here) return null
     /* A document that will not load is somewhere the rail cannot place, and the
        page beside it already says so; the column goes quietly back to the
        front's list rather than reporting the same failure twice. */
@@ -233,22 +236,23 @@ export function RailPlaces() {
    * The section the reader is standing in, held across the moment a document
    * has been asked for and has not arrived.
    *
-   * Stepping from one procedure to the next in a section re-fetches the guide,
-   * and for that moment nothing in the path or in hand says which category it
-   * belongs to. Without the held answer the column emptied of its neighbours,
-   * showed the list of categories, and filled back in — twice a click, on the
-   * one screen a reader spends real time on. Held, it does not move at all:
-   * same category, same list, and only the mark travels.
+   * Opening a guide from its category, or stepping from one procedure to the
+   * next, re-fetches the document, and for that moment nothing in the path or
+   * in hand says which category it belongs to. Without the held answer the
+   * column emptied of its neighbours, showed the list of categories, and filled
+   * back in — twice a click, on the one screen a reader spends real time on.
+   * Held, it does not move at all: same section, same list, and only the mark
+   * travels.
    *
    * It is dropped the moment the reader is not on a document, so the front page
    * is never left wearing the last section they were in.
    */
   const [lastSection, setLastSection] = useState<string | null>(null)
 
-  /* Not yet known is not the same answer as none: a document still in flight is
-     `null` here, while one that belongs to no section at all — a standalone
-     wiki page — resolves with a category of null and puts the rail back at the
-     front, where it belongs. */
+  /* Not yet known is not the same answer as none: a document still in flight
+     leaves this null and the last section stands, while one that belongs to no
+     section at all — a standalone wiki page — resolves with a category of null
+     and puts the rail back at the front, where it belongs. */
   const resolved = here === null ? { categoryId: null } : within
   const slug =
     categorySlug(pathname) ??

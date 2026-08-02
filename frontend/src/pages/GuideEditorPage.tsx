@@ -250,7 +250,7 @@ export function GuideEditorPage() {
     setSaveError(null)
     // Claim the work before awaiting. The autosave timer may already be
     // running; if it fires while this save is in flight it would send a second
-    // write carrying the same expectedUpdatedAt, and one of the two would come
+    // write carrying the same updatedAt, and one of the two would come
     // back as a conflict - telling an author working alone that somebody else
     // had edited their guide.
     dirtyRef.current = false

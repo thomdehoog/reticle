@@ -72,7 +72,7 @@ export function GuideViewPage() {
   const { can, organisation } = useAuth()
 
   /* The categories are only for the breadcrumb. What else is in this section is
-     the rail's business, and asking for it here as well was the same list
+     the rail's business — asking for it here as well would be the same listing
      fetched twice to be drawn twice. */
   const { data, error, loading } = useAsync(
     async () => {

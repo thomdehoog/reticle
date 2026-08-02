@@ -128,15 +128,21 @@ export class ReticleApi {
   }
 
   /**
-   * Saves the whole document. `expectedUpdatedAt` is what the editor last saw;
-   * the server rejects the write with `conflict` if someone else saved in the
-   * meantime, which is what stops two ZMB staff silently overwriting each other.
+   * Saves the whole document.
+   *
+   * The concurrency guard is the document's own `updatedAt`: the server
+   * compares what arrives against what it holds and answers `conflict` if
+   * somebody else has saved since, which is what stops two ZMB staff silently
+   * overwriting each other.
+   *
+   * There used to be a separate `expectedUpdatedAt` alongside it, described here
+   * as the guard. It was never read — the document schema ignores unknown keys,
+   * so it was accepted and dropped, and the real check had been quietly riding
+   * on `updatedAt` all along. Sending it made the guard look explicit while the
+   * thing actually protecting the corpus was a field nobody was pointing at.
    */
   saveGuide(guide: Guide): Promise<Guide> {
-    return this.http.put<Guide>(`/guides/${guide.id}`, {
-      ...guide,
-      expectedUpdatedAt: guide.updatedAt,
-    })
+    return this.http.put<Guide>(`/guides/${guide.id}`, guide)
   }
 
   publishGuide(id: string): Promise<Guide> {
@@ -181,10 +187,7 @@ export class ReticleApi {
   }
 
   savePage(page: Page): Promise<Page> {
-    return this.http.put<Page>(`/pages/${page.id}`, {
-      ...page,
-      expectedUpdatedAt: page.updatedAt,
-    })
+    return this.http.put<Page>(`/pages/${page.id}`, page)
   }
 
   publishPage(id: string): Promise<Page> {

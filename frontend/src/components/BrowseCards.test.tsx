@@ -41,6 +41,7 @@ function summary(overrides: Partial<GuideSummary> = {}): GuideSummary {
     categoryId: guide.categoryId,
     tags: guide.tags,
     isQuickLink: guide.isQuickLink,
+    visibility: guide.visibility,
     difficulty: guide.difficulty,
     timeRequiredMinMinutes: guide.timeRequiredMinMinutes,
     timeRequiredMaxMinutes: guide.timeRequiredMaxMinutes,

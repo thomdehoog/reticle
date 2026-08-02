@@ -32,7 +32,7 @@ describe('useAutosave', () => {
    * The one that matters. Publishing, unpublishing and archiving all take the
    * work first — they clear the dirty flag, then await their own request. A
    * timer that fired anyway would send a second write carrying the same
-   * `expectedUpdatedAt`, which the server answers with a conflict; the author
+   * `updatedAt`, which the server answers with a conflict; the author
    * is working alone and is told a colleague edited their guide.
    */
   it('asks again whether there is anything to save before it fires', () => {

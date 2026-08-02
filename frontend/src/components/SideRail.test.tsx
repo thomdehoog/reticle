@@ -15,7 +15,8 @@
  * or nothing at all, and nobody would find out until a real corpus landed.
  */
 
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
+import { Link } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
 import { RailPlaces } from './SideRail'
@@ -301,6 +302,41 @@ describe('RailPlaces', () => {
 
     expect(await screen.findByRole('heading', { name: 'Categories' })).toBeInTheDocument()
     expect(places()).toEqual(['Electron Microscopy'])
+  })
+
+  /**
+   * The rail is furniture. It may fill in a moment later; it may not empty out
+   * and refill on the way.
+   *
+   * Which category a guide belongs to is not in its address, so opening one
+   * leaves the rail with the question outstanding for as long as the request
+   * takes. Answering it with the front page's list for that moment is what made
+   * the column jump from the section's guides to the institute's categories and
+   * back on every click — and every click is what a reader working through a
+   * set of procedures does. The section is held instead.
+   *
+   * The step out of the section's own page is the one that broke, so that is
+   * the one taken here: standing on a category the rail has an answer in hand
+   * saying the reader is on no document, and it is a stale answer the instant
+   * they open one.
+   *
+   * Asserted on the render after the click and before anything is awaited,
+   * because that render is the whole of the bug: let the requests settle first
+   * and the wrong behaviour is invisible.
+   */
+  it('holds the section it is in while a guide inside it is on its way', async () => {
+    const server = nested()
+    renderWithApp(
+      <>
+        <Link to="/g/stellaris-shutdown">Open</Link>
+        <RailPlaces />
+      </>,
+      { route: '/c/confocal', fetchImpl: server.fetchImpl },
+    )
+    await screen.findByRole('link', { name: 'Stellaris start-up' })
+
+    fireEvent.click(screen.getByRole('link', { name: 'Open' }))
+    expect(places()).toEqual(['Stellaris start-up', 'Stellaris shutdown'])
   })
 
   /**

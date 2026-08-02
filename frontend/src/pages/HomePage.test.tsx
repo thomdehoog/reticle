@@ -177,6 +177,7 @@ describe('HomePage', () => {
           summary: 'PPMS in three steps',
           status: 'published',
           isQuickLink: true,
+          visibility: 'everyone',
         }),
         guideFixture({
           id: 'g-other',

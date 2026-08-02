@@ -3385,6 +3385,27 @@ a:hover {
   }
 }
 
+/* ------------------------------------------------------- whole-page states */
+
+/* Shown instead of the application when there is nothing to show it around:
+   the server could not be reached to say whether anybody is signed in. */
+.page-state {
+  max-width: 32rem;
+  margin: 4rem auto;
+  padding: 0 1.25rem;
+  text-align: center;
+}
+
+.page-state h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.4rem;
+}
+
+.page-state p {
+  margin: 0 0 1.5rem;
+  color: var(--ink-700);
+}
+
 /* ------------------------------------------------------------------ banner */
 
 /*

@@ -118,6 +118,7 @@ describe('embedding one named guide', () => {
             categoryId: 'c1',
             tags: [],
             isQuickLink: false,
+            visibility: 'everyone',
             difficulty: 'easy',
             timeRequiredMinMinutes: null,
             timeRequiredMaxMinutes: null,

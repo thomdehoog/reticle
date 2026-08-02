@@ -41,11 +41,4 @@ describe('app.css', () => {
 
     expect(tooSmall).toEqual([])
   })
-
-  /*
-   * There was a second test here, about keeping the column of neighbours below
-   * the guide on a narrow screen. That column is gone: the rail and the phone
-   * drawer carry the section's contents now, so there is no second navigation
-   * beside a guide to order.
-   */
 })
