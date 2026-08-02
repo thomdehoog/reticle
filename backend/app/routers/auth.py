@@ -40,13 +40,25 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 def set_session_cookies(
     response: Response, token: str, csrf_token: str, settings: Settings
 ) -> None:
+    """Write the session and CSRF cookies for this host, and only this host.
+
+    No domain is set, deliberately. Omitting it makes the browser scope the
+    cookie to the exact host that served the response, which under one subdomain
+    per facility is exactly right: ``zmb.reticle.ch`` gets a cookie no other
+    facility's subdomain can see.
+
+    The setting that used to be here allowed a parent domain, and the only value
+    anybody would ever have typed is ``.reticle.ch`` — which hands ZMB's session
+    cookie to every other facility on the platform. That is the cross-facility
+    coupling the separate databases exist to prevent, arriving through the one
+    header nobody thinks about. Nothing set it, and it is gone.
+    """
     max_age = settings.session_lifetime_hours * 3600
     response.set_cookie(
         SESSION_COOKIE,
         token,
         max_age=max_age,
         path="/",
-        domain=settings.cookie_domain,
         secure=settings.cookie_secure,
         httponly=True,
         samesite="lax",
@@ -56,7 +68,6 @@ def set_session_cookies(
         csrf_token,
         max_age=max_age,
         path="/",
-        domain=settings.cookie_domain,
         secure=settings.cookie_secure,
         httponly=False,
         samesite="lax",
@@ -64,8 +75,9 @@ def set_session_cookies(
 
 
 def clear_session_cookies(response: Response, settings: Settings) -> None:
+    del settings
     for name in (SESSION_COOKIE, CSRF_COOKIE):
-        response.delete_cookie(name, path="/", domain=settings.cookie_domain)
+        response.delete_cookie(name, path="/")
 
 
 @router.post("/login", response_model=UserOut)

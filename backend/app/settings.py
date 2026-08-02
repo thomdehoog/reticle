@@ -94,7 +94,6 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     cookie_secure: bool = True
-    cookie_domain: str | None = None
     session_lifetime_hours: int = 12
 
     cors_origins: Annotated[list[str], NoDecode] = [
