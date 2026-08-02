@@ -240,8 +240,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     </HeaderMenu>
   )
 
+  /* The rail's own cell is one window tall, so the stylesheet paints the column
+     behind it; `app--rail` is how it knows there is a rail to paint. */
   return (
-    <div className="app">
+    <div className={`app${phone ? '' : ' app--rail'}`}>
       {!phone && <SideRail account={account} />}
 
       <div className="app__column">

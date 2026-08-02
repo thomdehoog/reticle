@@ -67,6 +67,13 @@
   --bullet-blue: var(--shape-blue);
   --bullet-violet: var(--shape-violet);
 
+  /* What a reminder is flagged in. Deliberately not one of the eight palette
+     colours: those say which mark on the picture a point belongs to, and a flag
+     says how much attention to pay. Teal because it is the one hue that is
+     neither the blue a note already owns nor close enough to red to be read as
+     a milder caution. */
+  --flag-reminder: #0f766e;
+
   --radius-sm: 4px;
   --radius: 8px;
   --radius-lg: 12px;
@@ -76,6 +83,7 @@
 
   --header-height: 56px;
   --content-max: 1180px;
+  --rail-width: 236px;
 }
 
 /*
@@ -136,6 +144,7 @@
     --bullet-light-blue: #3fc0d8;
     --bullet-blue: #67a8ff;
     --bullet-violet: #b98cff;
+    --flag-reminder: #45c9bd;
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow: 0 2px 4px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -163,6 +172,7 @@
     --bullet-light-blue: var(--shape-light-blue);
     --bullet-blue: var(--shape-blue);
     --bullet-violet: var(--shape-violet);
+    --flag-reminder: #0f766e;
   }
 }
 
@@ -757,7 +767,20 @@ a:hover {
 @media (min-width: 861px) {
   .app {
     display: grid;
-    grid-template-columns: 236px minmax(0, 1fr);
+    grid-template-columns: var(--rail-width) minmax(0, 1fr);
+  }
+
+  /* The rail itself is one window tall and stays put while the page scrolls,
+     so on a long guide its cell runs out and the page background shows through
+     underneath it. Painting the column rather than the element keeps the dark
+     band running the whole height without making the rail a scrolling element
+     the reader has to get past. */
+  .app--rail {
+    background: linear-gradient(
+      to right,
+      var(--brand-900) 0 var(--rail-width),
+      transparent var(--rail-width)
+    );
   }
 }
 
@@ -1538,52 +1561,103 @@ a:hover {
  * read in. The two columns are close to equal, tilted towards the image,
  * because a screenshot of an acquisition dialog stops being readable long
  * before a line of text does.
+ *
+ * The thumbnail strip is the first thing in the right-hand column, above the
+ * instructions, rather than under the picture: which picture you are looking at
+ * is a choice made before reading the points, and a strip under the picture
+ * moves down the screen every time a portrait shot is swapped in for a
+ * landscape one. Put beside the text it cannot move at all, because the row it
+ * is in does not depend on the picture's height.
+ *
+ * Hence the three explicit placements below. The picture spans both rows, the
+ * strip takes the first, the points take the second — and the row gap is zero,
+ * so a step with no strip starts its points level with the top of the picture
+ * exactly as one with a strip does.
  */
 .step__body {
   grid-column: 2;
   margin-top: 0.5rem;
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-  gap: 0.5rem 1.4rem;
+  grid-template-rows: auto 1fr;
+  gap: 0 1.4rem;
   align-items: start;
+}
+
+.step__body > .step__stage {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  min-width: 0;
+}
+
+.step__body > .step__thumbs {
+  grid-column: 2;
+  grid-row: 1;
+  margin-top: 0;
+  margin-bottom: 0.9rem;
+}
+
+.step__body > .bullets {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .step__body--text-only {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.step__media {
-  min-width: 0;
+.step__body--text-only > .bullets {
+  grid-column: 1;
+  grid-row: 1;
 }
 
+/**
+ * The frame is exactly the picture, so there are no grey bars around it.
+ *
+ * The picture fills the column's width and the frame takes whatever height that
+ * implies. There is no fill behind it and nothing to letterbox against, because
+ * the box has no size of its own to pad the picture out to.
+ *
+ * It must be done this way round — the box sized from the width it is given,
+ * the height following — rather than by asking the box to shrink to the
+ * picture. A `fit-content` frame around an `auto`-width image asks each to size
+ * itself from the other, and a browser resolves that circle at min-content: the
+ * frame came out 85px wide and took the whole reader column down with it.
+ *
+ * It also keeps the annotation overlay honest. The shapes are stored as
+ * fractions of the picture and drawn over this box, so a box that is not
+ * exactly the picture puts every one of them in the wrong place.
+ */
 .step__stage .annotated {
-  background: var(--surface-sunken);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
 }
 
-/**
- * `contain`, never `cover`. Cropping a step photo can cut out the very knob the
- * bullet is describing — and because the annotation overlay is sized to the
- * element box while a cropped picture is not, `cover` also lands every drawn
- * shape in the wrong place.
- */
 .step__stage img {
+  display: block;
   width: 100%;
-  max-height: 460px;
-  object-fit: contain;
+  height: auto;
 }
 
 .step__video {
   display: block;
   width: 100%;
-  max-height: 460px;
+  max-height: 70vh;
   background: #000;
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
+/**
+ * The strip divides its row, so its edges line up with the picture and the text
+ * around it instead of stopping short and leaving a ragged gap.
+ *
+ * The cap is what keeps that honest when there are only two. Dividing a row
+ * between two thumbnails makes each one large enough to compete with the
+ * picture it is a thumbnail of, so past a certain size they stop growing and
+ * the pair stays at the left, leading edge still against the picture's.
+ */
 .step__thumbs {
   display: flex;
   flex-wrap: wrap;
@@ -1598,8 +1672,9 @@ a:hover {
  */
 .step__thumb {
   position: relative;
-  width: 5.5rem;
-  height: 4rem;
+  flex: 1 1 0;
+  max-width: 9.5rem;
+  aspect-ratio: 16 / 10;
   padding: 0;
   overflow: hidden;
   background: var(--surface-sunken);
@@ -1752,6 +1827,25 @@ a:hover {
 }
 
 /**
+ * Air wherever the indentation changes.
+ *
+ * Indented points are sub-clauses of the one above, and run together with no
+ * break they read as a single paragraph that happens to be ragged on the left.
+ * The space goes on the first line of a deeper run and on the line that returns
+ * to the shallower one, so a group of sub-points reads as a group — rather than
+ * spacing every bullet, which would just make the whole step taller without
+ * making its shape any clearer.
+ */
+.bullet--level-0 + .bullet--level-1,
+.bullet--level-0 + .bullet--level-2,
+.bullet--level-1 + .bullet--level-2,
+.bullet--level-1 + .bullet--level-0,
+.bullet--level-2 + .bullet--level-0,
+.bullet--level-2 + .bullet--level-1 {
+  margin-top: 0.5rem;
+}
+
+/**
  * The colour lives on the list item and is inherited by the marker. Setting it
  * on the marker instead silently killed the whole palette: a child's own
  * declaration beats an inherited one, so every bullet rendered black however it
@@ -1874,9 +1968,13 @@ a:hover {
   color: var(--bullet-blue);
 }
 
+/* Teal rather than a fourth reuse of the annotation palette. A flag's colour
+   says how much attention to pay; the palette's colours say which mark on the
+   picture a point belongs to. Sharing one value between the two meant that
+   restyling a reminder would have quietly restyled every violet annotation. */
 .bullet--kind-reminder {
-  --flag-accent: var(--bullet-violet);
-  color: var(--bullet-violet);
+  --flag-accent: var(--flag-reminder);
+  color: var(--flag-reminder);
 }
 
 .bullet--flagged .bullet__text {
@@ -2809,9 +2907,11 @@ a:hover {
     gap: 0.9rem;
   }
 
+  /* No cap on a phone: the row is narrow enough that even two thumbnails
+     sharing it stay smaller than the picture above, and letting them fill it
+     keeps the strip flush with that picture's edges. */
   .step__thumb {
-    width: 4.5rem;
-    height: 3.4rem;
+    max-width: none;
   }
 
 
@@ -3525,11 +3625,24 @@ a:hover {
 
 /* --------------------------------------------------------- section sidebar */
 
+/**
+ * A guide or a page, with the list of its neighbours beside it.
+ *
+ * The second column is asked for only when the sidebar is actually there.
+ * `SectionNav` renders nothing when a guide has no neighbours to list, and with
+ * a fixed two-column track that made the article the first grid item: every
+ * guide in a category holding one guide was drawn 236px wide, in the column
+ * meant for the list that was not there.
+ */
 .with-sidebar {
   display: grid;
-  grid-template-columns: 236px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 2.25rem;
   align-items: start;
+}
+
+.with-sidebar:has(> .section-nav) {
+  grid-template-columns: 236px minmax(0, 1fr);
 }
 
 .section-nav {

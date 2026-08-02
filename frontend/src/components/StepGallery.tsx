@@ -106,6 +106,13 @@ function Thumb({
  *
  * A step with a single image gets no thumbnail strip: a row of one is a control
  * that does nothing, and it costs the picture height on a phone.
+ *
+ * The stage and the strip are returned as siblings rather than wrapped
+ * together, because they do not sit together: on a wide screen the picture is a
+ * column of its own and the strip belongs at the top of the column beside it,
+ * above the instructions. Only `.step__body` knows that, so only `.step__body`
+ * places them — see the grid in the stylesheet. Stacked anywhere else, they
+ * fall back to picture-then-strip, which is the phone's reading order.
  */
 export function StepGallery({ step }: { step: Step }) {
   /* The clip leads: a step that has one exists because watching the movement is
@@ -129,7 +136,7 @@ export function StepGallery({ step }: { step: Step }) {
   }
 
   return (
-    <div className="step__media">
+    <>
       <div className="step__stage">
         {selected.kind === 'video' ? (
           <VideoStage video={selected} />
@@ -141,6 +148,8 @@ export function StepGallery({ step }: { step: Step }) {
             /* Numbered across the whole step, not per picture: the bullets
                beside the strip do not change when a thumbnail is swapped in. */
             shapeNumbers={numberShapeColors(step)}
+            intrinsicWidth={selected.width}
+            intrinsicHeight={selected.height}
           />
         )}
       </div>
@@ -169,6 +178,6 @@ export function StepGallery({ step }: { step: Step }) {
           ))}
         </div>
       )}
-    </div>
+    </>
   )
 }

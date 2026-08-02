@@ -159,18 +159,41 @@ export function AnnotatedImage({
   annotations,
   shapeNumbers,
   className,
+  intrinsicWidth,
+  intrinsicHeight,
 }: {
   src: string
   alt: string
   annotations: Annotation[]
   shapeNumbers: Partial<Record<BulletColor, number>>
   className?: string
+  /** The upload's own pixel size, where the server knows it. See below. */
+  intrinsicWidth?: number | null
+  intrinsicHeight?: number | null
 }) {
-  const { ref, size } = useElementSize<HTMLDivElement>()
+  /**
+   * The picture is measured, not the box around it. The two are the same thing
+   * wherever the wrapper is left to hug its image — which is what the reader's
+   * stage now does — but measuring the image is the statement that actually
+   * holds: a fraction of 0.4 means four tenths of the photograph, and any box
+   * that is not exactly the photograph would put the shape somewhere else.
+   */
+  const { ref, size } = useElementSize<HTMLImageElement>()
 
   return (
-    <div className={`annotated${className ? ` ${className}` : ''}`} ref={ref}>
-      <img src={src} alt={alt} loading="lazy" />
+    <div className={`annotated${className ? ` ${className}` : ''}`}>
+      {/* The upload's own dimensions, so the browser can reserve the right box
+          before a lazily-loaded picture arrives and the bullets beside it do
+          not jump when it does. They are attributes rather than styles: the
+          stylesheet decides the rendered size, these only supply the ratio. */}
+      <img
+        ref={ref}
+        src={src}
+        alt={alt}
+        loading="lazy"
+        width={intrinsicWidth ?? undefined}
+        height={intrinsicHeight ?? undefined}
+      />
       {annotations.length > 0 && size.width > 0 && (
         <svg
           className="annotated__overlay"
