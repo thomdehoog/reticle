@@ -125,6 +125,105 @@ def test_there_is_exactly_one_head():
     assert len(scripts.get_heads()) == 1
 
 
+VISIBILITY_REVISION = "a307e0dfe4d8"
+"""The migration that adds ``guides.visibility``, exercised below against a
+database that already holds a guide — which is every facility that has ever
+written one, and the only condition under which the interesting failure (adding
+a ``NOT NULL`` column with no default) actually happens."""
+
+
+def _write_one_guide(engine) -> None:
+    """The smallest legal guide: an account, a category, and the row itself."""
+    with engine.connect() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO users (id, email, display_name, role, password_hash, is_active, "
+                "created_at, updated_at) VALUES ('01ARZ3NDEKTSV4RRFFQ69G5FA0', 'a@zmb.uzh.ch', "
+                "'A', 'admin', 'x', true, now(), now())"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO categories (id, slug, name, description, order_index, is_hidden, "
+                "created_at, updated_at) VALUES ('01ARZ3NDEKTSV4RRFFQ69G5FA1', 'lm', 'LM', '', "
+                "0, false, now(), now())"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO guides (id, slug, title, summary, category_id, difficulty, "
+                "introduction, conclusion, status, is_quick_link, version, view_count, author_id, "
+                "last_edited_by_id, created_at, updated_at) VALUES "
+                "('01ARZ3NDEKTSV4RRFFQ69G5FA2', 'starting-the-confocal', 'Starting the Confocal', "
+                "'', '01ARZ3NDEKTSV4RRFFQ69G5FA1', 'moderate', '', '', 'published', false, 1, 0, "
+                "'01ARZ3NDEKTSV4RRFFQ69G5FA0', '01ARZ3NDEKTSV4RRFFQ69G5FA0', now(), now())"
+            )
+        )
+        connection.commit()
+
+
+def test_the_visibility_column_lands_on_a_database_that_already_holds_a_guide(scratch_engine):
+    """The one that fails on a real server and never in an empty test database.
+
+    A ``NOT NULL`` column added without a server default is refused outright by
+    PostgreSQL when the table has rows in it, so this upgrades to the revision
+    before, writes a guide, and only then applies the one under test. The
+    backfill has to say ``everyone``: before this column existed the only way to
+    keep a guide internal was to leave it unpublished, so a published guide in
+    an existing database is one somebody published to the whole institute.
+    """
+    engine = scratch_engine("populated")
+    config = alembic_config(engine)
+
+    command.upgrade(config, f"{VISIBILITY_REVISION}-1")
+    _write_one_guide(engine)
+    command.upgrade(config, VISIBILITY_REVISION)
+
+    with engine.connect() as connection:
+        rows = connection.execute(text("SELECT slug, visibility FROM guides")).all()
+    assert rows == [("starting-the-confocal", "everyone")]
+
+    # And the default is not left behind: a server default the models do not
+    # describe is drift, which the autogenerate comparison above would report on
+    # the next release.
+    with engine.connect() as connection:
+        default = connection.execute(
+            text(
+                "SELECT column_default FROM information_schema.columns "
+                "WHERE table_name = 'guides' AND column_name = 'visibility' "
+                "AND table_schema = current_schema()"
+            )
+        ).scalar()
+    assert default is None
+
+
+def test_undoing_the_visibility_column_leaves_the_guide_itself_alone(scratch_engine):
+    """Rolling a release back must cost the distinction, not the guides.
+
+    It does cost the distinction: a staff guide comes back readable by everyone,
+    because the older schema cannot say otherwise and the guides are published.
+    That is stated in the migration's own docstring so that whoever rolls back
+    unpublishes them first.
+    """
+    engine = scratch_engine("populated_down")
+    config = alembic_config(engine)
+
+    command.upgrade(config, f"{VISIBILITY_REVISION}-1")
+    _write_one_guide(engine)
+    command.upgrade(config, VISIBILITY_REVISION)
+    with engine.connect() as connection:
+        connection.execute(text("UPDATE guides SET visibility = 'staff'"))
+        connection.commit()
+
+    command.downgrade(config, f"{VISIBILITY_REVISION}-1")
+
+    with engine.connect() as connection:
+        rows = connection.execute(text("SELECT slug, status FROM guides")).all()
+        columns = {column["name"] for column in inspect(engine).get_columns("guides")}
+    assert rows == [("starting-the-confocal", "published")]
+    assert "visibility" not in columns
+
+
 def test_every_migration_can_be_undone(scratch_engine):
     """A migration without a working downgrade is a one-way door.
 

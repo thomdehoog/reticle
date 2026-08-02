@@ -65,6 +65,29 @@ which is what actually refuses an unknown value at the boundary.
 """
 
 
+EVERYONE = "everyone"
+STAFF = "staff"
+"""Who a finished guide is for.
+
+Orthogonal to ``status``, and that is the whole point of it existing. A status
+says how far through writing a guide is; this says who it was written for. A
+staff guide drafts, is reviewed, publishes and archives exactly like any other
+— it is simply never shown to a viewer.
+
+Before this, the only way to keep a finished procedure internal was to leave it
+a draft, which says "nobody has written this yet" about a document that is
+written, correct and in daily use. ZMB has a folder called "Internal Guides"
+whose contents are published, so a viewer reaches every one of them by URL, by
+search and by tag; importing 257 real guides in that state would put the
+institute's internal procedures in front of every account.
+
+The full vocabulary is the ``Visibility`` literal in ``schemas``, which is what
+refuses an unknown value at the boundary; the ``WHERE`` clause that enforces it
+is ``visibility.readable_guides``, which every query returning a guide goes
+through.
+"""
+
+
 def new_id() -> str:
     return str(ULID())
 
@@ -197,6 +220,7 @@ class Guide(Base):
     introduction: Mapped[str] = mapped_column(Text, default="")
     conclusion: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(16), default="draft", index=True)
+    visibility: Mapped[str] = mapped_column(String(16), default=EVERYONE)
     # A guide the facility wants reached in one move — "Book an instrument",
     # "Get building access" — shown as a picture-and-text block on the front page
     # or a category page instead of as one line in a list.

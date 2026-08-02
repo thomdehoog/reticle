@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from .. import audit, errors, images, videos
 from ..auth import AnyUser, AuthorUser, DbDep, client_address
-from ..models import PUBLISHED, Guide, Media, Page, Step, StepMedia, User, new_id
+from ..models import EVERYONE, PUBLISHED, Guide, Media, Page, Step, StepMedia, User, new_id
 from ..schemas import MediaOut, media_out
 from ..settings import Settings, get_settings
 from ..storage import build_storage
@@ -147,22 +147,29 @@ def _store_video(
     return media_out(media)
 
 
-def _shown_by_a_published_guide(db: DbSession, media_id: str) -> bool:
-    """Whether any published guide actually displays this image.
+def _shown_by_a_guide_a_reader_can_open(db: DbSession, media_id: str) -> bool:
+    """Whether any guide a viewer may read actually displays this image.
 
     Authentication was the only gate on the bytes, and authentication is not
     visibility: a viewer who was correctly given 404 for a draft guide was given
     200 for the photographs inside it, so the whole unpublished pipeline was
     readable one image at a time by anybody with an account. This is the same
     rule ``guides._load_for`` applies to the surrounding text, asked of the
-    ``StepMedia -> Step -> Guide`` path that put the image on a page.
+    ``StepMedia -> Step -> Guide`` path that put the image on a page — which is
+    why both halves of that rule are here, not only the status.
+
+    A staff guide reopens exactly the same hole through the other half: it is
+    published, so a check on status alone waves its pictures through, and a
+    screenshot of an access-control panel is the kind of thing one carries.
     """
+    readable = (Guide.status == PUBLISHED, Guide.visibility == EVERYONE)
+
     in_a_step = db.scalar(
         select(func.count())
         .select_from(StepMedia)
         .join(Step, Step.id == StepMedia.step_id)
         .join(Guide, Guide.id == Step.guide_id)
-        .where(StepMedia.media_id == media_id, Guide.status == PUBLISHED)
+        .where(StepMedia.media_id == media_id, *readable)
     )
     if in_a_step:
         return True
@@ -173,7 +180,7 @@ def _shown_by_a_published_guide(db: DbSession, media_id: str) -> bool:
         select(func.count())
         .select_from(Step)
         .join(Guide, Guide.id == Step.guide_id)
-        .where(Step.video_media_id == media_id, Guide.status == PUBLISHED)
+        .where(Step.video_media_id == media_id, *readable)
     )
     if as_a_video:
         return True
@@ -199,7 +206,7 @@ def read_media(media_id: str, db: DbDep, user: AnyUser) -> Response:
     media = db.get(Media, media_id)
     if media is None:
         raise errors.not_found("That file does not exist.")
-    if user.role == "viewer" and not _shown_by_a_published_guide(db, media_id):
+    if user.role == "viewer" and not _shown_by_a_guide_a_reader_can_open(db, media_id):
         raise errors.not_found("That file does not exist.")
 
     store = build_storage(get_settings())

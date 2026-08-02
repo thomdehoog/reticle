@@ -31,6 +31,7 @@ from ..schemas import (
     page_summary_out,
     tag_out,
 )
+from ..visibility import readable_guides
 from .guides import thumbnail_subquery
 
 router = APIRouter(prefix="/api", tags=["discovery"])
@@ -49,15 +50,18 @@ institute's documentation on demand.
 def list_tags(db: DbDep, user: AnyUser) -> list[TagOut]:
     """Every tag that is actually on something the caller may see.
 
-    The count is computed against the same visibility rule as the guide list, so
-    a viewer is never shown a tag whose entire membership is drafts — following
-    it would land them on an empty page and look like a broken link.
+    The count is computed against the same visibility rules as the guide list,
+    so a viewer is never shown a tag whose entire membership is drafts or staff
+    guides — following it would land them on an empty page and look like a
+    broken link, and in the staff case the tag itself is the disclosure: a tag
+    named after an internal procedure, with a count beside it.
     """
     countable = (
         select(func.count(GuideTag.id))
         .select_from(GuideTag)
         .join(Guide, Guide.id == GuideTag.guide_id)
     )
+    countable = readable_guides(countable, user)
     if user.role == "viewer":
         countable = countable.where(Guide.status == PUBLISHED)
     else:
@@ -105,8 +109,8 @@ def search(
         .exists()
     )
 
-    guides = select(
-        Guide, step_count.label("step_count"), thumbnail_subquery().label("thumb")
+    guides = readable_guides(
+        select(Guide, step_count.label("step_count"), thumbnail_subquery().label("thumb")), user
     ).where(
         or_(
             Guide.title.ilike(pattern, escape="\\"),

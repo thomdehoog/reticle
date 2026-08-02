@@ -76,6 +76,16 @@ class MigrationReport:
     pages_imported: int = 0
     categories_created: int = 0
     tags_created: int = 0
+    guide_embeds_resolved: int = 0
+    guide_embeds_unresolved: list[str] = field(default_factory=list)
+    """Each ``[guide|1234|Title]`` on a migrated page that named a guide the
+    import does not have, and the page it is on.
+
+    Counted rather than logged because this is the shape of loss a one-time
+    migration hides best: the page still reads sensibly, nothing fails, and the
+    pointer to a procedure is simply not there any more. Discovered years later,
+    if at all.
+    """
     unmapped: list[Unmapped] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
 
@@ -122,6 +132,8 @@ class MigrationReport:
                 "pagesImported": self.pages_imported,
                 "categoriesCreated": self.categories_created,
                 "tagsCreated": self.tags_created,
+                "guideEmbedsResolved": self.guide_embeds_resolved,
+                "guideEmbedsUnresolved": self.guide_embeds_unresolved,
                 "balanced": self.balanced,
                 "guides": [asdict(tally) for tally in self.guides],
                 "unmapped": [asdict(item) for item in self.losses],
@@ -183,6 +195,16 @@ class MigrationReport:
             lines.append("")
         else:
             lines.append("Every guide reconciled exactly.")
+            lines.append("")
+
+        if self.guide_embeds_resolved or self.guide_embeds_unresolved:
+            lines.append("Guide embeds on wiki pages")
+            lines.append(f"  {self.guide_embeds_resolved:>5}  now point at the imported guide")
+            lines.append(
+                f"  {len(self.guide_embeds_unresolved):>5}  named a guide this import does not "
+                "have, and were left as the site wrote them"
+            )
+            lines.extend(f"         {entry}" for entry in self.guide_embeds_unresolved)
             lines.append("")
 
         if self.questions:

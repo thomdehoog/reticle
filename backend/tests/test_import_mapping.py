@@ -32,6 +32,7 @@ from app.importer.mapping import (
     map_step_media,
     map_tags,
     map_time_required,
+    resolve_guide_embeds,
     slugify_tag,
     strip_markup,
     wiki_to_markdown,
@@ -529,17 +530,80 @@ def test_an_unknown_field_on_a_step_or_a_bullet_is_reported_too():
     assert reported == {"gadget", "annotation_ref"}
 
 
-def test_a_guide_embed_is_left_as_literal_text():
-    """Reticle's embed selects guides by tag; the vendor's selects one guide by
-    numeric id, and nothing maps an id to a tag.
+def test_a_guide_embed_survives_the_wiki_conversion_untouched():
+    """The conversion is pure and cannot know what id 1234 became.
 
-    Translating it anyway would emit a ``guidelist`` keyed on "1234", which
-    renders as an empty list — the reader would see nothing where the source
-    showed a guide, and the reconciliation counts cannot detect that. Left as
-    text the marker is visible on the migrated page, so whoever reviews it can
-    put the right embed there. ``docs/MIGRATION.md`` says the same, and this is
-    what pins the two together.
+    It leaves the vendor's marker exactly as written so that
+    :func:`resolve_guide_embeds` — which is handed the id-to-slug mapping the
+    import builds — can translate it once that mapping exists.
     """
     source = "Intro\n[guide|1234|Align the laser]\nmore"
 
     assert wiki_to_markdown(source) == source
+
+
+# --- guide embeds ---------------------------------------------------------
+
+
+def test_an_embed_naming_an_imported_guide_becomes_a_guide_block():
+    resolution = resolve_guide_embeds("[guide|1234|Align the laser]", {"1234": "align-the-laser"})
+
+    assert resolution.body == "```guide\nalign-the-laser\n```"
+    assert resolution.resolved == ["1234"]
+    assert resolution.unresolved == []
+
+
+def test_an_embed_naming_a_guide_the_import_does_not_have_is_left_as_written():
+    """It must not vanish and must not become a block pointing at nothing.
+
+    A block naming a slug nothing answers to renders as nothing at all to a
+    reader, and a plain title reads as finished prose — either way nobody would
+    ever find it. The vendor's marker still carries the id, so a reviewer can
+    look the guide up on the source site.
+    """
+    resolution = resolve_guide_embeds("[guide|9999|Deleted procedure]", {"1234": "align"})
+
+    assert resolution.body == "[guide|9999|Deleted procedure]"
+    assert resolution.resolved == []
+    assert resolution.unresolved == ["[guide|9999|Deleted procedure]"]
+
+
+def test_several_embeds_on_one_page_are_each_resolved_on_their_own():
+    """ZMB's "access your data" page is nothing but these, one per platform."""
+    body = "Windows:\n\n[guide|1|Windows]\n\nMac:\n\n[guide|2|Mac]\n\nLinux:\n\n[guide|3|Linux]"
+
+    resolution = resolve_guide_embeds(body, {"1": "data-windows", "3": "data-linux"})
+
+    assert resolution.body == (
+        "Windows:\n\n```guide\ndata-windows\n```\n\nMac:\n\n[guide|2|Mac]\n\n"
+        "Linux:\n\n```guide\ndata-linux\n```"
+    )
+    assert resolution.resolved == ["1", "3"]
+    assert resolution.unresolved == ["[guide|2|Mac]"]
+
+
+def test_an_embed_inside_a_sentence_leaves_the_prose_on_either_side_alone():
+    """A fenced block has to start its own line, so it is lifted out of the
+    sentence rather than written into the middle of it."""
+    resolution = resolve_guide_embeds(
+        "Before booking, read [guide|1234|Align the laser] and bring your sample.",
+        {"1234": "align-the-laser"},
+    )
+
+    assert resolution.body == (
+        "Before booking, read\n\n```guide\nalign-the-laser\n```\n\nand bring your sample."
+    )
+
+
+def test_an_embed_with_no_title_after_the_id_is_resolved_too():
+    resolution = resolve_guide_embeds("[guide|1234]", {"1234": "align-the-laser"})
+
+    assert resolution.body == "```guide\nalign-the-laser\n```"
+
+
+def test_a_page_with_no_embeds_is_returned_unchanged():
+    resolution = resolve_guide_embeds("## Heading\n\nOrdinary prose.", {"1234": "align"})
+
+    assert resolution.body == "## Heading\n\nOrdinary prose."
+    assert resolution.resolved == []
+    assert resolution.unresolved == []

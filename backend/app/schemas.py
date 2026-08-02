@@ -32,6 +32,12 @@ from . import models
 
 Role = Literal["viewer", "author", "admin"]
 ContentStatus = Literal["draft", "in_review", "published", "archived"]
+Visibility = Literal["everyone", "staff"]
+"""Who a guide is for, independently of how finished it is.
+
+``staff`` is a guide that drafts, publishes and archives like any other and is
+never shown to a viewer — see ``app.visibility``.
+"""
 Difficulty = Literal["very_easy", "easy", "moderate", "difficult", "very_difficult"]
 BulletColor = Literal["black", "red", "orange", "yellow", "green", "light_blue", "blue", "violet"]
 BulletIcon = Literal["note", "caution", "reminder"]
@@ -214,6 +220,7 @@ class GuideOut(Wire):
     introduction: str
     conclusion: str
     status: ContentStatus
+    visibility: Visibility
     is_quick_link: bool
     steps: list[StepOut]
     author: UserRefOut
@@ -237,6 +244,9 @@ class GuideSummaryOut(Wire):
     time_required_min_minutes: int | None
     time_required_max_minutes: int | None
     status: ContentStatus
+    visibility: Visibility
+    """Here as well as on the full guide, so an author browsing a listing can
+    see which of their guides a reader is never shown."""
     is_quick_link: bool
     """Here as well as on the full guide, because the lists that render quick
     links are built from summaries and would otherwise have to fetch every guide
@@ -424,6 +434,7 @@ class GuideDocumentIn(Document):
     time_required_max_minutes: int | None = Field(default=None, ge=0, le=100_000)
     introduction: str = Field(default="", max_length=20_000)
     conclusion: str = Field(default="", max_length=20_000)
+    visibility: Visibility = "everyone"
     is_quick_link: bool = False
     steps: list[StepIn] = Field(default_factory=list, max_length=MAX_STEPS_PER_GUIDE)
     updated_at: datetime
@@ -560,6 +571,7 @@ def guide_out(guide: models.Guide) -> GuideOut:
         introduction=guide.introduction,
         conclusion=guide.conclusion,
         status=guide.status,
+        visibility=guide.visibility,
         is_quick_link=guide.is_quick_link,
         steps=[step_out(step) for step in guide.steps],
         author=user_ref_out(guide.author),
@@ -587,6 +599,7 @@ def guide_summary_out(
         time_required_min_minutes=guide.time_required_min_minutes,
         time_required_max_minutes=guide.time_required_max_minutes,
         status=guide.status,
+        visibility=guide.visibility,
         is_quick_link=guide.is_quick_link,
         step_count=step_count,
         author=user_ref_out(guide.author),

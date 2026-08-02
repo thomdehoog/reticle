@@ -45,6 +45,7 @@ from ..schemas import (
     user_ref_out,
 )
 from ..slugs import unique_slug
+from ..visibility import readable_guides
 
 router = APIRouter(prefix="/api/guides", tags=["guides"])
 
@@ -118,13 +119,19 @@ def _slug_taken(db: DbSession, slug: str) -> bool:
 def _load_for(db: DbSession, user: User, key: str) -> Guide:
     """Resolve by identifier or slug, hiding anything the reader may not see.
 
-    A viewer gets 404 rather than 403 for an unpublished guide: telling them the
-    guide exists but is off-limits leaks the editorial pipeline for no benefit.
+    Both rules are in the ``WHERE`` clause rather than checked on the loaded
+    row, so the only outcome a viewer can distinguish is "no such guide".
+
+    That 404 is deliberate, for a draft and for a staff guide alike: telling
+    somebody the guide exists but is off-limits leaks the editorial pipeline for
+    no benefit, and a guide's address is its title, so confirming one discloses
+    that the facility has a procedure for whatever was guessed at.
     """
-    guide = db.scalars(select(Guide).where(or_(Guide.id == key, Guide.slug == key))).one_or_none()
+    statement = select(Guide).where(or_(Guide.id == key, Guide.slug == key))
+    if user.role == "viewer":
+        statement = statement.where(Guide.status == PUBLISHED)
+    guide = db.scalars(readable_guides(statement, user)).one_or_none()
     if guide is None:
-        raise errors.not_found("That guide does not exist.")
-    if user.role == "viewer" and guide.status != PUBLISHED:
         raise errors.not_found("That guide does not exist.")
     return guide
 
@@ -154,6 +161,10 @@ def list_guides(
         .scalar_subquery()
     )
     statement = select(Guide, step_count.label("step_count"), thumbnail_subquery().label("thumb"))
+    # Before the category, tag, author and text filters, all of which narrow
+    # this listing further: whichever of them a caller combines, they are
+    # choosing among the guides this clause already allowed.
+    statement = readable_guides(statement, user)
 
     if user.role == "viewer":
         statement = statement.where(Guide.status == PUBLISHED)

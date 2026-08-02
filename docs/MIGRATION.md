@@ -29,6 +29,8 @@ Everything below exists to make those two steps mechanical.
 | Tags, and the categories guides sit in | |
 | The featured-guide flag, which becomes a quick link | |
 | Wiki pages, including category landing pages | |
+| Guide embeds on wiki pages, translated from id to slug | |
+| The public/private flag, which becomes `everyone` / `staff` visibility | |
 
 **No third-party markup crosses the boundary.** Rendered HTML is reduced to text
 and to Reticle's own structures in `app/importer/mapping.py`; wiki syntax is
@@ -183,15 +185,41 @@ fails loudly rather than being truncated.
 everything else becomes an ordinary wiki page. Wiki syntax converts to Markdown:
 headings, bold, italic, links, bullet lists.
 
-**Guide embeds are left as literal text** — `[guide|1234|Align the laser]`
-arrives on the page exactly as written. Reticle's own embed, the `guidelist`
-block, selects guides *by tag*; the vendor's selects *one guide by its numeric
-id*, and nothing maps an id to a tag. Translating it would produce a `guidelist`
-keyed on "1234", which renders as an empty list — the reader would see nothing
-where the source showed a guide, and the reconciliation counts cannot detect
-that. Left as text the marker is visible, so whoever reviews the migrated
-category pages can replace each one with the embed it should have been. Search
-the imported pages for `[guide|` to find them all.
+**Guide embeds are carried across.** `[guide|1234|Align the laser]` becomes
+Reticle's own one-guide block, which names a guide by slug rather than by id:
+
+````
+```guide
+align-the-laser
+```
+````
+
+The translation needs the id-to-slug mapping the import builds as it goes, so it
+runs as a **second pass after everything else has been written**, resolving each
+id against `imported_records`. That ordering is the point: a page can name a
+guide that had not been imported when the page was written, one that `--limit`
+cut off, one that a `--pages-only` run never fetched, or one that a run three
+days ago imported. Resolving from the ledger answers all four; anything
+remembered in memory as the run went would answer only the first. The page's
+published snapshot is rewritten with it, so the revision still equals what the
+page says.
+
+**An embed naming a guide the import does not have is left exactly as the site
+wrote it, and counted.** That happens when the guide was deleted, or is outside
+the imported set. The two alternatives both lose it silently: a `guide` block
+naming a slug nothing answers to renders as nothing at all to a reader, and
+dropping to the plain title reads as finished prose, so neither would ever be
+found. The vendor's marker still carries the id, so it can be looked up on the
+source site. The report says how many:
+
+```
+Guide embeds on wiki pages
+     34  now point at the imported guide
+      2  named a guide this import does not have, and were left as the site wrote them
+         Accessing Your Data: [guide|4321|Old Windows procedure]
+```
+
+Search the imported pages for `[guide|` to find any the report listed.
 
 If a category already has a landing page, a second one is imported as an
 ordinary article and noted in the report, rather than overwriting what is there.
@@ -204,8 +232,25 @@ nobody can deactivate. The original identifier and URL are kept in
 `imported_records`, so any guide here can be traced back to the exact guide
 there — which is what makes the side-by-side comparison possible.
 
-**Public guides arrive published; private ones arrive as drafts.** The site's
-own visibility is the only honest default.
+**Everything arrives published; the site's own visibility decides to whom.** A
+public guide becomes an ordinary published guide. A non-public one becomes a
+published guide with `visibility: staff` — readable by authors and
+administrators, and invisible to a viewer through every route there is: the
+listings, the tag pages, search, the URL (404, not 403) and the static snapshot.
+
+This is a change from the first version of the importer, which brought private
+guides in as **drafts**. That said "nobody has written this yet" about 257
+procedures that were written, correct and in daily use, and it made publishing
+one — the obvious thing to do with a finished guide — a disclosure to the whole
+institute in one press. The two facts are independent: `status` says how far
+through writing a guide is, `visibility` says who it was written for.
+
+⚠️ **ZMB's "Internal Guides" category is a folder name, not a permission.** The
+guides in it are published on the live site, so anyone reaching them by URL, by
+search or by tag can read them today. Confirm after the run that every guide
+that should be internal carries `visibility: staff` — the importer sets it from
+the source's `public` flag, and a guide the site marked public but the facility
+treats as internal will arrive readable by everyone.
 
 ### Re-running
 

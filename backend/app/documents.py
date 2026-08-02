@@ -106,6 +106,10 @@ def apply_document(db: DbSession, guide: Guide, payload: GuideDocumentIn, actor:
     guide.time_required_max_minutes = maximum
     guide.introduction = payload.introduction
     guide.conclusion = payload.conclusion
+    # Saved with the document rather than through a publish-time switch: who a
+    # guide is for is a property of the guide, so it survives being unpublished
+    # and republished and cannot be lost by whoever presses publish next.
+    guide.visibility = payload.visibility
     guide.is_quick_link = payload.is_quick_link
     guide.last_edited_by_id = actor.id
     guide.updated_at = next_updated_at(guide.updated_at)

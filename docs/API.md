@@ -50,7 +50,7 @@ non-httpOnly `reticle_csrf` cookie.
 
 | Role     | Can                                                          |
 | -------- | ------------------------------------------------------------ |
-| `viewer` | Read published guides.                                        |
+| `viewer` | Read published guides whose `visibility` is `everyone`.       |
 | `author` | Everything a viewer can, plus create/edit/publish guides.      |
 | `admin`  | Everything, plus manage users and categories.                  |
 
@@ -82,8 +82,8 @@ anyone who follows a tag or a link to them.
 
 | Method | Path                          | Role   | Purpose                    |
 | ------ | ----------------------------- | ------ | -------------------------- |
-| GET    | `/api/guides`                 | any    | Array of `GuideSummary`. Query: `categoryId`, `status`, `q`, `authorId`, `tags`, `quickLink`. Viewers only ever receive `published`. |
-| GET    | `/api/guides/{idOrSlug}`      | any    | Full `Guide` including `steps`. |
+| GET    | `/api/guides`                 | any    | Array of `GuideSummary`. Query: `categoryId`, `status`, `q`, `authorId`, `tags`, `quickLink`. Viewers only ever receive `published` guides whose `visibility` is `everyone`. |
+| GET    | `/api/guides/{idOrSlug}`      | any    | Full `Guide` including `steps`. **404**, never 403, for anything the caller may not see. |
 | POST   | `/api/guides`                 | author | Create a draft. Body: `{title, categoryId}`; everything else defaults. |
 | PUT    | `/api/guides/{id}`            | author | Save the whole guide including steps, bullets and media order. Used by autosave. |
 | POST   | `/api/guides/{id}/publish`    | author | Draft → published, `version` increments, snapshot written to history. |
@@ -111,6 +111,25 @@ them. A wiki page asking for `stellaris, confocal` means the guides that are
 both; `any` would turn every embed on the busiest page into an undifferentiated
 dump.
 
+`visibility` is `everyone` (the default) or `staff`, and it is **orthogonal to
+`status`**. A staff guide drafts, publishes, unpublishes and archives exactly
+like any other; it is simply never served to a viewer. That is what lets a
+facility keep a procedure that is finished, correct and in daily use off a
+reader's screen without pretending nobody has written it — which was previously
+the only way to say it, by leaving the guide a draft.
+
+Enforcement is a `WHERE` clause on every query that can return a guide, not a
+filter applied while serialising: the listing, the tag and category listings,
+search, the tag index and its counts, the detail endpoint, and the static site
+generator, which does not write staff guides or their pictures out at all. A
+viewer asking for one by id or by slug gets **404 rather than 403**, because a
+403 confirms that a guide with that address exists — and a guide's address is
+its title.
+
+An author and an administrator see every guide, as before. `visibility` is set
+by the same whole-document `PUT` as every other field and appears on
+`GuideSummary` as well as on `Guide`.
+
 `isQuickLink` marks a guide the facility wants reached in one move — "Book an
 instrument", "Get building access" — which the front page and the category pages
 render as a picture-and-text block rather than as a line in a list. It is set by
@@ -118,8 +137,8 @@ an author or an administrator through the same whole-document `PUT` as every
 other field, and it appears on `GuideSummary` as well as on `Guide`, because
 those lists are built from summaries. `?quickLink=true` returns only the guides
 carrying it; `false` returns only those that do not. It is not a permission and
-not an ordering: reader visibility is still `status`, and the order is still the
-listing's own.
+not an ordering: who may read a guide is `status` and `visibility`, and the order
+is still the listing's own.
 
 `timeRequiredMinMinutes` and `timeRequiredMaxMinutes` are a range, because that
 is how long a procedure honestly takes. A reversed pair is rejected rather than
@@ -182,7 +201,7 @@ answer was written as a guide or as a wiki page. Capped at 100 of each type.
 | Method | Path                | Role   | Purpose                              |
 | ------ | ------------------- | ------ | ------------------------------------ |
 | POST   | `/api/media`        | author | `multipart/form-data` upload, one image or video. Returns `Media`. |
-| GET    | `/api/media/{id}`   | any    | The bytes. Authenticated like everything else, and additionally refused to a viewer unless a published guide or page actually shows the file. |
+| GET    | `/api/media/{id}`   | any    | The bytes. Authenticated like everything else, and additionally refused to a viewer unless a guide or page they may open actually shows the file — published, and for a guide, `visibility: everyone`. |
 
 Image uploads are validated by decoding the image, not by trusting the filename
 or declared MIME type, and are re-encoded — which is what strips camera EXIF.

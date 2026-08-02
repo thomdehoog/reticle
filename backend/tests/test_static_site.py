@@ -7,8 +7,9 @@ somebody can go and re-check, a file that has been written and copied cannot be
 un-published.
 
 So the test that matters most here is not that a guide renders. It is that a
-draft does not, and that a photograph belonging only to a draft is not sitting
-in the media folder next to the published ones.
+draft does not, that a staff guide does not — it is published, so every rule
+keyed on status waves it through — and that a photograph belonging only to one
+of those is not sitting in the media folder next to the published ones.
 
 The rest guards the things that make the copy worth keeping: the shapes drawn
 on the pictures, which are half of what a step says; the bullet colours that
@@ -83,6 +84,41 @@ def test_a_picture_only_a_draft_shows_is_not_copied_out(admin, category, db_sess
     assert shown["id"] in copied
     assert secret["id"] not in copied
     assert report.media == 1
+
+
+def test_a_picture_only_a_staff_guide_shows_is_not_copied_out(
+    admin, category, db_session, tmp_path
+):
+    """The same subtler half, for the other reason content stays internal.
+
+    A staff guide is published, so every rule keyed on ``status`` waves it and
+    its pictures straight through — and a screenshot of an access-control panel
+    is exactly the kind of thing one of these carries.
+    """
+    internal = upload_media(admin)
+    published_guide(
+        admin,
+        category,
+        title="Escorting an Auditor",
+        visibility="staff",
+        steps=[step("Badge", media=[{"id": internal["id"], "alt": ""}])],
+    )
+
+    shown = upload_media(admin)
+    published_guide(
+        admin,
+        category,
+        steps=[step("Shown", media=[{"id": shown["id"], "alt": "fine"}])],
+    )
+
+    report, out = site(db_session, tmp_path)
+
+    copied = {path.name.split(".")[0] for path in (out / "media").iterdir()}
+    assert shown["id"] in copied
+    assert internal["id"] not in copied
+    assert report.media == 1
+    assert report.skipped_staff == 1
+    assert "Auditor" not in (out / "index.html").read_text(encoding="utf-8")
 
 
 def test_an_unpublished_wiki_page_is_left_out(admin, db_session, tmp_path):

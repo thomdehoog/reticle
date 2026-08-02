@@ -106,6 +106,13 @@ The parts most worth knowing, because they are the parts a naive importer drops:
 - `isQuickLink` marks a guide the facility promoted to the front page or a
   category page. A boolean is the easiest field in an export to lose without
   anyone noticing, so the round-trip test sets it deliberately.
+- `visibility` is `everyone` or `staff`, and is independent of `status`: a staff
+  guide is published and finished, and is shown to authors and administrators
+  only. An importer that ignores this field republishes the facility's internal
+  procedures to everyone, and nothing about the restored corpus looks wrong. An
+  archive written before this field existed carries the same format version and
+  simply has no such key; those guides restore as `everyone`, which is what they
+  were.
 - `timeRequiredMinMinutes` / `timeRequiredMaxMinutes` are a range, either end
   possibly null.
 

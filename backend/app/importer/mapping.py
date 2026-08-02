@@ -918,16 +918,12 @@ def wiki_to_markdown(source: str) -> str:
     untranslated marker and can decide, instead of finding a silently mangled
     paragraph.
 
-    A guide embed — ``[guide|1234|Align the laser]`` — is one of the things left
-    alone, and that is the deliberate choice rather than an omission. Reticle's
-    own embed is :func:`guide_list_block`, which selects guides **by tag**; the
-    vendor's selects **one guide by its numeric id**. Nothing maps an id to a
-    tag, so the closest automatic translation would emit a ``guidelist`` keyed
-    on "1234", which renders as an empty list — a reader would see nothing at
-    all where the source showed a guide, and the reconciliation counts would not
-    notice. Left as text, the marker is visible on the page and whoever reviews
-    the migrated category pages can replace it with the embed they meant.
-    ``docs/MIGRATION.md`` says the same.
+    A guide embed — ``[guide|1234|Align the laser]`` — is deliberately left
+    alone *here*, and turned into Reticle's own block by
+    :func:`resolve_guide_embeds` once the import knows what id 1234 became. This
+    function is pure and has no such knowledge, and leaving the vendor's text is
+    also the fallback for an embed that never resolves, so the two ends agree:
+    an untranslated marker is exactly what an unresolvable embed looks like.
     """
     if not source:
         return ""
@@ -967,3 +963,66 @@ def guide_list_block(tags: list[str], heading: str | None = None) -> str:
         lines.append(f"heading: {heading}")
     lines.append("```")
     return "\n".join(lines)
+
+
+def guide_block(slug: str) -> str:
+    """Reticle's other embed: one named guide, selected by slug."""
+    return f"```guide\n{slug}\n```"
+
+
+_GUIDE_EMBED = re.compile(
+    r"[ \t]*(?P<embed>\[guide\|\s*(?P<id>[^|\]\s]+)\s*(?:\|[^\]]*)?\])[ \t]*",
+    re.IGNORECASE,
+)
+"""``[guide|1234|Align the laser]``, and the form with no title after it.
+
+The spaces on either side are matched as well, so lifting the embed out of a
+sentence does not leave one stranded at the end of a line.
+"""
+
+
+@dataclass
+class EmbedResolution:
+    """A page body after translation, and what became of each embed in it."""
+
+    body: str
+    resolved: list[str] = field(default_factory=list)
+    unresolved: list[str] = field(default_factory=list)
+
+
+def resolve_guide_embeds(body: str, slug_for_source_id: dict[str, str]) -> EmbedResolution:
+    """Turn the vendor's one-guide embeds into Reticle's own ``guide`` block.
+
+    The vendor names a guide by numeric id; Reticle's block names one by slug,
+    so the translation needs the id-to-slug mapping the import builds as it goes
+    — which is why this takes it as an argument instead of looking it up, and
+    why it stays as testable as the rest of this module.
+
+    **An embed naming a guide that is not in the mapping is left exactly as the
+    vendor wrote it**, and reported. The alternatives are worse in ways that only
+    show up later: a ``guide`` block naming a slug nothing answers to renders as
+    nothing at all to a reader, and dropping to the plain title reads as finished
+    prose, so neither would ever be found and fixed. The vendor's marker still
+    carries the id, so a reviewer can look the guide up on the source site and
+    decide whether it was deleted or simply outside the imported set — and
+    ``docs/MIGRATION.md`` already tells them to search for ``[guide|``.
+
+    A block has to start its own line, so one written inside a sentence is
+    surrounded by blank lines; the words on either side are untouched.
+    """
+    resolution = EmbedResolution(body=body)
+    if not body:
+        return resolution
+
+    def replace(match: re.Match[str]) -> str:
+        source_id = match.group("id")
+        slug = slug_for_source_id.get(source_id)
+        if slug is None:
+            resolution.unresolved.append(match.group("embed"))
+            return match.group(0)
+        resolution.resolved.append(source_id)
+        return f"\n\n{guide_block(slug)}\n\n"
+
+    rewritten = _GUIDE_EMBED.sub(replace, body)
+    resolution.body = _BLANK_LINES.sub("\n\n", rewritten).strip()
+    return resolution

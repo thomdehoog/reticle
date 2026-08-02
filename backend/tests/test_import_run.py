@@ -142,9 +142,13 @@ def author_account(make_user):
 
 
 def _run(db_session, client, options=None):
-    importer = Importer(db_session, client, options or _options(), get_settings())
+    """Everything ``main`` does, in the order it does it."""
+    resolved = options or _options()
+    importer = Importer(db_session, client, resolved, get_settings())
     importer.import_guides()
     importer.import_pages()
+    if not resolved.dry_run:
+        importer.resolve_page_guide_embeds()
     return importer
 
 
@@ -202,16 +206,28 @@ def test_annotations_land_on_the_image_they_belong_to(db_session, author_account
     assert annotation.media_id == media.id
 
 
-def test_a_private_guide_arrives_as_a_draft_rather_than_being_disclosed(
-    db_session, author_account, media_root
-):
+def test_a_private_guide_arrives_finished_but_staff_only(db_session, author_account, media_root):
+    """It was written, correct and in daily use; only its audience was narrower.
+
+    Importing it as a draft — which is what happened before guides had a
+    visibility — said nobody had written it, and made publishing it, the obvious
+    thing to do with a finished guide, a disclosure to the whole institute.
+    """
     client = FakeDozuki([_guide(public=False)])
     importer = Importer(db_session, client, _options(include_private=True), get_settings())
     importer.import_guides()
 
     guide = db_session.scalars(select(Guide)).one()
-    assert guide.status == "draft"
-    assert guide.published_at is None
+    assert guide.status == "published"
+    assert guide.visibility == "staff"
+    assert guide.published_at is not None
+    assert guide.version == 1
+
+
+def test_a_public_guide_arrives_readable_by_everyone(db_session, author_account, media_root):
+    _run(db_session, FakeDozuki([_guide()]))
+
+    assert db_session.scalars(select(Guide)).one().visibility == "everyone"
 
 
 def test_running_twice_updates_rather_than_duplicating(db_session, author_account, media_root):
@@ -421,3 +437,113 @@ def test_an_unread_field_is_a_question_and_not_a_loss(db_session, author_account
     text = importer.report.to_text()
     assert "does not read" in text
     assert "quiz" in text
+
+
+# --- guide embeds on wiki pages -------------------------------------------
+
+
+def _wiki(body: str, wiki_id: int = 77, title: str = "Accessing Your Data") -> dict:
+    return {
+        "wikiid": wiki_id,
+        "namespace": "WIKI",
+        "title": title,
+        "contents_raw": body,
+    }
+
+
+def test_an_embed_pointing_at_an_imported_guide_becomes_a_guide_block(
+    db_session, author_account, media_root
+):
+    client = FakeDozuki(
+        [_guide(1234)],
+        {"WIKI": [_wiki("Start here:\n\n[guide|1234|Starting a Session]")]},
+    )
+    importer = _run(db_session, client)
+
+    guide = db_session.scalars(select(Guide)).one()
+    page = db_session.scalars(select(Page)).one()
+    assert page.body == f"Start here:\n\n```guide\n{guide.slug}\n```"
+    assert importer.report.guide_embeds_resolved == 1
+    assert importer.report.guide_embeds_unresolved == []
+
+
+def test_a_page_imported_before_the_guide_it_names_still_gets_its_block(
+    db_session, author_account, media_root
+):
+    """The second pass is why: at the moment the page was written the guide it
+    names had not been imported, so nothing could have translated the id then."""
+    client = FakeDozuki(
+        [_guide(1234)],
+        {"WIKI": [_wiki("[guide|1234|Starting a Session]")]},
+    )
+    importer = Importer(db_session, client, _options(), get_settings())
+    importer.import_pages()
+    assert db_session.scalars(select(Page)).one().body == "[guide|1234|Starting a Session]"
+
+    importer.import_guides()
+    importer.resolve_page_guide_embeds()
+
+    guide = db_session.scalars(select(Guide)).one()
+    assert db_session.scalars(select(Page)).one().body == f"```guide\n{guide.slug}\n```"
+
+
+def test_an_embed_naming_a_guide_outside_the_import_is_left_alone_and_counted(
+    db_session, author_account, media_root
+):
+    """A guide deleted from the site, or one outside the imported set. The
+    marker stays visible and the report says so, because a pointer that quietly
+    disappears during a one-time migration is found years later, if at all."""
+    client = FakeDozuki(
+        [_guide(1234)],
+        {"WIKI": [_wiki("[guide|1234|Kept]\n\n[guide|4321|Gone]")]},
+    )
+    importer = _run(db_session, client)
+
+    page = db_session.scalars(select(Page)).one()
+    assert "[guide|4321|Gone]" in page.body
+    assert importer.report.guide_embeds_resolved == 1
+    assert importer.report.guide_embeds_unresolved == ["Accessing Your Data: [guide|4321|Gone]"]
+
+    text = importer.report.to_text()
+    assert "[guide|4321|Gone]" in text
+    assert "left as the site wrote them" in text
+
+
+def test_the_json_report_carries_the_embed_counts(db_session, author_account, media_root):
+    import json
+
+    client = FakeDozuki([_guide(1234)], {"WIKI": [_wiki("[guide|4321|Gone]")]})
+    importer = _run(db_session, client)
+
+    decoded = json.loads(importer.report.to_json())
+    assert decoded["guideEmbedsResolved"] == 0
+    assert decoded["guideEmbedsUnresolved"] == ["Accessing Your Data: [guide|4321|Gone]"]
+
+
+def test_the_pages_published_snapshot_is_rewritten_with_it(db_session, author_account, media_root):
+    """A revision that differs from the page it claims to be a copy of is worse
+    than no revision at all: it is what somebody reaches for to find out what
+    was actually published."""
+    from app.models import PageRevision
+
+    client = FakeDozuki([_guide(1234)], {"WIKI": [_wiki("[guide|1234|Starting a Session]")]})
+    _run(db_session, client)
+
+    page = db_session.scalars(select(Page)).one()
+    revision = db_session.scalars(select(PageRevision)).one()
+    assert revision.document["body"] == page.body
+    assert "```guide" in revision.document["body"]
+
+
+def test_a_dry_run_does_not_rewrite_a_page_an_earlier_run_left(
+    db_session, author_account, media_root
+):
+    """--dry-run promises to write nothing, and pages from a previous real run
+    are sitting in the database it would otherwise reach into."""
+    client = FakeDozuki([_guide(1234)], {"WIKI": [_wiki("[guide|1234|Starting a Session]")]})
+    Importer(db_session, client, _options(), get_settings()).import_pages()
+    before = db_session.scalars(select(Page)).one().body
+
+    _run(db_session, client, _options(dry_run=True))
+
+    assert db_session.scalars(select(Page)).one().body == before

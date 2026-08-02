@@ -16,10 +16,10 @@ re-encoded by ``images.normalise``, which is what strips camera EXIF and what
 guarantees that a migrated picture cannot be a decompression bomb aimed at the
 server. A corrupt file fails its guide rather than the run.
 
-**Public guides arrive published, private ones arrive as drafts.** The site's
-own visibility is the only honest default: publishing something that was private
-would be a disclosure, and importing everything as a draft would leave the
-institute with an empty-looking library on the morning of the switch.
+**Everything arrives published; the site's own visibility decides to whom.** A
+public guide becomes an ordinary published guide, a non-public one becomes a
+published staff guide. Both were finished on the morning of the switch, and
+importing either as a draft would say nobody had written it.
 
 **Nothing is guessed.** Unrecognised values stop the run unless
 ``--allow-unmapped`` is passed, and even then they are all in the report.
@@ -43,6 +43,8 @@ from sqlalchemy.orm import Session as DbSession
 from .. import images, videos
 from ..db import SessionLocal, init_db, utcnow
 from ..models import (
+    EVERYONE,
+    STAFF,
     Annotation,
     Bullet,
     Category,
@@ -73,6 +75,7 @@ from .mapping import (
     MappedVideo,
     map_guide,
     map_page,
+    resolve_guide_embeds,
 )
 from .report import GuideTally, MigrationReport
 
@@ -525,15 +528,19 @@ class Importer:
     def _set_published_state(self, guide: Guide, is_public: bool, now: datetime) -> None:
         """The site's own visibility, and a first revision for what it published.
 
-        Publishing something that was private would be a disclosure; importing
-        everything as a draft would leave the institute with an empty-looking
-        library on the morning of the switch.
-        """
-        if not is_public:
-            guide.status = "draft"
-            self.db.flush()
-            return
+        Every imported guide arrives **published**, because every imported guide
+        is finished: it was in daily use on the site the morning the migration
+        ran. What the source's ``public`` flag decides is who it is published
+        *to* — a non-public guide becomes ``staff``, readable by authors and
+        administrators and by nobody else.
 
+        Until visibility existed these arrived as drafts, and that said "nobody
+        has written this yet" about 257 procedures that were written, correct and
+        being followed. It also hid them from their own authors' listings behind
+        a status filter, and it meant publishing one — the obvious thing to do
+        with a finished guide — disclosed it to the whole institute in one press.
+        """
+        guide.visibility = EVERYONE if is_public else STAFF
         guide.status = "published"
         guide.published_at = guide.published_at or now
         if guide.version == 0:
@@ -674,6 +681,74 @@ class Importer:
     def _page_slug_taken(self, slug: str) -> bool:
         return self.db.scalars(select(Page).where(Page.slug == slug)).first() is not None
 
+    # -- guide embeds -----------------------------------------------------
+
+    def resolve_page_guide_embeds(self) -> None:
+        """Point every ``[guide|1234|Title]`` on a migrated page at its guide.
+
+        A separate pass at the end, rather than a translation done while the page
+        is written, because at that moment the answer may not exist yet: pages
+        are imported after guides, but a page can name a guide that ``--limit``
+        cut off, that a ``--pages-only`` run never fetched, or that a run three
+        days ago imported. Resolving from ``imported_records`` — the ledger that
+        outlives one run — answers all three, where anything remembered in memory
+        as the run went would answer none of the last two.
+
+        A placeholder written into the body and swapped later would have been the
+        alternative, and it is worse: a run interrupted between the two steps
+        leaves the placeholder on a published page, whereas an interrupted run
+        here leaves the vendor's own marker, which is what an unresolvable embed
+        looks like anyway.
+        """
+        slugs = self._imported_guide_slugs()
+        for record in self.db.scalars(
+            select(ImportedRecord).where(
+                ImportedRecord.source_system == SOURCE_SYSTEM,
+                ImportedRecord.source_kind == "page",
+            )
+        ).all():
+            page = self.db.get(Page, record.local_id)
+            if page is None:
+                continue
+            resolution = resolve_guide_embeds(page.body, slugs)
+            self.report.guide_embeds_resolved += len(resolution.resolved)
+            self.report.guide_embeds_unresolved.extend(
+                f"{page.title}: {embed}" for embed in resolution.unresolved
+            )
+            if not resolution.resolved:
+                continue
+            page.body = resolution.body
+            self._refresh_published_revision(page)
+        self.db.commit()
+
+    def _imported_guide_slugs(self) -> dict[str, str]:
+        rows = self.db.execute(
+            select(ImportedRecord.source_id, Guide.slug)
+            .join(Guide, Guide.id == ImportedRecord.local_id)
+            .where(
+                ImportedRecord.source_system == SOURCE_SYSTEM,
+                ImportedRecord.source_kind == "guide",
+            )
+        ).all()
+        return dict(rows)
+
+    def _refresh_published_revision(self, page: Page) -> None:
+        """Keep the snapshot equal to what the page now says.
+
+        The revision written when the page was imported holds the body with the
+        vendor's marker still in it, and a revision that differs from the page it
+        claims to be a copy of is worse than none: it is the thing somebody
+        reaches for when they want to know what was published.
+        """
+        self.db.flush()
+        revision = self.db.scalars(
+            select(PageRevision).where(
+                PageRevision.page_id == page.id, PageRevision.version == page.version
+            )
+        ).one_or_none()
+        if revision is not None:
+            revision.document = page_document(page)
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -769,6 +844,11 @@ def main(argv: list[str] | None = None) -> int:
             importer.import_guides()
         if not args.guides_only:
             importer.import_pages()
+            if not options.dry_run:
+                # A rehearsal wrote no pages; running this would rewrite the ones a
+                # real run left behind, which is the one thing --dry-run promises
+                # not to do.
+                importer.resolve_page_guide_embeds()
     except MigrationError as error:
         print(f"Migration stopped: {error}", file=sys.stderr)
         return 2

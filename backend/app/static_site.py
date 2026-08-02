@@ -19,12 +19,13 @@ pictures and all.
 
 **The server being down.** A read-only mirror that nginx can serve on its own.
 
-One rule governs everything here, and it is not stylistic: **only published
-content is rendered, and only the media that published content shows.** The
-output has no login in front of it, so a draft that leaks into it is a
-half-written procedure published to whoever finds the folder — and unlike the
-application, where visibility is a ``WHERE`` clause somebody can re-check, a
-file once written is gone.
+One rule governs everything here, and it is not stylistic: **only content that
+is published *and* meant for everyone is rendered, and only the media that
+content shows.** The output has no login in front of it, so a draft that leaks
+into it is a half-written procedure published to whoever finds the folder, and a
+staff guide that leaks into it is an internal procedure published the same way —
+and unlike the application, where visibility is a ``WHERE`` clause somebody can
+re-check, a file once written is gone.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
@@ -37,10 +38,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
-from .models import PUBLISHED, Category, Guide, Media, Page
+from .models import EVERYONE, PUBLISHED, STAFF, Category, Guide, Media, Page
 from .schemas import guide_out, page_out
 from .settings import Settings
 from .storage import build_storage
@@ -63,6 +64,7 @@ class SiteReport:
     categories: int = 0
     media: int = 0
     skipped_drafts: int = 0
+    skipped_staff: int = 0
 
     def to_text(self) -> str:
         return "\n".join(
@@ -76,6 +78,7 @@ class SiteReport:
                 f"  media       {self.media}",
                 "",
                 f"Left out because they are not published: {self.skipped_drafts}",
+                f"Left out because they are staff-only:    {self.skipped_staff}",
                 "",
             ]
         )
@@ -312,6 +315,10 @@ def _filename(slug: str, noun: str, identifier: str) -> str:
     return f"{slug}.html"
 
 
+def _count(db: DbSession, *conditions) -> int:
+    return db.scalar(select(func.count()).select_from(Guide).where(*conditions)) or 0
+
+
 def publish(db: DbSession, settings: Settings, destination: Path) -> SiteReport:
     """Write the published corpus out as a browsable folder."""
     report = SiteReport()
@@ -322,9 +329,14 @@ def publish(db: DbSession, settings: Settings, destination: Path) -> SiteReport:
 
     organisation = settings.organisation_short_name
 
-    everything = db.scalars(select(Guide)).all()
-    guides = [guide for guide in everything if guide.status == PUBLISHED]
-    report.skipped_drafts += len(everything) - len(guides)
+    # Both conditions are in the query. The folder has no login in front of it,
+    # so a staff guide written here is an internal procedure handed to whoever
+    # opens the directory — and a file once written cannot be un-published.
+    guides = db.scalars(
+        select(Guide).where(Guide.status == PUBLISHED, Guide.visibility == EVERYONE)
+    ).all()
+    report.skipped_drafts += _count(db, Guide.status != PUBLISHED)
+    report.skipped_staff = _count(db, Guide.status == PUBLISHED, Guide.visibility == STAFF)
 
     all_pages = db.scalars(select(Page)).all()
     pages = [page for page in all_pages if page.status == PUBLISHED]

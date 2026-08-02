@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session as DbSession
 from .. import images
 from ..exporter import DOCUMENT_NAME, FORMAT_VERSION
 from ..models import (
+    EVERYONE,
     Annotation,
     Bullet,
     Category,
@@ -376,9 +377,12 @@ def _restore_guide(db: DbSession, entry: dict[str, Any], tags_by_slug: dict[str,
         introduction=entry["introduction"],
         conclusion=entry["conclusion"],
         status=entry["status"],
-        # Read with a default, unlike its neighbours, because an archive written
-        # by a Reticle from before quick links exists carries the same format
-        # version and simply has no such key.
+        # These two are read with a default, unlike their neighbours, because an
+        # archive written by a Reticle from before quick links or staff-only
+        # guides existed carries the same format version and simply has no such
+        # key. A guide from such an archive was readable by everyone, so that is
+        # what it restores as.
+        visibility=entry.get("visibility", EVERYONE),
         is_quick_link=entry.get("isQuickLink", False),
         version=entry["version"],
         view_count=entry["viewCount"],

@@ -67,6 +67,7 @@ def build_corpus(admin, category) -> dict:
             timeRequiredMaxMinutes=40,
             introduction="Assumes a valid booking.",
             conclusion="Report faults the same day.",
+            visibility="staff",
             isQuickLink=True,
             steps=[
                 step(
@@ -191,6 +192,46 @@ def test_a_quick_link_is_still_a_quick_link_after_a_restore(
 
     served = exporter.build_document(empty_database, get_settings())
     assert served["guides"][0]["isQuickLink"] is True
+
+
+def test_a_staff_guide_is_still_staff_only_after_a_restore(
+    admin, category, db_session, tmp_path, empty_database
+):
+    """Named on its own as well as being covered by the whole-document round
+    trip, because losing it is silent and one-directional: the guide comes back
+    looking exactly right, published and complete, and readable by everybody in
+    the institute."""
+    build_corpus(admin, category)
+    assert export_of(db_session)["guides"][0]["visibility"] == "staff"
+
+    exporter.write_to_directory(db_session, get_settings(), tmp_path / "out")
+    document, files = read_export(tmp_path / "out")
+
+    restore(empty_database, get_settings(), document, files)
+
+    served = exporter.build_document(empty_database, get_settings())
+    assert served["guides"][0]["visibility"] == "staff"
+
+
+def test_an_archive_written_before_visibility_existed_restores_as_readable_by_everyone(
+    admin, category, db_session, tmp_path, empty_database
+):
+    """It carries the same format version and simply has no such key.
+
+    ``everyone`` is the honest reading rather than the cautious one: the archive
+    was written by a Reticle in which a published guide was readable by
+    everybody, so that is what those guides were.
+    """
+    build_corpus(admin, category)
+    exporter.write_to_directory(db_session, get_settings(), tmp_path / "out")
+    document, files = read_export(tmp_path / "out")
+    for guide in document["guides"]:
+        guide.pop("visibility")
+
+    restore(empty_database, get_settings(), document, files)
+
+    served = exporter.build_document(empty_database, get_settings())
+    assert served["guides"][0]["visibility"] == "everyone"
 
 
 def test_publish_history_survives(admin, category, db_session):
