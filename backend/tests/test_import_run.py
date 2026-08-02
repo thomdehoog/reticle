@@ -24,7 +24,7 @@ from app.importer.run import Importer, Options
 from app.models import Annotation, Category, Guide, ImportedRecord, Media, Page, Step, Tag
 from app.settings import get_settings
 
-from .conftest import image_bytes
+from .conftest import image_bytes, mp4_bytes
 
 
 class FakeDozuki:
@@ -547,3 +547,91 @@ def test_a_dry_run_does_not_rewrite_a_page_an_earlier_run_left(
     _run(db_session, client, _options(dry_run=True))
 
     assert db_session.scalars(select(Page)).one().body == before
+
+
+# ---------------------------------------------------------------- video path
+
+
+class ClientWithVideo(FakeDozuki):
+    """A vendor whose steps carry a clip as well as photographs."""
+
+    clip_padding = 64
+
+    def download(self, url: str):
+        from app.importer.client import FetchedFile
+
+        if url.endswith(".mp4"):
+            self.downloads.append(url)
+            return FetchedFile(
+                payload=mp4_bytes(padding=self.clip_padding), content_type="video/mp4", url=url
+            )
+        return super().download(url)
+
+
+def _guide_with_a_clip(video_url: str = "https://example.test/seating-the-cube.mp4") -> dict:
+    return {
+        "guideid": 4001,
+        "title": "Seating a filter cube",
+        "public": True,
+        "category": "Light Microscopy",
+        "steps": [
+            {
+                "stepid": 1,
+                "orderby": 1,
+                "title": "Seat it square",
+                "lines": [{"text_raw": "Push until it clicks.", "bullet": "black", "level": 0}],
+                "media": {"type": "video", "data": {"url": video_url}},
+            }
+        ],
+    }
+
+
+def test_a_step_video_is_downloaded_and_stored_as_a_clip(db_session, author_account):
+    """The importer's video path, which no test reached.
+
+    A guide demonstrating a movement is exactly the kind that has one, and the
+    whole branch — the download, the size refusal, the container sniff and the
+    ledger entry that stops a re-run fetching it twice — had never run.
+    """
+    client = ClientWithVideo([_guide_with_a_clip()])
+    _run(db_session, client)
+
+    stored = db_session.scalars(select(Media).where(Media.kind == "video")).all()
+    assert len(stored) == 1
+    assert stored[0].content_type == "video/mp4"
+    assert stored[0].byte_size > 0
+
+
+def test_a_second_run_does_not_download_the_same_clip_again(db_session, author_account):
+    """The ledger, not the filename, is what makes a re-run cheap and safe."""
+    client = ClientWithVideo([_guide_with_a_clip()])
+    _run(db_session, client)
+    first = list(client.downloads)
+
+    _run(db_session, client)
+
+    assert client.downloads == first, "the clip was fetched a second time"
+    assert db_session.scalars(select(Media).where(Media.kind == "video")).all().__len__() == 1
+
+
+def test_a_clip_above_the_cap_is_refused_and_named_in_the_report(
+    db_session, author_account, monkeypatch
+):
+    """Refusing is the point, and so is saying which guide it happened to.
+
+    The run does not stop — one oversized clip should not abandon 250 other
+    guides — so the failure is recorded against the guide it belongs to. A
+    migration that quietly skipped the file would leave a procedure whose
+    demonstration is missing and no way to find out which.
+    """
+    monkeypatch.setenv("RETICLE_MAX_VIDEO_BYTES", "1024")
+    get_settings.cache_clear()
+
+    client = ClientWithVideo([_guide_with_a_clip()])
+    client.clip_padding = 4096  # comfortably over the cap set above
+
+    importer = _run(db_session, client)
+
+    failures = [failure for tally in importer.report.guides for failure in tally.failures]
+    assert any("above the configured cap" in failure for failure in failures), failures
+    assert db_session.scalars(select(Media).where(Media.kind == "video")).all() == []

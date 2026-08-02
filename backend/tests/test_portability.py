@@ -26,13 +26,14 @@ import tarfile
 import pytest
 from sqlalchemy import select
 
-from app import exporter
+from app import exporter, portability
 from app.importer.client import MigrationError
 from app.importer.reticle import read_export, restore
 from app.models import Media, User
 from app.settings import get_settings
 
 from .conftest import (
+    EMPTY_EVERY_TABLE,
     annotated,
     annotation,
     bullet,
@@ -523,3 +524,96 @@ def test_a_restore_writes_media_through_the_configured_storage_backend(
     assert {media.storage_path for media in stored} >= set(written)
     for storage_path in written:
         assert (elsewhere / storage_path).is_file()
+
+
+# ------------------------------------------------------------- the command
+
+
+def test_export_writes_a_directory_and_says_what_it_wrote(admin, category, capsys, tmp_path):
+    """The command itself, not the function underneath it.
+
+    Everything above tests ``exporter`` and ``restore`` directly. The command is
+    what a cron job and a runbook actually invoke, and its argument parsing, its
+    printed counts and above all its exit codes had never been executed.
+    """
+    build_corpus(admin, category)
+
+    assert portability.main(["export", "--out", str(tmp_path / "out")]) == 0
+
+    printed = capsys.readouterr().out
+    assert f"Wrote {tmp_path / 'out'}" in printed
+    assert "guides" in printed
+    assert (tmp_path / "out" / "reticle-export.json").exists()
+
+
+def test_export_writes_an_archive(admin, category, tmp_path):
+    build_corpus(admin, category)
+    archive = tmp_path / "corpus.tar.gz"
+
+    assert portability.main(["export", "--archive", str(archive)]) == 0
+
+    assert archive.exists()
+    with tarfile.open(archive) as bundle:
+        assert any(name.endswith("reticle-export.json") for name in bundle.getnames())
+
+
+def test_publish_writes_a_static_site(admin, category, tmp_path):
+    build_corpus(admin, category)
+
+    assert portability.main(["publish", "--out", str(tmp_path / "site")]) == 0
+
+    assert (tmp_path / "site" / "index.html").exists()
+
+
+def emptied(db_session) -> None:
+    """Clear the database the command will restore into.
+
+    ``restore`` refuses a database that already holds content, and the command
+    opens its own session against the application's engine rather than taking
+    one — so the corpus has to be cleared here rather than by handing it a
+    different database.
+    """
+    db_session.execute(EMPTY_EVERY_TABLE)
+    db_session.commit()
+
+
+def test_a_restore_that_is_whole_exits_zero(admin, category, tmp_path, db_session):
+    build_corpus(admin, category)
+    portability.main(["export", "--archive", str(tmp_path / "corpus.tar.gz")])
+
+    emptied(db_session)
+    assert portability.main(["restore", "--from", str(tmp_path / "corpus.tar.gz")]) == 0
+
+
+def test_a_restore_that_lost_a_file_exits_non_zero(admin, category, tmp_path, db_session):
+    """The line that makes a script able to tell a good restore from a bad one.
+
+    Deleting it changed no test at all, which meant a restore missing half its
+    photographs would have reported success to whatever ran it — and this is the
+    code somebody reaches for when the application will not start.
+    """
+    build_corpus(admin, category)
+    directory = tmp_path / "out"
+    portability.main(["export", "--out", str(directory)])
+
+    pictures = sorted((directory / "media").glob("*"))
+    assert pictures, "the corpus should have exported at least one picture"
+    pictures[0].unlink()
+
+    emptied(db_session)
+    assert portability.main(["restore", "--from", str(directory)]) == 1
+
+
+def test_a_stopped_run_exits_two(admin, category, tmp_path, db_session, monkeypatch):
+    """``MigrationError`` is the tool refusing, and a refusal is not a failure —
+    a wrapper has to be able to tell those apart."""
+    build_corpus(admin, category)
+    portability.main(["export", "--out", str(tmp_path / "out")])
+
+    def refuse(*_args, **_kwargs):
+        raise MigrationError("that archive is not one of ours")
+
+    monkeypatch.setattr(portability, "read_export", refuse)
+
+    emptied(db_session)
+    assert portability.main(["restore", "--from", str(tmp_path / "out")]) == 2

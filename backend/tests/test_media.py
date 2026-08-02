@@ -351,3 +351,42 @@ def test_a_media_row_whose_file_vanished_is_not_found(author, db_session, media_
 
 def test_uploading_without_a_file_is_rejected(author):
     assert author.post("/api/media", data={"alt": "no file"}).status_code == 422
+
+
+def test_an_image_within_the_side_limits_can_still_be_too_many_pixels(author, monkeypatch):
+    """The area ceiling, which the per-side one does not imply.
+
+    1200x1200 is comfortably inside a 10 000-pixel side limit, so the per-side
+    check does not see it, and at 1.44 megapixels against a 1 megapixel cap it
+    sits in the band where Reticle's own ceiling is the only guard: Pillow does
+    not raise on its own until twice the cap, so a larger picture would be
+    refused by Pillow and prove nothing about this check.
+
+    That distinction matters because deleting the check failed no test at all,
+    and the first version of this test used a 2000x2000 image — which Pillow
+    refused, so it passed with the check removed.
+    """
+    monkeypatch.setenv("RETICLE_MAX_IMAGE_PIXELS", str(1_000_000))
+    get_settings.cache_clear()
+
+    response = author.post(
+        "/api/media",
+        files={"file": ("wide.png", image_bytes(1200, 1200), "image/png")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+    assert "megapixel" in response.json()["error"]["message"]
+
+
+def test_an_image_just_under_the_pixel_ceiling_is_accepted(author, monkeypatch):
+    """The other half: a ceiling that refuses everything is not a ceiling."""
+    monkeypatch.setenv("RETICLE_MAX_IMAGE_PIXELS", str(1_000_000))
+    get_settings.cache_clear()
+
+    response = author.post(
+        "/api/media",
+        files={"file": ("fine.png", image_bytes(900, 900), "image/png")},
+    )
+
+    assert response.status_code == 201
