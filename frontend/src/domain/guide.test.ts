@@ -6,6 +6,7 @@ import {
   formatDurationRange,
   indentBullet,
   insertStepAfter,
+  moveMedia,
   moveStep,
   newId,
   numberShapeColors,
@@ -315,5 +316,42 @@ describe('numbering blocks', () => {
 
   it('numbers nothing when a guide is all context', () => {
     expect(numberedSteps([createStep({ id: 'x', kind: 'info' })]).size).toBe(0)
+  })
+})
+
+describe('choosing which picture leads', () => {
+  const pic = (id: string): Media => ({
+    id,
+    url: `/api/media/${id}`,
+    kind: 'image',
+    alt: '',
+    width: null,
+    height: null,
+    durationSeconds: null,
+    posterUrl: null,
+    annotations: [],
+  })
+
+  it('moves a picture one place later', () => {
+    const moved = moveMedia([pic('a'), pic('b'), pic('c')], 'a', 1)
+    expect(moved.map((image) => image.id)).toEqual(['b', 'a', 'c'])
+  })
+
+  it('moves a picture one place earlier, which is how an author picks the large one', () => {
+    const moved = moveMedia([pic('a'), pic('b')], 'b', -1)
+    expect(moved.map((image) => image.id)).toEqual(['b', 'a'])
+  })
+
+  it('refuses to wrap around either end', () => {
+    /* Wrapping would turn a nudge on the last picture into "make this the one
+       everybody sees", which is the opposite of what the click meant. */
+    const media = [pic('a'), pic('b')]
+    expect(moveMedia(media, 'a', -1)).toBe(media)
+    expect(moveMedia(media, 'b', 1)).toBe(media)
+  })
+
+  it('leaves the list alone when the picture is not in it', () => {
+    const media = [pic('a')]
+    expect(moveMedia(media, 'gone', 1)).toBe(media)
   })
 })

@@ -6,8 +6,10 @@
  * to mark up a picture.
  *
  * The first picture is the large one a reader sees; the others appear as small
- * thumbnails they can click to swap in. So the order is not cosmetic, and this is
- * where it is decided.
+ * thumbnails they can click to swap in. So the order is not cosmetic, and this
+ * is where it is decided — with buttons rather than only a drag, because an
+ * author who cannot use a mouse would otherwise have no way to choose which
+ * picture leads.
  */
 
 import { useRef, useState, type DragEvent } from 'react'
@@ -15,7 +17,13 @@ import { useRef, useState, type DragEvent } from 'react'
 import { MAX_MEDIA_PER_STEP, type BulletColor, type Media } from '../../domain/types'
 import { AnnotatedImage } from '../AnnotationOverlay'
 import { formatClipLength } from '../StepGallery'
-import { IconClose, IconImage, IconPalette } from '../icons'
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconClose,
+  IconImage,
+  IconPalette,
+} from '../icons'
 import { AnnotationEditor } from './AnnotationEditor'
 
 interface MediaSlotsProps {
@@ -26,6 +34,8 @@ interface MediaSlotsProps {
   uploading: boolean
   onAdd: (files: File[]) => void
   onRemove: (mediaId: string) => void
+  /** Move one picture one place earlier or later. Order decides the large one. */
+  onMove: (mediaId: string, delta: -1 | 1) => void
   onRemoveVideo: () => void
   onUpdate: (media: Media) => void
 }
@@ -53,6 +63,7 @@ export function MediaSlots({
   uploading,
   onAdd,
   onRemove,
+  onMove,
   onRemoveVideo,
   onUpdate,
 }: MediaSlotsProps) {
@@ -118,6 +129,28 @@ export function MediaSlots({
                 onClick={() => onRemove(image.id)}
               >
                 <IconClose size={12} />
+              </button>
+              {/* Buttons rather than dragging alone. Order decides which
+                  picture a reader sees large, so it has to be reachable by
+                  somebody working from the keyboard - and a drag is the one
+                  interaction a test cannot honestly perform. */}
+              <button
+                type="button"
+                className="media-slot__action media-slot__earlier"
+                aria-label={`Move image ${index + 1} earlier`}
+                disabled={index === 0}
+                onClick={() => onMove(image.id, -1)}
+              >
+                <IconChevronLeft size={12} />
+              </button>
+              <button
+                type="button"
+                className="media-slot__action media-slot__later"
+                aria-label={`Move image ${index + 1} later`}
+                disabled={index === media.length - 1}
+                onClick={() => onMove(image.id, 1)}
+              >
+                <IconChevronRight size={12} />
               </button>
               {image.annotations.length > 0 && (
                 <span className="media-slot__badge">{image.annotations.length}</span>

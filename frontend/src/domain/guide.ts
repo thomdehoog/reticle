@@ -16,6 +16,7 @@ import {
   type Difficulty,
   type Guide,
   MAX_MEDIA_PER_STEP,
+  type Media,
   type Step,
 } from './types'
 
@@ -92,6 +93,27 @@ export function numberedSteps(steps: Step[]): Map<string, number> {
     numbers.set(step.id, counted)
   }
   return numbers
+}
+
+/**
+ * Moves one of a step's pictures one place earlier or later.
+ *
+ * Order is not cosmetic: the first picture is the large one a reader sees and
+ * the rest are its thumbnails, so this is how an author chooses which picture
+ * leads. A move that would fall off either end returns the array unchanged
+ * rather than wrapping around, because wrapping would make the last picture
+ * become the first on a click that looked like a nudge.
+ */
+export function moveMedia(media: Media[], mediaId: string, delta: -1 | 1): Media[] {
+  const from = media.findIndex((image) => image.id === mediaId)
+  if (from === -1) return media
+  const to = from + delta
+  if (to < 0 || to >= media.length) return media
+
+  const moved = [...media]
+  const [image] = moved.splice(from, 1)
+  moved.splice(to, 0, image)
+  return moved
 }
 
 /** Moves a step, returning a renumbered array. Out-of-range input is returned unchanged. */

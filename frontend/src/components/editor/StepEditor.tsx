@@ -12,7 +12,7 @@
 
 import { useState, type DragEvent } from 'react'
 
-import { createBullet, indentBullet, numberShapeColors } from '../../domain/guide'
+import { createBullet, indentBullet, moveMedia, numberShapeColors } from '../../domain/guide'
 import type { Bullet, Media, Step, StepKind } from '../../domain/types'
 import { IconChevronDown, IconChevronUp, IconDrag, IconPlus, IconTrash } from '../icons'
 import { BulletEditor } from './BulletEditor'
@@ -182,6 +182,7 @@ export function StepEditor({
         uploading={uploading}
         onAdd={onUpload}
         onRemove={removeMedia}
+        onMove={(mediaId, delta) => onChange({ ...step, media: moveMedia(step.media, mediaId, delta) })}
         onRemoveVideo={() => onChange({ ...step, video: null })}
         onUpdate={(updated) =>
           onChange(

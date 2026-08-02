@@ -2408,6 +2408,40 @@ a:hover {
   background: var(--brand-600);
 }
 
+/* The order controls sit at the bottom of the picture, away from the two that
+   change it — a click meant to reorder must never be one pixel from the one
+   that deletes. */
+.media-slot__earlier,
+.media-slot__later {
+  top: auto;
+  bottom: 3px;
+}
+
+.media-slot__earlier {
+  left: 3px;
+}
+
+.media-slot__later {
+  left: 35px;
+}
+
+.media-slot__earlier:hover:not(:disabled),
+.media-slot__later:hover:not(:disabled) {
+  background: var(--brand-600);
+}
+
+.media-slot__earlier:disabled,
+.media-slot__later:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+@media (hover: none) {
+  .media-slot__later {
+    left: 41px;
+  }
+}
+
 .media-slot__badge {
   position: absolute;
   bottom: 3px;
