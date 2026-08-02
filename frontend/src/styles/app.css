@@ -86,7 +86,15 @@
   --shadow-lg: 0 8px 24px rgba(16, 21, 28, 0.12);
 
   --header-height: 56px;
-  --content-max: 1180px;
+  /* How wide the page is allowed to get on a large monitor.
+     Not a reading measure — prose caps itself at 46rem in `.markdown`, and a
+     step's points sit in the narrower of two columns whatever this says. What
+     this bounds is the picture, and pictures here are screenshots of
+     acquisition software that people are trying to read the labels in, so the
+     bound is generous. Past this the page stops growing and centres, because a
+     guide spread across a 34-inch monitor makes the eye travel further between
+     the shape on the screenshot and the point describing it. */
+  --content-max: 1440px;
   --rail-width: 236px;
 }
 
@@ -1441,9 +1449,20 @@ a:hover {
 
 /* -------------------------------------------------------------- guide view */
 
-.guide {
-  max-width: 860px;
-}
+/**
+ * A guide takes the width it is given.
+ *
+ * It used to stop at 860px, which is the right measure for a column of prose
+ * and the wrong one here: a step is a screenshot beside a short list, so the
+ * cap did not lengthen any lines — it shrank the picture. On a 1440px screen it
+ * left roughly 300px of the page empty and the acquisition dialog in the
+ * screenshot too small to read, which is the one thing the picture is for.
+ *
+ * The measure is still bounded: `.app__main` holds everything to
+ * `--content-max`, and the points sit in the narrower of the step's two
+ * columns, which lands around 520px — inside the range prose is comfortable
+ * in. What was uncapped is the picture.
+ */
 
 .guide__meta {
   display: flex;
@@ -1607,8 +1626,14 @@ a:hover {
  * strip takes the first, the points take the second — and the row gap is zero,
  * so a step with no strip starts its points level with the top of the picture
  * exactly as one with a strip does.
+ *
+ * The editor's step card is placed by the same rules, listed here beside the
+ * reader's rather than copied into the editor's own section. An author
+ * arranging a step should be looking at the step, and two grids that are meant
+ * to be identical drift apart the first time only one of them is adjusted.
  */
-.step__body {
+.step__body,
+.editor-step__body {
   grid-column: 2;
   margin-top: 0.5rem;
   display: grid;
@@ -1618,24 +1643,30 @@ a:hover {
   align-items: start;
 }
 
-.step__body > .step__stage {
+.step__body > .step__stage,
+.editor-step__body > .media-stage {
   grid-column: 1;
   grid-row: 1 / 3;
   min-width: 0;
 }
 
-.step__body > .step__thumbs {
+.step__body > .step__thumbs,
+.editor-step__body > .media-strip {
   grid-column: 2;
   grid-row: 1;
   margin-top: 0;
   margin-bottom: 0.9rem;
 }
 
-.step__body > .bullets {
+.step__body > .bullets,
+.editor-step__body > .editor-step__points {
   grid-column: 2;
   grid-row: 2;
 }
 
+/* A reader's step with no pictures at all gives its whole width to the points.
+   The editor has no equivalent: it always shows the four picture slots, empty
+   or filled, so that a step has one shape while it is being written. */
 .step__body--text-only {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -1643,6 +1674,13 @@ a:hover {
 .step__body--text-only > .bullets {
   grid-column: 1;
   grid-row: 1;
+}
+
+/* The card is not itself a grid cell — it is the whole card — so it must not
+   inherit the reader's `grid-column: 2`, which is the column the reader's step
+   body sits in beside its number. */
+.editor-step__body {
+  grid-column: auto;
 }
 
 /**
@@ -2071,25 +2109,201 @@ a:hover {
 
 /* ------------------------------------------------------------------ editor */
 
+/* The wiki editor: the source and its preview, side by side. The guide editor
+   used to share this grid for a metadata column on the right; that column is
+   now the guide's own head, above the steps. */
 .editor {
   display: grid;
   gap: 1.25rem;
-  grid-template-columns: minmax(0, 1fr) 300px;
   align-items: start;
 }
 
+/**
+ * Editing is a desk job. Below the width where four pictures fit beside their
+ * instructions, the editor is replaced by a sentence saying so — see
+ * `components/editor/DesktopOnly.tsx` for the argument.
+ *
+ * The breakpoint lives here and only here. The component renders both halves
+ * unconditionally and lets this decide, so there is no second copy of the width
+ * in the JavaScript to drift from this one.
+ */
+/* The publishing controls travel with the editor. A `span` so it disappears
+   cleanly when the gate hides it, and a flex row so it looks like the rest of
+   the bar when it does not. */
+.page-actions__editing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.desktop-only {
+  display: none;
+  max-width: 32rem;
+  margin: 3rem auto;
+  padding: 1.25rem;
+  text-align: center;
+  color: var(--ink-700);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
 @media (max-width: 900px) {
-  .editor {
-    grid-template-columns: minmax(0, 1fr);
+  .desktop-only {
+    display: block;
+  }
+
+  .desktop-only__work {
+    display: none;
   }
 }
 
-.editor__sidebar {
-  position: sticky;
-  top: calc(var(--header-height) + 1rem);
+/**
+ * The guide's head, edited at the size it is published at.
+ *
+ * Everything here used to be a 300px column of labelled inputs down the right,
+ * which took a quarter of the page away from the steps and asked an author to
+ * imagine the result from a stack of form fields. Now the title is typed in the
+ * size the title appears in, the summary sits under it where the summary sits,
+ * and the meta row is the reader's meta row with the values made editable.
+ *
+ * The fields are drawn without frames until they are pointed at, so the page
+ * reads as a guide rather than as a form — the outline appears on hover and on
+ * focus, which is when an author needs to know what is editable and where it
+ * ends.
+ */
+.editor__header {
+  max-width: var(--content-max);
+  margin-bottom: 1.25rem;
+}
+
+.editor__title,
+.editor__summary,
+.editor__intro {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 0.3rem 0.45rem;
+  margin-left: -0.45rem;
+}
+
+.editor__title {
+  font-size: 1.9rem;
+  font-weight: 680;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.editor__summary {
+  font-size: 1.05rem;
+  color: var(--ink-500);
+  resize: none;
+}
+
+.editor__intro {
+  margin-top: 0.9rem;
+  font-size: 1.02rem;
+  line-height: 1.6;
+  resize: none;
+}
+
+.editor__title:hover,
+.editor__summary:hover,
+.editor__intro:hover {
+  border-color: var(--border);
+}
+
+.editor__title:focus,
+.editor__summary:focus,
+.editor__intro:focus {
+  outline: none;
+  background: var(--surface);
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 3px var(--brand-100);
+}
+
+/* Each control is as wide as what it holds. `.select` is full-width by
+   default, which is right stacked in a form and wrong in a row: three
+   full-width selects become three lines that look like three sections. */
+.editor__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.7rem;
+}
+
+.editor__meta .select {
+  width: auto;
+}
+
+.editor__minutes {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--ink-500);
+}
+
+.editor__minutes .input {
+  width: 5rem;
+}
+
+.editor__hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  color: var(--ink-500);
+}
+
+/**
+ * The steps, one under another, with an insertion point after each.
+ *
+ * There used to be a rail down the left listing them all. It was removed rather
+ * than kept: it was a second way to do what the cards already do, it cost the
+ * cards 200px of the width they needed, and its only unique job — putting a
+ * step somewhere other than the end — is now a button on the step it goes
+ * after, which is where the author is looking when they want one.
+ */
+.editor-steps {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+}
+
+/* "Add step", at the end. As wide as its own words: stretched across the
+   column it read as the bottom edge of the guide rather than as a button. */
+.editor-steps > .button {
+  align-self: flex-start;
+  margin-top: 0.5rem;
+}
+
+/* The last thing on a card, so "here" means after this step.
+   Quiet, because it appears on every step and at full strength a five-step
+   guide would read as ten things — but never invisible: a control that only
+   exists on hover is a control most people never find, and putting a step in
+   the middle of a guide is the whole reason the rail was removed. */
+.editor-step__insert {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.7rem;
+  padding: 0.2rem 0;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--ink-400);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.editor-step:hover .editor-step__insert,
+.editor-step:focus-within .editor-step__insert,
+.editor-step__insert:hover {
+  color: var(--brand-700);
 }
 
 .editor-step {
@@ -2213,6 +2427,26 @@ a:hover {
   background: transparent;
 }
 
+/* A flagged point is coloured while it is being typed, exactly as it will be
+   read. `--flag-accent` is set by the `bullet--kind-*` class the editor now
+   shares with the reader, so there is one definition of what a caution looks
+   like and both sides get it. */
+.editor-bullet.bullet--kind-caution .editor-bullet__text,
+.editor-bullet.bullet--kind-reminder .editor-bullet__text {
+  color: var(--flag-accent);
+}
+
+.editor-bullet.bullet--kind-caution .editor-bullet__text {
+  font-weight: 550;
+}
+
+/* The flag word lines up with the first line of the text beside it, not with
+   the top of a textarea that has its own padding. */
+.editor-bullet .bullet__flag-label {
+  padding-top: 0.5rem;
+  white-space: nowrap;
+}
+
 .editor-bullet__text:hover {
   border-color: var(--border);
 }
@@ -2308,18 +2542,29 @@ a:hover {
   font-weight: 650;
 }
 
-.media-slots {
-  display: flex;
+/**
+ * Three slots across, always.
+ *
+ * A grid rather than a flex row, and no cap on how wide a slot may get: the
+ * strip has to span its column exactly, so its edges line up with the points
+ * underneath and with the large picture beside it. A flex row sized to its
+ * contents left the strip short of the right-hand edge whenever the step had
+ * fewer than three pictures, and the ragged edge read as a mistake.
+ *
+ * Empty slots hold the places, so a step has one shape whether it has four
+ * pictures or none, and the card does not jump about as they are added.
+ */
+.media-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  margin-bottom: 0.75rem;
+  align-items: start;
 }
 
-/* The slot is the thumbnail plus its description field, so the box is only as
-   tall as the picture and the column keeps them associated. */
+/* The slot is a picture plus its description field, so the box is only as tall
+   as the picture and the column keeps the two associated. */
 .media-slot {
-  width: 110px;
+  min-width: 0;
 }
 
 /* The picture on its own, which is what the buttons and the badge measure
@@ -2328,22 +2573,54 @@ a:hover {
   position: relative;
 }
 
-.media-slot .annotated,
-.media-slot__frame > video {
+/* The large one, shown at the size and shape it will be published at. The
+   frame is exactly the picture — no fill behind it, nothing to letterbox
+   against — for the reason spelled out at `.step__stage`: the annotations are
+   stored as fractions of the picture and drawn over this box, so a box that is
+   not the picture puts every shape in the wrong place. */
+.media-slot--stage .annotated,
+.media-slot--stage .media-slot__frame > video {
+  display: block;
   width: 100%;
-  height: 82px;
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--border);
   background: var(--surface-sunken);
 }
 
-.media-slot .annotated img,
-.media-slot__frame > video {
+.media-slot--stage .annotated img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.media-slot--stage .media-slot__frame > video {
+  max-height: 70vh;
+}
+
+/* A thumbnail is a button, drawn exactly like the reader's, because it is the
+   same gesture: click the small picture to see it large. */
+.media-slot--thumb {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.media-slot--thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.media-slot--thumb:hover {
+  border-color: var(--border-strong);
 }
 
 /* Alt text is small and optional-looking on purpose: it must be reachable
@@ -2455,12 +2732,24 @@ a:hover {
   pointer-events: none;
 }
 
-.media-dropzone {
+/**
+ * A slot with no picture in it yet.
+ *
+ * The same box the picture will fill, in the same place, drawn as an outline
+ * and asking to be clicked. Showing the four places up front is what makes the
+ * screen explain itself: a step is one large picture and up to three small
+ * ones, and an author can see that before they have added anything, rather
+ * than discovering the shape as it appears under them.
+ */
+.media-empty {
   display: grid;
   place-items: center;
-  width: 110px;
-  height: 82px;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  padding: 0;
+  font: inherit;
   font-size: 0.76rem;
+  line-height: 1.4;
   text-align: center;
   color: var(--ink-500);
   background: var(--surface-sunken);
@@ -2469,11 +2758,26 @@ a:hover {
   cursor: pointer;
 }
 
-.media-dropzone:hover,
-.media-dropzone--over {
+/* The large one carries the whole picture column, so it says which picture it
+   is asking for rather than repeating what the three below it say. */
+.media-empty--stage {
+  font-size: 0.9rem;
+  border-radius: var(--radius);
+}
+
+.media-empty--thumb {
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.media-empty:hover,
+.media-empty--over {
   color: var(--brand-700);
   border-color: var(--brand-600);
   background: var(--brand-050);
+}
+
+.media-empty:disabled {
+  cursor: progress;
 }
 
 .save-state {
@@ -2815,10 +3119,9 @@ a:hover {
   .page-actions,
   .breadcrumb,
   .searchbar,
-  .editor__sidebar,
   .wiki-toolbar,
   .media-slot__action,
-  .media-dropzone {
+  .media-empty {
     display: none !important;
   }
 
@@ -2916,11 +3219,6 @@ a:hover {
     height: 2.25rem;
   }
 
-  .step-nav__nudge {
-    width: 32px;
-    height: 32px;
-  }
-
   .breadcrumb a,
   .rail__section a,
   .table a {
@@ -2929,15 +3227,6 @@ a:hover {
 }
 
 @media (max-width: 900px) {
-  /**
-   * The sidebar follows the steps rather than preceding them. Putting it first
-   * pushed step 1 roughly 700px down on a tablet and 1100px on a phone: those
-   * fields are written once, the steps are what an author keeps coming back to.
-   */
-  .editor__sidebar {
-    position: static;
-  }
-
   /* A tablet row is about half the width of a desktop one, so the picture takes
      the middle step down rather than jumping straight to the phone size. */
   .guide-row > .guide-row__thumb {
@@ -3012,7 +3301,9 @@ a:hover {
   }
 
   /* On a phone the picture, its thumbnails and the instructions stack in
-     reading order rather than fighting over a 360px-wide row. */
+     reading order rather than fighting over a 360px-wide row. Only the
+     reader's: the editor is not drawn at this width at all — see
+     `.desktop-only`. */
   .step__body {
     grid-column: 1 / -1;
     grid-template-columns: minmax(0, 1fr);
@@ -3063,52 +3354,10 @@ a:hover {
     height: 58px;
   }
 
-  /**
-   * The bullet row gives the text its own line on a phone. Squeezed beside the
-   * style picker, the indent offset and three always-visible action buttons, it
-   * had roughly 150px left and wrapped at three or four words.
-   */
-  .editor-bullet {
-    flex-wrap: wrap;
-    gap: 0.1rem 0.45rem;
-    padding: 0.1rem 0;
-  }
-
-  /* The colour picker and the three actions share the first line — they are
-     both controls and neither needs the width. Given a line each, a three-bullet
-     step took most of the screen and the author scrolled to see what they had
-     just written. */
-  .editor-bullet__actions {
-    order: 2;
-    margin-left: auto;
-  }
-
-  .editor-bullet__text {
-    order: 3;
-    flex: 1 1 100%;
-  }
-
-  .editor-step {
-    padding: 0.85rem 0.75rem;
-  }
-
-  /* Drawn with a visible edge on touch, where there is no hover to reveal one
-     and no keyboard focus ring on the way in. The full-width line it sits on
-     is no longer a phone rule — it turned out to be right everywhere. */
-  .editor-step__title-input {
-    border-color: var(--border);
-  }
-
-  .media-slot,
-  .media-dropzone {
-    width: 88px;
-  }
-
-  .media-dropzone,
-  .media-slot .annotated,
-  .media-slot__frame > video {
-    height: 66px;
-  }
+  /* Nothing here for the editor. It is replaced by one sentence below 900px —
+     see `.desktop-only` — so a phone layout for it is a layout nobody can
+     reach, and the set that used to live here contradicted the wide one within
+     a week of the wide one changing. */
 
   .modal {
     max-width: 100%;
@@ -3172,217 +3421,6 @@ a:hover {
   }
 
   .table td[data-label='Name']::before {
-    display: none;
-  }
-}
-
-/* --------------------------------------------------------- step navigator */
-
-/**
- * The rail listing a guide's steps down the left of the editor.
- *
- * Guides here average 8.3 steps and the longest is 33, so a single scrolling
- * column hides most of the guide from its own author. The rail is an addition:
- * the metadata panel on the far side keeps its column, because a guide's title,
- * tags and difficulty belong beside its steps rather than behind tabs.
- *
- * The editor grid and the step cards' scroll margin are set here, after the
- * editor block that defines them, so that everything the rail brings with it
- * reads — and could be removed — as one piece. The grid change is scoped to
- * `.editor--with-nav`: the page editor uses the same two-column `.editor` and
- * must not gain a column it has nothing to put in.
- */
-
-.editor--with-nav {
-  grid-template-columns: 200px minmax(0, 1fr) 300px;
-}
-
-.editor-step {
-  scroll-margin-top: calc(var(--header-height) + 1rem);
-}
-
-/**
- * Below a tablet's width the rail would take more room from the steps than the
- * overview gives back, and scrolling is the natural gesture on a small screen
- * anyway. The single-column rule below restates the editor's own breakpoint,
- * which this later block would otherwise override.
- */
-@media (max-width: 1024px) {
-  .editor--with-nav {
-    grid-template-columns: minmax(0, 1fr) 300px;
-  }
-
-  .step-nav {
-    display: none;
-  }
-}
-
-@media (max-width: 900px) {
-  .editor--with-nav {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.step-nav {
-  position: sticky;
-  top: calc(var(--header-height) + 1rem);
-  max-height: calc(100vh - var(--header-height) - 3rem);
-  overflow-y: auto;
-  padding: 0.5rem;
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-}
-
-.step-nav__head {
-  margin: 0 0 0.45rem;
-  padding: 0 0.4rem;
-  font-size: 0.78rem;
-  font-weight: 650;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--ink-400);
-}
-
-.step-nav__list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.step-nav__item {
-  display: flex;
-  align-items: center;
-  gap: 0.1rem;
-  cursor: grab;
-}
-
-.step-nav__item:active {
-  cursor: grabbing;
-}
-
-.step-nav__item--dragging {
-  opacity: 0.45;
-}
-
-.step-nav__link {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.3rem 0.4rem;
-  font: inherit;
-  font-size: 0.8rem;
-  text-align: left;
-  cursor: pointer;
-  color: var(--ink-700);
-  background: none;
-  border: none;
-  border-left: 3px solid transparent;
-  border-radius: var(--radius-sm);
-}
-
-.step-nav__link:hover {
-  background: var(--surface-sunken);
-}
-
-/* The bar and the weight carry the active state as well as the colour does. */
-.step-nav__link[aria-current] {
-  font-weight: 650;
-  color: var(--brand-800);
-  background: var(--brand-050);
-  border-left-color: var(--brand-600);
-}
-
-.step-nav__number {
-  flex: 0 0 auto;
-  min-width: 1.3rem;
-  text-align: right;
-  font-size: 0.78rem;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-400);
-}
-
-.step-nav__link[aria-current] .step-nav__number {
-  color: var(--brand-700);
-}
-
-.step-nav__thumb {
-  flex: 0 0 auto;
-  width: 34px;
-  height: 26px;
-  object-fit: cover;
-  background: var(--surface-sunken);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-
-.step-nav__title {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  line-height: 1.3;
-}
-
-.step-nav__title--empty {
-  color: var(--ink-400);
-  font-weight: 400;
-}
-
-.step-nav__move {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  opacity: 0.4;
-}
-
-.step-nav__item:hover .step-nav__move,
-.step-nav__item:focus-within .step-nav__move {
-  opacity: 1;
-}
-
-.step-nav__nudge {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  cursor: pointer;
-  color: var(--ink-500);
-  background: none;
-  border: none;
-  border-radius: var(--radius-sm);
-}
-
-.step-nav__nudge:hover:not(:disabled) {
-  color: var(--ink-900);
-  background: var(--surface-sunken);
-}
-
-.step-nav__nudge:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
-/* Reordering is the only path where there is no pointer to drag with. */
-@media (hover: none) {
-  .step-nav__move {
-    opacity: 1;
-  }
-}
-
-/* On paper the rail is a list of links to nowhere, like the panel opposite it. */
-@media print {
-  .step-nav {
     display: none;
   }
 }

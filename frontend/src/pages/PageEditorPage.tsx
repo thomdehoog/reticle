@@ -18,6 +18,7 @@ import { ApiError } from '../api/client'
 import { useApi } from '../auth/AuthContext'
 import { LifecycleActions } from '../components/editor/LifecycleActions'
 import { RevisionHistory } from '../components/editor/RevisionHistory'
+import { DesktopOnly } from '../components/editor/DesktopOnly'
 import { SaveConflict } from '../components/editor/SaveConflict'
 import { TagInput } from '../components/editor/TagInput'
 import { IconHistory } from '../components/icons'
@@ -274,7 +275,10 @@ export function PageEditorPage() {
             <span className="breadcrumb__sep">/</span>
             <span>Editing page</span>
           </nav>
-          <h1>{page.title || 'Untitled page'}</h1>
+          {/* Not drawn — the title is edited a few lines below, in the size it
+              is published at — but still present, because a screen is
+              announced by its heading. */}
+          <h1 className="visually-hidden">Editing {page.title || 'an untitled page'}</h1>
         </div>
         <div className="page-actions">
           <StatusBadge status={page.status} />
@@ -291,24 +295,27 @@ export function PageEditorPage() {
               View
             </Link>
           )}
-          <button className="button" type="button" onClick={() => setShowingHistory(true)}>
-            <IconHistory />
-            History
-          </button>
-          <LifecycleActions
-            kind="page"
-            status={page.status}
-            onUnpublish={onUnpublish}
-            onArchive={onArchive}
-          />
-          <button
-            className="button button--primary"
-            type="button"
-            onClick={() => void onPublish()}
-            disabled={publishing}
-          >
-            {publishing ? 'Publishing…' : page.status === 'published' ? 'Publish update' : 'Publish'}
-          </button>
+          {/* Hidden wherever the editor is, for the reason given there. */}
+          <span className="page-actions__editing desktop-only__work">
+            <button className="button" type="button" onClick={() => setShowingHistory(true)}>
+              <IconHistory />
+              History
+            </button>
+            <LifecycleActions
+              kind="page"
+              status={page.status}
+              onUnpublish={onUnpublish}
+              onArchive={onArchive}
+            />
+            <button
+              className="button button--primary"
+              type="button"
+              onClick={() => void onPublish()}
+              disabled={publishing}
+            >
+              {publishing ? 'Publishing…' : page.status === 'published' ? 'Publish update' : 'Publish'}
+            </button>
+          </span>
         </div>
       </div>
 
@@ -356,6 +363,113 @@ export function PageEditorPage() {
       ) : (
         <ErrorAlert error={saveError} />
       )}
+
+      <DesktopOnly what="a wiki page">
+      {/* The page's head, edited where a reader meets it, for the reason the
+          guide editor's is: a column of labelled inputs beside the body asked
+          an author to picture the result from a stack of form fields, and took
+          300px from the one thing on the screen that needed the room. */}
+      <div className="editor__header">
+        <input
+          className="editor__title"
+          aria-label="Title"
+          placeholder="Title"
+          value={page.title}
+          onChange={(event) => mutate((current) => ({ ...current, title: event.target.value }))}
+        />
+
+        <AutoTextarea
+          className="editor__summary"
+          rows={1}
+          aria-label="Summary"
+          value={page.summary}
+          placeholder="One line, shown wherever this page is listed."
+          onChange={(event) => mutate((current) => ({ ...current, summary: event.target.value }))}
+        />
+
+        <div className="editor__meta">
+          <select
+            className="select"
+            aria-label="Category"
+            value={page.categoryId ?? ''}
+            onChange={(event) =>
+              mutate((current) => ({ ...current, categoryId: event.target.value || null }))
+            }
+          >
+            <option value="">Standalone article</option>
+            {(categories ?? []).map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+
+          {/* A checkbox that changes what a whole section looks like to
+              everybody, so it says what it does rather than naming a field. */}
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={page.isLanding}
+              disabled={page.categoryId === null}
+              onChange={(event) =>
+                mutate((current) => ({ ...current, isLanding: event.target.checked }))
+              }
+            />
+            <span>Opens the category</span>
+          </label>
+
+          {page.heroMediaId ? (
+            <div className="hero-picker">
+              <Thumbnail
+                seed={page.title}
+                src={`/api/media/${page.heroMediaId}`}
+                className="hero-picker__preview"
+              />
+              <div className="hero-picker__controls">
+                <button
+                  className="button button--sm"
+                  type="button"
+                  onClick={() => heroInputRef.current?.click()}
+                >
+                  Replace
+                </button>
+                <button
+                  className="button button--sm button--danger"
+                  type="button"
+                  onClick={() => mutate((current) => ({ ...current, heroMediaId: null }))}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              className="button button--sm"
+              type="button"
+              disabled={uploadingHero}
+              onClick={() => heroInputRef.current?.click()}
+            >
+              {uploadingHero ? 'Uploading…' : 'Choose a banner image'}
+            </button>
+          )}
+          <input
+            ref={heroInputRef}
+            type="file"
+            aria-label="Hero image"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              if (file) void onPickHero(file)
+            }}
+          />
+        </div>
+
+        {/* An empty category list is not "no categories", it is a failed
+            request — and a page silently becomes a standalone article. */}
+        <ErrorAlert error={categoriesError} />
+      </div>
 
       <div className="editor">
         <div>
@@ -411,135 +525,8 @@ export function PageEditorPage() {
           </div>
         </div>
 
-        <aside className="editor__sidebar">
-          <div className="card">
-            <div className="card__body">
-              <div className="field">
-                <label className="field__label" htmlFor="page-title">
-                  Title
-                </label>
-                <input
-                  id="page-title"
-                  className="input"
-                  value={page.title}
-                  onChange={(event) => mutate((current) => ({ ...current, title: event.target.value }))}
-                />
-              </div>
-
-              <div className="field">
-                <label className="field__label" htmlFor="page-summary">
-                  Summary
-                </label>
-                <AutoTextarea
-                  id="page-summary"
-                  className="textarea"
-                  rows={2}
-                  value={page.summary}
-                  onChange={(event) => mutate((current) => ({ ...current, summary: event.target.value }))}
-                />
-              </div>
-
-              <div className="field">
-                <label className="field__label" htmlFor="page-category">
-                  Category
-                </label>
-                <select
-                  id="page-category"
-                  className="select"
-                  value={page.categoryId ?? ''}
-                  onChange={(event) =>
-                    mutate((current) => ({ ...current, categoryId: event.target.value || null }))
-                  }
-                >
-                  <option value="">Standalone article</option>
-                  {(categories ?? []).map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-                {/* An empty list here is not "no categories", it is a failed
-                    request — and a page silently becomes a standalone article. */}
-                <ErrorAlert error={categoriesError} />
-              </div>
-
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={page.isLanding}
-                  disabled={page.categoryId === null}
-                  onChange={(event) =>
-                    mutate((current) => ({ ...current, isLanding: event.target.checked }))
-                  }
-                />
-                <span>Use as this category&rsquo;s landing page</span>
-              </label>
-              {/* A checkbox that changes what a whole section looks like to
-                  everybody deserves one line saying so. */}
-              <span className="field__hint">
-                It becomes what people see when they open the category.
-              </span>
-
-              <div className="field" style={{ marginTop: '1rem', marginBottom: 0 }}>
-                <span className="field__label">Hero image</span>
-                {/* The same control, and the same classes, as the category
-                    dialog's picture picker. This one had been left with the
-                    markup from when `.hero-picker` was a stack: once it became
-                    a flex row, a bare picture claimed the whole row and the
-                    buttons beside it could not shrink, so Remove sat past the
-                    right edge of the window and the whole editor scrolled
-                    sideways at every width. */}
-                {page.heroMediaId ? (
-                  <div className="hero-picker">
-                    <Thumbnail
-                      seed={page.title}
-                      src={`/api/media/${page.heroMediaId}`}
-                      className="hero-picker__preview"
-                    />
-                    <div className="hero-picker__controls">
-                      <button
-                        className="button button--sm"
-                        type="button"
-                        onClick={() => heroInputRef.current?.click()}
-                      >
-                        Replace
-                      </button>
-                      <button
-                        className="button button--sm button--danger"
-                        type="button"
-                        onClick={() => mutate((current) => ({ ...current, heroMediaId: null }))}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    className="button button--sm"
-                    type="button"
-                    disabled={uploadingHero}
-                    onClick={() => heroInputRef.current?.click()}
-                  >
-                    {uploadingHero ? 'Uploading…' : 'Choose an image'}
-                  </button>
-                )}
-                <input
-                  ref={heroInputRef}
-                  type="file"
-                  aria-label="Hero image"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
-                  hidden
-                  onChange={(event) => {
-                    const file = event.target.files?.[0]
-                    event.target.value = ''
-                    if (file) void onPickHero(file)
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        </aside>
       </div>
+      </DesktopOnly>
 
       {insertingList && (
         <GuideListDialog

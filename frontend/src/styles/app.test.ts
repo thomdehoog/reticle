@@ -90,3 +90,71 @@ function ruleFor(selector: string): string {
   const close = stylesheet.indexOf('}', open)
   return stylesheet.slice(open, close)
 }
+
+/**
+ * The editors are gated by one media query rather than by a width in the
+ * JavaScript. That makes the stylesheet the only place the breakpoint exists —
+ * and the only place a test can check it, since jsdom applies no media queries.
+ */
+describe('the desktop-only gate', () => {
+  it('hides the editor and shows the note below the breakpoint', () => {
+    const gate = stylesheet.slice(stylesheet.indexOf('.desktop-only {'))
+    const media = gate.slice(gate.indexOf('@media (max-width: 900px)'))
+    const block = media.slice(0, media.indexOf('\n}\n'))
+
+    expect(block).toMatch(/\.desktop-only\s*\{\s*display:\s*block/)
+    expect(block).toMatch(/\.desktop-only__work\s*\{\s*display:\s*none/)
+  })
+
+  it('leaves the note hidden by default, so a wide screen never sees it', () => {
+    const at = stylesheet.indexOf('.desktop-only {')
+    expect(at).toBeGreaterThan(-1)
+    expect(stylesheet.slice(at, stylesheet.indexOf('}', at))).toMatch(/display:\s*none/)
+  })
+
+  /**
+   * The publishing controls are hidden with the editor. Offering Publish and
+   * Archive under a note saying to come back at a computer invites somebody to
+   * change what a whole institute reads without seeing what they are changing.
+   * Source order is the whole mechanism: both selectors weigh the same, so the
+   * one inside the media query only wins by being later.
+   */
+  it('lets the gate win over the action bar it hides', () => {
+    const actions = stylesheet.indexOf('.page-actions__editing {')
+    const hide = stylesheet.indexOf('.desktop-only__work {')
+
+    expect(actions).toBeGreaterThan(-1)
+    expect(hide).toBeGreaterThan(actions)
+  })
+})
+
+/**
+ * The editor's step card and the reader's step are placed by one set of grid
+ * rules. Two grids meant to be identical drift the first time only one is
+ * adjusted, and the whole argument for the editor's layout is that it is the
+ * reader's.
+ */
+describe('the shared step grid', () => {
+  it.each([
+    ['the stage', '.step__body > .step__stage,\n.editor-step__body > .media-stage'],
+    ['the strip', '.step__body > .step__thumbs,\n.editor-step__body > .media-strip'],
+    ['the points', '.step__body > .bullets,\n.editor-step__body > .editor-step__points'],
+  ])('places %s from one rule', (_what, selector) => {
+    expect(stylesheet).toContain(selector)
+  })
+
+  /**
+   * The reader's step still has to stack on a phone. The editor's does not, and
+   * must not carry a rule pretending otherwise: it is replaced by a sentence
+   * below 900px, so a phone rule for it is a rule that can never run — the kind
+   * that survives a rewrite and quietly contradicts the layout above it.
+   */
+  it('stacks the reader on a phone and says nothing about the editor there', () => {
+    const phone = stylesheet.slice(stylesheet.indexOf('@media (max-width: 640px)'))
+    const block = phone.slice(0, phone.indexOf('\n}\n'))
+
+    expect(block).toContain('.step__body {')
+    expect(block).not.toContain('editor-step')
+    expect(block).not.toContain('media-strip')
+  })
+})

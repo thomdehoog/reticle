@@ -15,6 +15,7 @@
 import type { ComponentType } from 'react'
 
 import { numberShapeColors } from '../domain/guide'
+import { BULLET_FLAG_LABELS } from '../domain/palette'
 import type { Bullet, BulletIcon, Step } from '../domain/types'
 import { RichInline } from './RichText'
 import { IconCaution, IconNote, IconReminder } from './icons'
@@ -23,12 +24,6 @@ const ICON_COMPONENTS: Record<BulletIcon, ComponentType<{ size?: number }>> = {
   note: IconNote,
   caution: IconCaution,
   reminder: IconReminder,
-}
-
-const ICON_LABELS: Record<BulletIcon, string> = {
-  note: 'Note',
-  caution: 'Caution',
-  reminder: 'Reminder',
 }
 
 /**
@@ -91,7 +86,7 @@ function BulletItem({ bullet, shapeNumber }: { bullet: Bullet; shapeNumber?: num
         )}
       </span>
       <span className="bullet__text">
-        {bullet.icon && <span className="bullet__flag-label">{ICON_LABELS[bullet.icon]}</span>}
+        {bullet.icon && <span className="bullet__flag-label">{BULLET_FLAG_LABELS[bullet.icon]}</span>}
         <RichInline text={bullet.text} />
       </span>
     </li>

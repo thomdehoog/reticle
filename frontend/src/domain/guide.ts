@@ -116,6 +116,26 @@ export function moveMedia(media: Media[], mediaId: string, delta: -1 | 1): Media
   return moved
 }
 
+/**
+ * Makes one of a step's pictures the first — the large one a reader sees.
+ *
+ * This is the whole of reordering as far as an author is concerned. Promoting
+ * pictures one at a time reaches any arrangement, and it is one click on the
+ * picture itself rather than two arrow buttons on each of four thumbnails, in
+ * a strip too narrow to hold them. The others keep their order behind it.
+ *
+ * A picture that is already first, or is not in this step, returns the array
+ * unchanged, so a caller never has to check first.
+ */
+export function promoteMedia(media: Media[], mediaId: string): Media[] {
+  const from = media.findIndex((image) => image.id === mediaId)
+  if (from <= 0) return media
+  const moved = [...media]
+  const [image] = moved.splice(from, 1)
+  moved.unshift(image)
+  return moved
+}
+
 /** Moves a step, returning a renumbered array. Out-of-range input is returned unchanged. */
 export function moveStep(steps: Step[], from: number, to: number): Step[] {
   if (from === to) return steps

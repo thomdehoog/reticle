@@ -12,7 +12,7 @@
 
 import { useState, type DragEvent } from 'react'
 
-import { createBullet, indentBullet, moveMedia, numberShapeColors } from '../../domain/guide'
+import { createBullet, indentBullet, numberShapeColors, promoteMedia } from '../../domain/guide'
 import type { Bullet, Media, Step, StepKind } from '../../domain/types'
 import { IconChevronDown, IconChevronUp, IconDrag, IconPlus, IconTrash } from '../icons'
 import { BulletEditor } from './BulletEditor'
@@ -30,6 +30,8 @@ interface StepEditorProps {
   onChange: (step: Step) => void
   onRemove: () => void
   onMove: (delta: number) => void
+  /** Adds a fresh block directly after this one. */
+  onInsertAfter: () => void
   onFocusBullet: (bulletId: string | null) => void
   onUpload: (files: File[]) => void
   onDragStart: () => void
@@ -50,6 +52,7 @@ export function StepEditor({
   onChange,
   onRemove,
   onMove,
+  onInsertAfter,
   onFocusBullet,
   onUpload,
   onDragStart,
@@ -192,48 +195,66 @@ export function StepEditor({
         />
       </div>
 
-      <MediaSlots
-        media={step.media}
-        video={step.video}
-        shapeNumbers={shapeNumbers}
-        uploading={uploading}
-        onAdd={onUpload}
-        onRemove={removeMedia}
-        onMove={(mediaId, delta) => onChange({ ...step, media: moveMedia(step.media, mediaId, delta) })}
-        onRemoveVideo={() => onChange({ ...step, video: null })}
-        onUpdate={(updated) =>
-          onChange(
-            updated.id === step.video?.id
-              ? { ...step, video: updated }
-              : {
-                  ...step,
-                  media: step.media.map((image) => (image.id === updated.id ? updated : image)),
-                },
-          )
-        }
-      />
-
-      {step.bullets.map((bullet, index) => (
-        <BulletEditor
-          key={bullet.id}
-          bullet={bullet}
-          shapeNumber={shapeNumbers[bullet.color]}
-          autoFocus={bullet.id === focusBulletId}
-          onChange={(updated) => replaceBullet(index, updated)}
-          onSplit={() => splitAt(index)}
-          onRemoveEmpty={() => removeAt(index, true)}
-          onIndent={(delta) => replaceBullet(index, indentBullet(bullet, delta))}
-          onRemove={() => removeAt(index, false)}
+      {/* The same three-part arrangement a reader gets: the large picture down
+          the left, the thumbnails at the top of the column beside it, the
+          points underneath those. It is placed by the grid in the stylesheet,
+          which `.step__body` and this share so the two cannot drift — an
+          author arranging a step should be looking at the step. */}
+      <div className="editor-step__body">
+        <MediaSlots
+          media={step.media}
+          video={step.video}
+          shapeNumbers={shapeNumbers}
+          uploading={uploading}
+          onAdd={onUpload}
+          onRemove={removeMedia}
+          onPromote={(mediaId) => onChange({ ...step, media: promoteMedia(step.media, mediaId) })}
+          onRemoveVideo={() => onChange({ ...step, video: null })}
+          onUpdate={(updated) =>
+            onChange(
+              updated.id === step.video?.id
+                ? { ...step, video: updated }
+                : {
+                    ...step,
+                    media: step.media.map((image) => (image.id === updated.id ? updated : image)),
+                  },
+            )
+          }
         />
-      ))}
 
-      <button
-        type="button"
-        className="button button--ghost button--sm"
-        onClick={() => splitAt(step.bullets.length - 1)}
-      >
+        <div className="editor-step__points">
+          {step.bullets.map((bullet, index) => (
+            <BulletEditor
+              key={bullet.id}
+              bullet={bullet}
+              shapeNumber={shapeNumbers[bullet.color]}
+              autoFocus={bullet.id === focusBulletId}
+              onChange={(updated) => replaceBullet(index, updated)}
+              onSplit={() => splitAt(index)}
+              onRemoveEmpty={() => removeAt(index, true)}
+              onIndent={(delta) => replaceBullet(index, indentBullet(bullet, delta))}
+              onRemove={() => removeAt(index, false)}
+            />
+          ))}
+
+          <button
+            type="button"
+            className="button button--ghost button--sm"
+            onClick={() => splitAt(step.bullets.length - 1)}
+          >
+            <IconPlus size={14} />
+            Add bullet
+          </button>
+        </div>
+      </div>
+
+      {/* Written where it is used. A guide is drafted in order and corrected
+          out of order — "there should have been a step about the filter cube
+          between these two" — and the alternative was to add one at the end and
+          walk it up the list with the arrows, once per step in between. */}
+      <button type="button" className="editor-step__insert" onClick={onInsertAfter}>
         <IconPlus size={14} />
-        Add bullet
+        Add a step here
       </button>
     </div>
   )

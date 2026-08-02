@@ -13,6 +13,7 @@ import {
   newId,
   numberShapeColors,
   numberedSteps,
+  promoteMedia,
   removeStep,
   renumberSteps,
   validateForPublish,
@@ -356,6 +357,35 @@ describe('choosing which picture leads', () => {
   it('leaves the list alone when the picture is not in it', () => {
     const media = [pic('a')]
     expect(moveMedia(media, 'gone', 1)).toBe(media)
+  })
+
+  /**
+   * Promotion is what the editor actually offers: clicking a thumbnail makes it
+   * the large one, which is the same gesture a reader makes on the published
+   * guide. It replaced two arrow buttons on each of four thumbnails, which at
+   * the width of the strip overlapped each other and the picture underneath.
+   */
+  it('makes a picture the first one, keeping the rest in order behind it', () => {
+    const promoted = promoteMedia([pic('a'), pic('b'), pic('c')], 'c')
+    expect(promoted.map((image) => image.id)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('reaches any arrangement by promoting one at a time', () => {
+    /* The claim that justifies dropping the arrows: promotion alone is enough,
+       so nothing an author could arrange before is out of reach now. */
+    let media = [pic('a'), pic('b'), pic('c'), pic('d')]
+    for (const id of ['c', 'a', 'd', 'b']) media = promoteMedia(media, id)
+    expect(media.map((image) => image.id)).toEqual(['b', 'd', 'a', 'c'])
+  })
+
+  it('does nothing to a picture that already leads', () => {
+    const media = [pic('a'), pic('b')]
+    expect(promoteMedia(media, 'a')).toBe(media)
+  })
+
+  it('does nothing when the picture is not in this step', () => {
+    const media = [pic('a')]
+    expect(promoteMedia(media, 'gone')).toBe(media)
   })
 })
 

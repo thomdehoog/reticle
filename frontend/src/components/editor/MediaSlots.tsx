@@ -5,11 +5,18 @@
  * author drops files in, reorders them, removes one, or opens the drawing tools
  * to mark up a picture.
  *
- * The first picture is the large one a reader sees; the others appear as small
- * thumbnails they can click to swap in. So the order is not cosmetic, and this
- * is where it is decided — with buttons rather than only a drag, because an
- * author who cannot use a mouse would otherwise have no way to choose which
- * picture leads.
+ * It lays them out the way the step will actually be read: whichever item comes
+ * first is shown large, and the rest sit beside it as small thumbnails. That is
+ * not decoration — it is the point of the screen. The order decides which
+ * picture a reader sees at full size, and an author choosing that order from a
+ * row of four identical 110px squares was choosing blind, then opening the
+ * published guide to find out what they had chosen. Now the large one is large
+ * while it is being picked.
+ *
+ * The stage and the strip are returned as siblings rather than wrapped
+ * together, exactly as `StepGallery` returns them, because the grid that places
+ * them lives one level up and is shared between the two. Stacked anywhere else
+ * they fall back to picture-then-strip, which is the phone's reading order.
  */
 
 import { useRef, useState, type DragEvent } from 'react'
@@ -17,13 +24,7 @@ import { useRef, useState, type DragEvent } from 'react'
 import { MAX_MEDIA_PER_STEP, type BulletColor, type Media } from '../../domain/types'
 import { AnnotatedImage } from '../AnnotationOverlay'
 import { formatClipLength } from '../StepGallery'
-import {
-  IconChevronLeft,
-  IconChevronRight,
-  IconClose,
-  IconImage,
-  IconPalette,
-} from '../icons'
+import { IconClose, IconImage, IconPalette } from '../icons'
 import { AnnotationEditor } from './AnnotationEditor'
 
 interface MediaSlotsProps {
@@ -34,8 +35,8 @@ interface MediaSlotsProps {
   uploading: boolean
   onAdd: (files: File[]) => void
   onRemove: (mediaId: string) => void
-  /** Move one picture one place earlier or later. Order decides the large one. */
-  onMove: (mediaId: string, delta: -1 | 1) => void
+  /** Make one picture the first, which is the one a reader sees large. */
+  onPromote: (mediaId: string) => void
   onRemoveVideo: () => void
   onUpdate: (media: Media) => void
 }
@@ -45,9 +46,9 @@ const ACCEPTED_TYPES = 'image/png,image/jpeg,image/webp,image/gif,video/mp4,vide
 /**
  * The media slots for a step.
  *
- * Accepts a drop anywhere on the strip as well as a click, because dragging a
- * screenshot straight from the desktop is how people actually add images, and
- * the file picker is the fallback rather than the main path.
+ * Accepts a drop anywhere on the stage or the strip as well as a click, because
+ * dragging a screenshot straight from the desktop is how people actually add
+ * images, and the file picker is the fallback rather than the main path.
  *
  * Each image carries its own alt field, beside the picture rather than behind a
  * second dialog: an unlabelled screenshot is announced as nothing at all, so a
@@ -63,7 +64,7 @@ export function MediaSlots({
   uploading,
   onAdd,
   onRemove,
-  onMove,
+  onPromote,
   onRemoveVideo,
   onUpdate,
 }: MediaSlotsProps) {
@@ -73,6 +74,12 @@ export function MediaSlots({
 
   const remaining = MAX_MEDIA_PER_STEP - media.length
   const annotatingMedia = media.find((image) => image.id === annotating) ?? null
+
+  /* The clip leads if there is one, because that is what the reader shows
+     large: a step that has a video exists because watching the movement is the
+     instruction, and the stills are what it is broken down into. */
+  const leadIsVideo = video !== null
+  const thumbnails = leadIsVideo ? media : media.slice(1)
 
   function acceptFiles(files: FileList | null) {
     if (!files) return
@@ -89,140 +96,204 @@ export function MediaSlots({
     acceptFiles(event.dataTransfer.files)
   }
 
-  return (
-    <>
-      <div
-        className="media-slots"
-        onDragOver={(event) => {
-          event.preventDefault()
-          setDragOver(true)
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-      >
-        {media.map((image, index) => (
-          <div className="media-slot" key={image.id}>
-            {/* The buttons and the badge are positioned against the picture, so
-                the picture is what they are inside. Measured from the slot they
-                land on the description field below it instead, and the shape
-                count sits on top of the author's own words. */}
-            <div className="media-slot__frame">
-              <AnnotatedImage
-                src={image.url}
-                alt={image.alt}
-                annotations={image.annotations}
-                shapeNumbers={shapeNumbers}
-              />
-              <button
-                type="button"
-                className="media-slot__action media-slot__annotate"
-                aria-label="Annotate image"
-                title="Draw on this image"
-                onClick={() => setAnnotating(image.id)}
-              >
-                <IconPalette size={12} />
-              </button>
-              <button
-                type="button"
-                className="media-slot__action media-slot__remove"
-                aria-label="Remove image"
-                onClick={() => onRemove(image.id)}
-              >
-                <IconClose size={12} />
-              </button>
-              {/* Buttons rather than dragging alone. Order decides which
-                  picture a reader sees large, so it has to be reachable by
-                  somebody working from the keyboard - and a drag is the one
-                  interaction a test cannot honestly perform. */}
-              <button
-                type="button"
-                className="media-slot__action media-slot__earlier"
-                aria-label={`Move image ${index + 1} earlier`}
-                disabled={index === 0}
-                onClick={() => onMove(image.id, -1)}
-              >
-                <IconChevronLeft size={12} />
-              </button>
-              <button
-                type="button"
-                className="media-slot__action media-slot__later"
-                aria-label={`Move image ${index + 1} later`}
-                disabled={index === media.length - 1}
-                onClick={() => onMove(image.id, 1)}
-              >
-                <IconChevronRight size={12} />
-              </button>
-              {image.annotations.length > 0 && (
-                <span className="media-slot__badge">{image.annotations.length}</span>
-              )}
-            </div>
-            <input
-              className="input media-slot__alt"
-              value={image.alt}
-              aria-label={`Description of image ${index + 1}`}
-              placeholder="Describe this image"
-              onChange={(event) => onUpdate({ ...image, alt: event.target.value })}
-            />
-          </div>
-        ))}
+  const dropping = {
+    onDragOver: (event: DragEvent) => {
+      event.preventDefault()
+      setDragOver(true)
+    },
+    onDragLeave: () => setDragOver(false),
+    onDrop,
+  }
 
-        {video && (
-          <div className="media-slot media-slot--video">
-            <div className="media-slot__frame">
-              <video src={video.url} poster={video.posterUrl ?? undefined} preload="metadata" muted />
-              <button
-                type="button"
-                className="media-slot__action media-slot__remove"
-                aria-label="Remove video"
-                onClick={onRemoveVideo}
-              >
-                <IconClose size={12} />
-              </button>
-              <span className="media-slot__badge">
-                {video.durationSeconds === null ? 'Video' : formatClipLength(video.durationSeconds)}
-              </span>
-            </div>
-            <input
-              className="input media-slot__alt"
-              value={video.alt}
-              aria-label="Description of the video"
-              placeholder="Describe this video"
-              onChange={(event) => onUpdate({ ...video, alt: event.target.value })}
-            />
-          </div>
-        )}
-
-        {remaining > 0 && (
+  /**
+   * The large picture, with the tools that act on it.
+   *
+   * Every tool lives here and nowhere else. They used to sit on all four
+   * pictures at once, which put four 28px targets on a 65px thumbnail — they
+   * overlapped each other and the picture underneath was invisible. Editing
+   * one picture at a time is also how the step is read: one is large, the rest
+   * are the strip you swap from.
+   */
+  function stageSlot(image: Media, index: number) {
+    return (
+      <div className="media-slot media-slot--stage" key={image.id}>
+        {/* The buttons and the badge are positioned against the picture, so
+            the picture is what they are inside. Measured from the slot they
+            land on the description field below it instead, and the shape
+            count sits on top of the author's own words. */}
+        <div className="media-slot__frame">
+          <AnnotatedImage
+            src={image.url}
+            alt={image.alt}
+            annotations={image.annotations}
+            shapeNumbers={shapeNumbers}
+            intrinsicWidth={image.width}
+            intrinsicHeight={image.height}
+          />
           <button
             type="button"
-            className={`media-dropzone${dragOver ? ' media-dropzone--over' : ''}`}
-            onClick={() => inputRef.current?.click()}
-            disabled={uploading}
+            className="media-slot__action media-slot__annotate"
+            aria-label="Annotate image"
+            title="Draw on this image"
+            onClick={() => setAnnotating(image.id)}
           >
-            {uploading ? (
-              'Uploading…'
-            ) : (
-              <span>
-                <IconImage size={18} />
-                <br />
-                Drop or click
-              </span>
-            )}
+            <IconPalette size={12} />
           </button>
-        )}
-
+          <button
+            type="button"
+            className="media-slot__action media-slot__remove"
+            aria-label="Remove image"
+            onClick={() => onRemove(image.id)}
+          >
+            <IconClose size={12} />
+          </button>
+          {image.annotations.length > 0 && (
+            <span className="media-slot__badge">{image.annotations.length}</span>
+          )}
+        </div>
         <input
-          ref={inputRef}
-          type="file"
-          accept={ACCEPTED_TYPES}
-          multiple
-          hidden
-          onChange={(event) => {
-            acceptFiles(event.target.files)
-            event.target.value = ''
-          }}
+          className="input media-slot__alt"
+          value={image.alt}
+          aria-label={`Description of image ${index + 1}`}
+          placeholder="Describe this image"
+          onChange={(event) => onUpdate({ ...image, alt: event.target.value })}
         />
       </div>
+    )
+  }
+
+  /**
+   * One of the small pictures: a single button that makes it the large one.
+   *
+   * A click here is the same gesture a reader makes on the published guide,
+   * and it means the same thing — show me that one. The difference is that in
+   * the editor it sticks, because which picture leads is exactly the decision
+   * this screen exists to record. It is also all the reordering anyone needs:
+   * promoting pictures one at a time reaches any arrangement, which two
+   * arrow buttons per thumbnail did at four times the clutter.
+   */
+  function thumbSlot(image: Media, index: number) {
+    const description = image.alt.trim()
+    return (
+      <button
+        type="button"
+        key={image.id}
+        className="media-slot media-slot--thumb"
+        aria-label={
+          description
+            ? `Make image ${index + 1} the main picture: ${description}`
+            : `Make image ${index + 1} the main picture`
+        }
+        title="Make this the main picture"
+        onClick={() => onPromote(image.id)}
+      >
+        <img src={image.url} alt="" loading="lazy" />
+        {image.annotations.length > 0 && (
+          <span className="media-slot__badge">{image.annotations.length}</span>
+        )}
+      </button>
+    )
+  }
+
+  function videoSlot() {
+    if (!video) return null
+    return (
+      <div className="media-slot media-slot--stage media-slot--video">
+        <div className="media-slot__frame">
+          <video src={video.url} poster={video.posterUrl ?? undefined} preload="metadata" muted />
+          <button
+            type="button"
+            className="media-slot__action media-slot__remove"
+            aria-label="Remove video"
+            onClick={onRemoveVideo}
+          >
+            <IconClose size={12} />
+          </button>
+          <span className="media-slot__badge">
+            {video.durationSeconds === null ? 'Video' : formatClipLength(video.durationSeconds)}
+          </span>
+        </div>
+        <input
+          className="input media-slot__alt"
+          value={video.alt}
+          aria-label="Description of the video"
+          placeholder="Describe this video"
+          onChange={(event) => onUpdate({ ...video, alt: event.target.value })}
+        />
+      </div>
+    )
+  }
+
+  /**
+   * An empty slot, waiting for a picture. It is the same box the picture will
+   * occupy, in the same place, so the step has one shape whether it has four
+   * pictures or none and the card does not jump as they are added.
+   *
+   * `label` names the position rather than saying "drop or click" four times,
+   * because a screen reader hears these one after another and "add the main
+   * picture" is the difference between them.
+   */
+  function emptySlot(variant: 'stage' | 'thumb', label: string, key?: string) {
+    return (
+      <button
+        type="button"
+        key={key}
+        className={`media-empty media-empty--${variant}${dragOver ? ' media-empty--over' : ''}`}
+        aria-label={label}
+        onClick={() => inputRef.current?.click()}
+        disabled={uploading}
+      >
+        {uploading ? (
+          'Uploading…'
+        ) : (
+          <span>
+            <IconImage size={variant === 'stage' ? 26 : 18} />
+            <br />
+            {variant === 'stage' ? 'Add the main picture' : 'Add'}
+          </span>
+        )}
+      </button>
+    )
+  }
+
+  const stage = leadIsVideo
+    ? videoSlot()
+    : media[0]
+      ? stageSlot(media[0], 0)
+      : emptySlot('stage', 'Add the main picture')
+
+  /* Always three beside the large one, so the strip spans the column and lines
+     up with the points underneath however many pictures the step has so far. A
+     clip on the stage does not take an image slot, so a step with one holds
+     four stills rather than three. */
+  const thumbSlots = leadIsVideo
+    ? remaining
+    : Math.max(0, MAX_MEDIA_PER_STEP - 1 - thumbnails.length)
+
+  return (
+    <>
+      <div className="media-stage" {...dropping}>
+        {stage}
+      </div>
+
+      <div className="media-strip" {...dropping}>
+        {thumbnails.map((image) => thumbSlot(image, media.indexOf(image)))}
+        {Array.from({ length: thumbSlots }, (_, index) =>
+          emptySlot('thumb', `Add a picture`, `empty-${index}`),
+        )}
+      </div>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept={ACCEPTED_TYPES}
+        multiple
+        hidden
+        onChange={(event) => {
+          acceptFiles(event.target.files)
+          event.target.value = ''
+        }}
+      />
 
       {annotatingMedia && (
         <AnnotationEditor

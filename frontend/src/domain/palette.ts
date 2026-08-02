@@ -13,7 +13,7 @@
  * on a dark page, while a shape drawn on a photograph cannot.
  */
 
-import type { BulletColor } from './types'
+import type { BulletColor, BulletIcon } from './types'
 
 export const BULLET_COLOR_HEX: Record<BulletColor, string> = {
   black: '#1f2328',
@@ -37,6 +37,21 @@ export const BULLET_COLOR_ORDER: BulletColor[] = [
   'blue',
   'violet',
 ]
+
+/**
+ * The word each flag is spelled out as, in the reader and in the editor alike.
+ *
+ * One list rather than one per screen: an icon on its own is not a distinction —
+ * it vanishes for a colour-blind reader, in a greyscale photocopy taped to an
+ * instrument, and at arm's length — so the word carries the meaning, and a
+ * caution that is spelled differently in the editor than in the guide is a
+ * caution somebody stops trusting.
+ */
+export const BULLET_FLAG_LABELS: Record<BulletIcon, string> = {
+  note: 'Note',
+  caution: 'Caution',
+  reminder: 'Reminder',
+}
 
 /** The custom property holding this colour's text tone, e.g. `--bullet-light-blue`. */
 export function bulletColorProperty(color: BulletColor): string {

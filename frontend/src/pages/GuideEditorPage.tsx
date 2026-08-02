@@ -21,9 +21,9 @@ import { useApi } from '../auth/AuthContext'
 import { BulletList } from '../components/BulletList'
 import { LifecycleActions } from '../components/editor/LifecycleActions'
 import { RevisionHistory } from '../components/editor/RevisionHistory'
+import { DesktopOnly } from '../components/editor/DesktopOnly'
 import { SaveConflict } from '../components/editor/SaveConflict'
 import { StepEditor } from '../components/editor/StepEditor'
-import { StepNavigator } from '../components/editor/StepNavigator'
 import { TagInput } from '../components/editor/TagInput'
 import { IconHistory, IconPlus } from '../components/icons'
 import { StepGallery } from '../components/StepGallery'
@@ -84,7 +84,6 @@ export function GuideEditorPage() {
   const [showingHistory, setShowingHistory] = useState(false)
 
   const dirtyRef = useRef(false)
-  const stepsRef = useRef<HTMLDivElement>(null)
 
   // Seeding the editable copy from what the server returned. This is the
   // legitimate case the `set-state-in-effect` rule carves out - state
@@ -280,12 +279,17 @@ export function GuideEditorPage() {
     <>
       <div className="page-header">
         <div className="page-header__text">
+          {/* The heading is not drawn: the title is a few lines below in the
+              size it is published at, and printing it twice made the editor
+              look like a form with the document's name on top. It still has to
+              exist — a screen is announced by its heading, and a page whose
+              only title is inside a text box has none to announce. */}
+          <h1 className="visually-hidden">Editing {guide.title || 'an untitled guide'}</h1>
           <nav className="breadcrumb">
             <Link to="/">Guides</Link>
             <span className="breadcrumb__sep">/</span>
             <span>Editing</span>
           </nav>
-          <h1>{guide.title || 'Untitled guide'}</h1>
         </div>
         <div className="page-actions">
           <StatusBadge status={guide.status} />
@@ -302,24 +306,30 @@ export function GuideEditorPage() {
               View
             </Link>
           )}
-          <button className="button" type="button" onClick={() => setShowingHistory(true)}>
-            <IconHistory />
-            History
-          </button>
-          <LifecycleActions
-            kind="guide"
-            status={guide.status}
-            onUnpublish={onUnpublish}
-            onArchive={onArchive}
-          />
-          <button
-            className="button button--primary"
-            type="button"
-            onClick={() => void onPublish()}
-            disabled={publishing}
-          >
-            {publishing ? 'Publishing…' : guide.status === 'published' ? 'Publish update' : 'Publish'}
-          </button>
+          {/* Hidden on the screens that cannot edit, along with the editor
+              itself: offering Publish and Archive under a note saying to come
+              back at a computer invites somebody to change what a whole
+              institute reads without being able to see what they are changing. */}
+          <span className="page-actions__editing desktop-only__work">
+            <button className="button" type="button" onClick={() => setShowingHistory(true)}>
+              <IconHistory />
+              History
+            </button>
+            <LifecycleActions
+              kind="guide"
+              status={guide.status}
+              onUnpublish={onUnpublish}
+              onArchive={onArchive}
+            />
+            <button
+              className="button button--primary"
+              type="button"
+              onClick={() => void onPublish()}
+              disabled={publishing}
+            >
+              {publishing ? 'Publishing…' : guide.status === 'published' ? 'Publish update' : 'Publish'}
+            </button>
+          </span>
         </div>
       </div>
 
@@ -389,14 +399,141 @@ export function GuideEditorPage() {
         </div>
       )}
 
-      <div className="editor editor--with-nav">
-        <StepNavigator
-          steps={guide.steps}
-          stepsContainer={stepsRef}
-          onReorder={(steps) => mutate((current) => ({ ...current, steps }))}
+      <DesktopOnly what="a guide">
+      {/* The guide's own head, edited where the reader will read it: the title
+          in the size it is published at, the summary under it, then the same
+          meta row, then the introduction. It used to be a 300px column of
+          labelled form fields down the right-hand side, which cost the steps a
+          quarter of the page — the text of a bullet was wrapping every three
+          words — and asked an author to picture the result from a stack of
+          inputs that looked nothing like it. */}
+      <div className="editor__header">
+        <input
+          className="editor__title"
+          aria-label="Title"
+          placeholder="Title"
+          value={guide.title}
+          onChange={(event) => mutate((current) => ({ ...current, title: event.target.value }))}
         />
 
-        <div ref={stepsRef}>
+        <AutoTextarea
+          className="editor__summary"
+          rows={1}
+          aria-label="Summary"
+          value={guide.summary}
+          placeholder="One line, shown wherever this guide is listed."
+          onChange={(event) => mutate((current) => ({ ...current, summary: event.target.value }))}
+        />
+
+        {/* The reader's meta row, made editable in place: difficulty, how long
+            it takes, where it lives. No captions, for the reason the reader has
+            none — each control says what it is by what it shows. */}
+        <div className="editor__meta">
+          <select
+            className="select"
+            aria-label="Difficulty"
+            value={guide.difficulty}
+            onChange={(event) =>
+              mutate((current) => ({ ...current, difficulty: event.target.value as Difficulty }))
+            }
+          >
+            {DIFFICULTY_ORDER.map((value) => (
+              <option key={value} value={value}>
+                {DIFFICULTY_LABELS[value]}
+              </option>
+            ))}
+          </select>
+
+          <span className="editor__minutes">
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={MAX_TIME_REQUIRED_MINUTES}
+              step={1}
+              aria-label="Time required, from"
+              placeholder="from"
+              value={guide.timeRequiredMinMinutes ?? ''}
+              onChange={(event) =>
+                mutate((current) => ({
+                  ...current,
+                  timeRequiredMinMinutes: cleanTimeRequired(event.target.value),
+                }))
+              }
+            />
+            <span aria-hidden="true">–</span>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={MAX_TIME_REQUIRED_MINUTES}
+              step={1}
+              aria-label="Time required, to"
+              placeholder="to"
+              value={guide.timeRequiredMaxMinutes ?? ''}
+              onChange={(event) =>
+                mutate((current) => ({
+                  ...current,
+                  timeRequiredMaxMinutes: cleanTimeRequired(event.target.value),
+                }))
+              }
+            />
+            minutes
+          </span>
+
+          <select
+            className="select"
+            aria-label="Category"
+            value={guide.categoryId}
+            onChange={(event) => mutate((current) => ({ ...current, categoryId: event.target.value }))}
+          >
+            {(categories ?? []).map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+
+          {/* Worth saying what marking one costs: the quick links are a short
+              list by definition, and a facility that marks thirty of them has a
+              second front page instead of an answer. */}
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={guide.isQuickLink}
+              onChange={(event) =>
+                mutate((current) => ({ ...current, isQuickLink: event.target.checked }))
+              }
+            />
+            Quick link
+          </label>
+        </div>
+
+        {/* An empty category list is not "no categories", it is a failed
+            request — and publishing then demands a category the author has no
+            way to choose. */}
+        <ErrorAlert error={categoriesError} />
+
+        <TagInput tags={guide.tags} onChange={(tags) => mutate((current) => ({ ...current, tags }))} />
+
+        <AutoTextarea
+          className="editor__intro"
+          rows={3}
+          aria-label="Introduction"
+          value={guide.introduction}
+          placeholder="Introduction: context, scope, who this is for."
+          onChange={(event) => mutate((current) => ({ ...current, introduction: event.target.value }))}
+        />
+
+        {/* Said once, here, rather than in every bullet's placeholder. The same
+            formatting works in the points on every step. */}
+        <p className="editor__hint">
+          Tags decide where this guide appears. <strong>**bold**</strong>, <em>_italic_</em> and
+          [text](/g/slug) work in the introduction and in every point.
+        </p>
+      </div>
+
+      <div className="editor-steps">
           {/* Numbered the way the reader numbers, so an author sees the step
               numbers a reader will see rather than positions in an array. */}
           {guide.steps.map((step, index) => (
@@ -422,6 +559,9 @@ export function GuideEditorPage() {
               onRemove={() =>
                 mutate((current) => ({ ...current, steps: removeStep(current.steps, index) }))
               }
+              onInsertAfter={() =>
+                mutate((current) => ({ ...current, steps: insertStepAfter(current.steps, index) }))
+              }
               onMove={(delta) =>
                 mutate((current) => ({
                   ...current,
@@ -443,204 +583,24 @@ export function GuideEditorPage() {
             />
           ))}
 
-          <button
-            className="button"
-            type="button"
-            onClick={() =>
-              mutate((current) => ({
-                ...current,
-                steps:
-                  current.steps.length === 0
-                    ? renumberSteps([createStep()])
-                    : insertStepAfter(current.steps, current.steps.length - 1),
-              }))
-            }
-          >
-            <IconPlus />
-            Add step
-          </button>
-        </div>
-
-        <aside className="editor__sidebar">
-          <div className="card">
-            <div className="card__body">
-              <div className="field">
-                <label className="field__label" htmlFor="guide-title">
-                  Title
-                </label>
-                <input
-                  id="guide-title"
-                  className="input"
-                  value={guide.title}
-                  onChange={(event) => mutate((current) => ({ ...current, title: event.target.value }))}
-                />
-              </div>
-
-              <div className="field">
-                <label className="field__label" htmlFor="guide-category">
-                  Category
-                </label>
-                <select
-                  id="guide-category"
-                  className="select"
-                  value={guide.categoryId}
-                  onChange={(event) =>
-                    mutate((current) => ({ ...current, categoryId: event.target.value }))
-                  }
-                >
-                  {(categories ?? []).map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-                {/* An empty list here is not "no categories", it is a failed
-                    request — and publishing then demands a category the author
-                    has no way to choose. */}
-                <ErrorAlert error={categoriesError} />
-              </div>
-
-              <div className="field">
-                <span className="field__label">Tags</span>
-                <TagInput
-                  tags={guide.tags}
-                  onChange={(tags) => mutate((current) => ({ ...current, tags }))}
-                />
-                {/* Not obvious from the label, and getting it wrong is why a
-                    finished guide never appears anywhere. */}
-                <span className="field__hint">Tags decide where this guide appears.</span>
-              </div>
-
-              {/* Above the tree rather than in it, so it is worth saying what
-                  that costs: the quick links are a short list by definition,
-                  and a facility that marks thirty of them has a second front
-                  page instead of an answer. */}
-              <div className="field">
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={guide.isQuickLink}
-                    onChange={(event) =>
-                      mutate((current) => ({ ...current, isQuickLink: event.target.checked }))
-                    }
-                  />
-                  Show as a quick link
-                </label>
-                <span className="field__hint">
-                  On the front page and on every category, above the sections.
-                </span>
-              </div>
-
-              <div className="field">
-                <label className="field__label" htmlFor="guide-summary">
-                  Summary
-                </label>
-                <AutoTextarea
-                  id="guide-summary"
-                  className="textarea"
-                  rows={2}
-                  value={guide.summary}
-                  placeholder="One line shown in listings."
-                  onChange={(event) =>
-                    mutate((current) => ({ ...current, summary: event.target.value }))
-                  }
-                />
-              </div>
-
-              <div className="field">
-                <label className="field__label" htmlFor="guide-difficulty">
-                  Difficulty
-                </label>
-                <select
-                  id="guide-difficulty"
-                  className="select"
-                  value={guide.difficulty}
-                  onChange={(event) =>
-                    mutate((current) => ({
-                      ...current,
-                      difficulty: event.target.value as Difficulty,
-                    }))
-                  }
-                >
-                  {DIFFICULTY_ORDER.map((value) => (
-                    <option key={value} value={value}>
-                      {DIFFICULTY_LABELS[value]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="field">
-                <span className="field__label">Time required (minutes)</span>
-                <div className="field-pair">
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={MAX_TIME_REQUIRED_MINUTES}
-                    step={1}
-                    aria-label="Time required, from"
-                    placeholder="from"
-                    value={guide.timeRequiredMinMinutes ?? ''}
-                    onChange={(event) =>
-                      mutate((current) => ({
-                        ...current,
-                        timeRequiredMinMinutes: cleanTimeRequired(event.target.value),
-                      }))
-                    }
-                  />
-                  <span aria-hidden="true">–</span>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={MAX_TIME_REQUIRED_MINUTES}
-                    step={1}
-                    aria-label="Time required, to"
-                    placeholder="to"
-                    value={guide.timeRequiredMaxMinutes ?? ''}
-                    onChange={(event) =>
-                      mutate((current) => ({
-                        ...current,
-                        timeRequiredMaxMinutes: cleanTimeRequired(event.target.value),
-                      }))
-                    }
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card__body">
-              <div className="field">
-                <label className="field__label" htmlFor="guide-intro">
-                  Introduction
-                </label>
-                <AutoTextarea
-                  id="guide-intro"
-                  className="textarea"
-                  rows={4}
-                  value={guide.introduction}
-                  placeholder="Context, scope, who this is for."
-                  onChange={(event) =>
-                    mutate((current) => ({ ...current, introduction: event.target.value }))
-                  }
-                />
-                {/* Said once, here, rather than in every bullet's placeholder.
-                    The same formatting works in the points on every step, and
-                    an author who has read it once does not need telling
-                    again. */}
-                <p className="field__hint">
-                  <strong>**bold**</strong>, <em>_italic_</em> and [text](/g/slug) work here and
-                  in every point.
-                </p>
-              </div>
-
-            </div>
-          </div>
-        </aside>
+        <button
+          className="button"
+          type="button"
+          onClick={() =>
+            mutate((current) => ({
+              ...current,
+              steps:
+                current.steps.length === 0
+                  ? renumberSteps([createStep()])
+                  : insertStepAfter(current.steps, current.steps.length - 1),
+            }))
+          }
+        >
+          <IconPlus />
+          Add step
+        </button>
       </div>
+      </DesktopOnly>
     </>
   )
 }

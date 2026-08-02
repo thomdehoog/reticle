@@ -19,6 +19,7 @@ function renderCard(step: Step, props: Partial<Parameters<typeof StepEditor>[0]>
   const onChange = vi.fn()
   const onMove = vi.fn()
   const onRemove = vi.fn()
+  const onInsertAfter = vi.fn()
   render(
     <StepEditor
       step={step}
@@ -31,6 +32,7 @@ function renderCard(step: Step, props: Partial<Parameters<typeof StepEditor>[0]>
       onChange={onChange}
       onRemove={onRemove}
       onMove={onMove}
+      onInsertAfter={onInsertAfter}
       onFocusBullet={vi.fn()}
       onUpload={vi.fn()}
       onDragStart={vi.fn()}
@@ -41,7 +43,7 @@ function renderCard(step: Step, props: Partial<Parameters<typeof StepEditor>[0]>
       {...props}
     />,
   )
-  return { onChange, onMove, onRemove }
+  return { onChange, onMove, onRemove, onInsertAfter }
 }
 
 describe('StepEditor', () => {
@@ -93,7 +95,9 @@ describe('StepEditor', () => {
 
     expect(screen.getByRole('button', { name: 'Reorder this block' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Delete this block' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /step/i })).toBeNull()
+    /* Nothing that acts on this block calls it a step. "Add a step here" is
+       excluded deliberately: it makes a new step below, whatever this one is. */
+    expect(screen.queryByRole('button', { name: /^(Move|Delete|Reorder).*step/i })).toBeNull()
     expect(document.querySelector('.editor-step__number')?.textContent).toBe('—')
   })
 
@@ -137,6 +141,20 @@ describe('StepEditor', () => {
     renderCard(createStep(), { number: 1, canRemove: false })
 
     expect(screen.getByRole('button', { name: 'Delete step 1' })).toBeDisabled()
+  })
+
+  /**
+   * The step overview that used to run down the left of the editor is gone, and
+   * with it the only way to put a step anywhere but at the end. A guide is
+   * drafted in order and corrected out of order, so the insertion point has to
+   * be where the correction is.
+   */
+  it('adds a step directly after this one', async () => {
+    const user = userEvent.setup()
+    const { onInsertAfter } = renderCard(createStep(), { number: 1 })
+
+    await user.click(screen.getByRole('button', { name: 'Add a step here' }))
+    expect(onInsertAfter).toHaveBeenCalled()
   })
 
   it('moves in the direction the button says', async () => {

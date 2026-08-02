@@ -30,7 +30,7 @@ import {
 } from '../icons'
 import { MAX_BULLET_LEVEL } from '../../domain/guide'
 import type { Bullet, BulletIcon } from '../../domain/types'
-import { BULLET_COLOR_ORDER } from '../../domain/palette'
+import { BULLET_COLOR_ORDER, BULLET_FLAG_LABELS } from '../../domain/palette'
 
 const COLORS = BULLET_COLOR_ORDER
 
@@ -117,8 +117,15 @@ export function BulletEditor({
     }
   }
 
+  /* The same classes the reader's bullet carries, so the flag word and the
+     colour that go with a Caution appear here as the author types it. The
+     alternative — plain black text in the editor, red bold in the guide — meant
+     the one thing a caution exists to do was invisible while it was written. */
+  const flag = bullet.icon
+  const kindClasses = flag ? ` bullet--flagged bullet--kind-${flag}` : ''
+
   return (
-    <div className={`editor-bullet bullet--color-${bullet.color}`}>
+    <div className={`editor-bullet bullet--color-${bullet.color}${kindClasses}`}>
       <div className="editor-bullet__picker">
         <button
           type="button"
@@ -139,6 +146,11 @@ export function BulletEditor({
           />
         )}
       </div>
+
+      {/* Spelled out in the editor because it is spelled out in the guide. It
+          is not editable here — the flag is chosen from the picker beside it,
+          which is the one place that decision is made. */}
+      {flag && <span className="bullet__flag-label">{BULLET_FLAG_LABELS[flag]}</span>}
 
       <textarea
         ref={textareaRef}
