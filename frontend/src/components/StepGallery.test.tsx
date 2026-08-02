@@ -9,6 +9,7 @@ import { StepGallery } from './StepGallery'
 function step(overrides: Partial<Step> = {}): Step {
   return {
     id: 's1',
+    kind: 'step',
     orderIndex: 0,
     title: 'Seat the filter cube',
     bullets: [],

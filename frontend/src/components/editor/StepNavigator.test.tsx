@@ -74,9 +74,9 @@ const IMAGE: Media = {
 
 function guideSteps(): Step[] {
   return [
-    createStep({ id: 's1', orderIndex: 0, title: 'Switch on the lasers' }),
-    createStep({ id: 's2', orderIndex: 1, title: '', media: [IMAGE] }),
-    createStep({ id: 's3', orderIndex: 2, title: 'Shut down' }),
+    createStep({ id: 's1', kind: 'step', orderIndex: 0, title: 'Switch on the lasers' }),
+    createStep({ id: 's2', kind: 'step', orderIndex: 1, title: '', media: [IMAGE] }),
+    createStep({ id: 's3', kind: 'step', orderIndex: 2, title: 'Shut down' }),
   ]
 }
 

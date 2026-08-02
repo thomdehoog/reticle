@@ -1559,6 +1559,37 @@ a:hover {
   border-top: 1px solid var(--border);
 }
 
+/**
+ * The two blocks that are not numbered.
+ *
+ * They keep the first column so their title and pictures line up with every
+ * step above and below — a callout that starts 2.25rem to the left reads as a
+ * different document rather than as part of this one. The column is simply
+ * empty, which is also what tells a reader at a glance that there is no number
+ * to follow here.
+ */
+.step--info .step__title,
+.step--pinned .step__title {
+  color: var(--ink-700);
+}
+
+/**
+ * The pinned block is what a reader has to see before starting, so it is the
+ * one thing above step 1 that is allowed to look different from the prose
+ * around it. A left bar rather than a filled panel: a tinted block would be the
+ * largest piece of colour on the page, and that belongs to the shapes drawn on
+ * the pictures.
+ */
+.step--pinned {
+  border-top: none;
+  padding-left: 0.9rem;
+  border-left: 3px solid var(--brand-600);
+}
+
+.step--pinned .step__title {
+  color: var(--brand-700);
+}
+
 .step__number {
   display: grid;
   place-items: center;
@@ -2132,6 +2163,20 @@ a:hover {
   background: var(--brand-050);
   border: 1px solid var(--brand-100);
   border-radius: 50%;
+}
+
+/* Narrow, because it is set once when a block is created and never touched
+   again — it must not look like the main thing on the row. */
+.editor-step__kind {
+  flex: 0 0 auto;
+  min-height: 2rem;
+  padding: 0.25rem 0.4rem;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--ink-700);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
 }
 
 .editor-step__title-input {

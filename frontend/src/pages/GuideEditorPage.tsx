@@ -28,17 +28,7 @@ import { TagInput } from '../components/editor/TagInput'
 import { IconHistory, IconPlus } from '../components/icons'
 import { StepGallery } from '../components/StepGallery'
 import { AutoTextarea, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
-import {
-  DIFFICULTY_LABELS,
-  DIFFICULTY_ORDER,
-  createStep,
-  insertStepAfter,
-  moveStep,
-  removeStep,
-  renumberSteps,
-  validateForPublish,
-  type ValidationIssue,
-} from '../domain/guide'
+import { DIFFICULTY_LABELS, DIFFICULTY_ORDER, createStep, insertStepAfter, moveStep, numberedSteps, removeStep, renumberSteps, type ValidationIssue, validateForPublish } from '../domain/guide'
 import { MAX_MEDIA_PER_STEP, type Difficulty, type Guide } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 import {
@@ -282,6 +272,10 @@ export function GuideEditorPage() {
   if (loadError) return <ErrorAlert error={loadError} />
   if (!guide) return null
 
+  /* The same function the reader uses, so an author writing step 7 is looking
+     at what a reader will call step 7. */
+  const stepNumbers = numberedSteps(guide.steps)
+
   return (
     <>
       <div className="page-header">
@@ -403,11 +397,13 @@ export function GuideEditorPage() {
         />
 
         <div ref={stepsRef}>
+          {/* Numbered the way the reader numbers, so an author sees the step
+              numbers a reader will see rather than positions in an array. */}
           {guide.steps.map((step, index) => (
             <StepEditor
               key={step.id}
               step={step}
-              number={index + 1}
+              number={stepNumbers.get(step.id) ?? null}
               isFirst={index === 0}
               isLast={index === guide.steps.length - 1}
               canRemove={guide.steps.length > 1}

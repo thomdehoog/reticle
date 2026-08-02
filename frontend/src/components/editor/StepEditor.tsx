@@ -13,14 +13,15 @@
 import { useState, type DragEvent } from 'react'
 
 import { createBullet, indentBullet, numberShapeColors } from '../../domain/guide'
-import type { Bullet, Media, Step } from '../../domain/types'
+import type { Bullet, Media, Step, StepKind } from '../../domain/types'
 import { IconChevronDown, IconChevronUp, IconDrag, IconPlus, IconTrash } from '../icons'
 import { BulletEditor } from './BulletEditor'
 import { MediaSlots } from './MediaSlots'
 
 interface StepEditorProps {
   step: Step
-  number: number
+  /** null for a block that is not numbered. */
+  number: number | null
   isFirst: boolean
   isLast: boolean
   canRemove: boolean
@@ -114,19 +115,34 @@ export function StepEditor({
         <button
           type="button"
           className="editor-step__handle"
-          aria-label={`Reorder step ${number}`}
+          aria-label={number === null ? 'Reorder this block' : `Reorder step ${number}`}
           onMouseDown={() => setDraggable(true)}
           onMouseUp={() => setDraggable(false)}
         >
           <IconDrag />
         </button>
 
-        <span className="editor-step__number">{number}</span>
+        <span className="editor-step__number">{number ?? '—'}</span>
+
+        {/* Three words rather than a checkbox, because the choice is between
+            three things and a checkbox can only ever offer two. It sits before
+            the title so an author sees what kind of block they are typing into
+            before they type. */}
+        <select
+          className="editor-step__kind"
+          aria-label="What this block is"
+          value={step.kind}
+          onChange={(event) => onChange({ ...step, kind: event.target.value as StepKind })}
+        >
+          <option value="step">Step</option>
+          <option value="info">Info</option>
+          <option value="pinned">Pinned</option>
+        </select>
 
         <input
           className="editor-step__title-input"
           value={step.title}
-          placeholder={`Step ${number} title (optional)`}
+          placeholder={number === null ? 'Title (optional)' : `Step ${number} title (optional)`}
           onChange={(event) => onChange({ ...step, title: event.target.value })}
         />
 

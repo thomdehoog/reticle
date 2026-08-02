@@ -40,7 +40,16 @@ function media(id: string): Media {
 }
 
 function step(overrides: Partial<Step> = {}): Step {
-  return { id: 's1', orderIndex: 0, title: '', bullets: [], media: [], video: null, ...overrides }
+  return {
+    id: 's1',
+    kind: 'step',
+    orderIndex: 0,
+    title: '',
+    bullets: [],
+    media: [],
+    video: null,
+    ...overrides,
+  }
 }
 
 function guide(overrides: Partial<Guide> = {}): Guide {
@@ -137,7 +146,7 @@ describe('step algebra under nonsense arguments', () => {
   })
 
   it('renumbers a document whose orderIndex disagrees with its array', () => {
-    const scrambled = [step({ id: 'a', orderIndex: 7 }), step({ id: 'b', orderIndex: 7 })]
+    const scrambled = [step({ id: 'a', kind: 'step', orderIndex: 7 }), step({ id: 'b', kind: 'step', orderIndex: 7 })]
     expect(renumberSteps(scrambled).map((s) => s.orderIndex)).toEqual([0, 1])
   })
 

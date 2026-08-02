@@ -50,6 +50,7 @@ export function createBullet(overrides: Partial<Bullet> = {}): Bullet {
 export function createStep(overrides: Partial<Step> = {}): Step {
   return {
     id: newId(),
+    kind: 'step',
     orderIndex: 0,
     title: '',
     bullets: [createBullet()],
@@ -68,6 +69,29 @@ export function renumberSteps(steps: Step[]): Step[] {
   return steps.map((step, index) =>
     step.orderIndex === index ? step : { ...step, orderIndex: index },
   )
+}
+
+/**
+ * The number a reader sees against each block, keyed by block id.
+ *
+ * Only `step` blocks are counted, so an info block sitting between steps 2 and
+ * 3 does not make the next one 4. Blocks that are not numbered are absent from
+ * the map rather than mapped to null, so a caller that forgets to handle them
+ * gets `undefined` and shows nothing, rather than showing a zero.
+ *
+ * It lives here rather than in the reader because the editor has to agree with
+ * it exactly: an author writing step 7 must be looking at what a reader will
+ * call step 7.
+ */
+export function numberedSteps(steps: Step[]): Map<string, number> {
+  const numbers = new Map<string, number>()
+  let counted = 0
+  for (const step of steps) {
+    if (step.kind !== 'step') continue
+    counted += 1
+    numbers.set(step.id, counted)
+  }
+  return numbers
 }
 
 /** Moves a step, returning a renumbered array. Out-of-range input is returned unchanged. */

@@ -23,6 +23,7 @@ describe('GuideViewPage', () => {
           steps: [
             {
               id: 's1',
+              kind: 'step',
               orderIndex: 0,
               title: 'Mount the sample',
               bullets: [{ id: 'b1', text: 'Place it on the stage.', color: 'black', icon: null, level: 0 }],
@@ -31,6 +32,7 @@ describe('GuideViewPage', () => {
             },
             {
               id: 's2',
+              kind: 'step',
               orderIndex: 1,
               title: 'Find focus',
               bullets: [{ id: 'b2', text: 'Use the 10x first.', color: 'black', icon: null, level: 0 }],
@@ -75,6 +77,7 @@ describe('GuideViewPage', () => {
           steps: [
             {
               id: 's1',
+              kind: 'step',
               orderIndex: 0,
               title: 'Switch on the lasers',
               bullets: [
@@ -115,6 +118,7 @@ describe('GuideViewPage', () => {
           steps: [
             {
               id: 's1',
+              kind: 'step',
               orderIndex: 0,
               title: 'Route to the building',
               bullets: [{ id: 'b1', text: 'Walk to Lengghalde 5.', color: 'black', icon: null, level: 0 }],
@@ -148,5 +152,42 @@ describe('GuideViewPage', () => {
       '/t/stellaris',
     )
     expect(screen.getByRole('link', { name: 'confocal' })).toHaveAttribute('href', '/t/confocal')
+  })
+
+  it('does not let a callout consume a step number', async () => {
+    /* The rule that is easy to get wrong: an info block between steps 2 and 3
+       must not make the next one 4, and a reader following the numbers aloud
+       must be able to reach the last one. */
+    const plain = (id: string, kind: 'step' | 'info' | 'pinned', title: string) => ({
+      id,
+      kind,
+      orderIndex: 0,
+      title,
+      bullets: [{ id: `b-${id}`, text: 'x', color: 'black' as const, icon: null, level: 0 as const }],
+      media: [],
+      video: null,
+    })
+
+    const server = createFakeServer({
+      guides: [
+        guideFixture({
+          steps: [
+            plain('p', 'pinned', 'This room is shared'),
+            plain('a', 'step', 'Power up'),
+            plain('i', 'info', 'Where the desk is'),
+            plain('b', 'step', 'Find focus'),
+          ],
+        }),
+      ],
+    })
+    renderGuide(server)
+
+    expect(await screen.findByRole('heading', { name: /Power up/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Step 1: Power up' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Step 2: Find focus' })).toBeInTheDocument()
+    /* The two that are not steps carry no number at all, not a number of their own. */
+    expect(screen.getByRole('heading', { name: 'Where the desk is' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'This room is shared' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /Step 3/ })).not.toBeInTheDocument()
   })
 })

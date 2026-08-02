@@ -91,6 +91,7 @@ describe('GuideEditorPage', () => {
           steps: [
             {
               id: 's1',
+              kind: 'step',
               orderIndex: 0,
               title: 'Mount the sample',
               bullets: [{ id: 'b1', text: 'Place it on the stage.', color: 'black', icon: null, level: 0 }],
@@ -99,6 +100,7 @@ describe('GuideEditorPage', () => {
             },
             {
               id: 's2',
+              kind: 'step',
               orderIndex: 1,
               title: '',
               bullets: [{ id: 'b2', text: '', color: 'black', icon: null, level: 0 }],

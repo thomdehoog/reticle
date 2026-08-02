@@ -9,6 +9,7 @@ import {
   moveStep,
   newId,
   numberShapeColors,
+  numberedSteps,
   removeStep,
   renumberSteps,
   validateForPublish,
@@ -283,5 +284,36 @@ describe('numberShapeColors', () => {
 
   it('numbers nothing for a step whose pictures carry no shapes', () => {
     expect(numberShapeColors(createStep({ media: [media('m1')] }))).toEqual({})
+  })
+})
+
+describe('numbering blocks', () => {
+  it('counts only real steps, so a callout does not eat a number', () => {
+    const numbers = numberedSteps([
+      createStep({ id: 'a' }),
+      createStep({ id: 'b' }),
+      createStep({ id: 'note', kind: 'info' }),
+      createStep({ id: 'c' }),
+    ])
+
+    expect(numbers.get('a')).toBe(1)
+    expect(numbers.get('b')).toBe(2)
+    expect(numbers.get('c')).toBe(3)
+  })
+
+  it('leaves the blocks that are not numbered out of the map entirely', () => {
+    /* Absent rather than zero: a caller that forgets to handle them shows
+       nothing, which is right, instead of showing a step 0. */
+    const numbers = numberedSteps([
+      createStep({ id: 'pin', kind: 'pinned' }),
+      createStep({ id: 'first' }),
+    ])
+
+    expect(numbers.has('pin')).toBe(false)
+    expect(numbers.get('first')).toBe(1)
+  })
+
+  it('numbers nothing when a guide is all context', () => {
+    expect(numberedSteps([createStep({ id: 'x', kind: 'info' })]).size).toBe(0)
   })
 })

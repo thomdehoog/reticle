@@ -101,6 +101,7 @@ describe('the revision history', () => {
               steps: [
                 {
                   id: 's1',
+                  kind: 'step',
                   orderIndex: 0,
                   title: 'Switch on the lasers',
                   bullets: [
@@ -157,6 +158,7 @@ describe('alt text', () => {
           steps: [
             {
               id: 's1',
+              kind: 'step',
               orderIndex: 0,
               title: 'Route to the building',
               bullets: [{ id: 'b1', text: 'Walk to Lengghalde 5.', color: 'black', icon: null, level: 0 }],

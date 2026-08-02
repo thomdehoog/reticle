@@ -106,8 +106,21 @@ export interface Media {
  */
 export const MAX_MEDIA_PER_STEP = 4
 
+/**
+ * What a block inside a guide is.
+ *
+ * `step` is a numbered instruction. `info` is context that is not one — where
+ * the building is, where the reception desk is. `pinned` is the highlighted
+ * block at the top, which the API sorts to the front of `steps`.
+ *
+ * Only `step` is counted when numbering, so an info block between steps 2 and 3
+ * does not make the next one 4.
+ */
+export type StepKind = 'step' | 'info' | 'pinned'
+
 export interface Step {
   id: string
+  kind: StepKind
   /** Contiguous from 0 within a guide; the API renumbers on reorder. */
   orderIndex: number
   title: string

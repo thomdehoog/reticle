@@ -21,6 +21,7 @@ function stepWith(overrides: Partial<ReturnType<typeof guideFixture>['steps'][nu
     steps: [
       {
         id: 's1',
+        kind: 'step',
         orderIndex: 0,
         title: 'Seat the filter cube',
         bullets: [{ id: 'b1', text: 'Push until it clicks.', color: 'black', icon: null, level: 0 }],

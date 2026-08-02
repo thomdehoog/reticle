@@ -28,24 +28,35 @@ import {
   Spinner,
   StatusBadge,
 } from '../components/ui'
-import { formatDurationRange } from '../domain/guide'
+import { formatDurationRange, numberedSteps } from '../domain/guide'
 import type { Step } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 
-function StepBlock({ step, number }: { step: Step; number: number }) {
+/**
+ * One block: a numbered step, a piece of context, or the pinned block.
+ *
+ * `number` is null for the two that are not numbered. They are otherwise drawn
+ * the same way, because they hold the same things — pictures, shapes over them,
+ * coloured points — and a reader learning two layouts to read one guide is a
+ * cost with nothing on the other side of it.
+ */
+function StepBlock({ step, number }: { step: Step; number: number | null }) {
   /* Text-only steps are common — a shutdown sequence is often four sentences —
      and giving them the two-column layout leaves the instructions squeezed into
      half the width beside nothing at all. */
   const hasMedia = step.media.length > 0 || step.video !== null
+  const fallbackTitle = number === null ? '' : `Step ${number}`
 
   return (
-    <section className="step">
-      <span className="step__number" aria-hidden="true">
-        {number}
-      </span>
+    <section className={`step step--${step.kind}`}>
+      {number !== null && (
+        <span className="step__number" aria-hidden="true">
+          {number}
+        </span>
+      )}
       <h2 className="step__title">
-        <span className="visually-hidden">Step {number}: </span>
-        {step.title || `Step ${number}`}
+        {number !== null && <span className="visually-hidden">Step {number}: </span>}
+        {step.title || fallbackTitle}
       </h2>
       <div className={`step__body${hasMedia ? '' : ' step__body--text-only'}`}>
         <StepGallery step={step} />
@@ -88,6 +99,11 @@ export function GuideViewPage() {
    * procedure says what it says, and who to ask about it.
    */
   const otherContributors = guide.contributors.filter((person) => person.id !== guide.author.id)
+
+  /* Only real steps are counted, so an info block sitting between steps 2 and 3
+     does not make the next one 4. Worked out once, before anything is drawn,
+     rather than with a counter that advances as the list renders. */
+  const numbers = numberedSteps(guide.steps)
 
   return (
     <div className="with-sidebar">
@@ -157,8 +173,8 @@ export function GuideViewPage() {
 
       {guide.introduction && <p className="guide__intro">{guide.introduction}</p>}
 
-      {guide.steps.map((step, index) => (
-        <StepBlock key={step.id} step={step} number={index + 1} />
+      {guide.steps.map((step) => (
+        <StepBlock key={step.id} step={step} number={numbers.get(step.id) ?? null} />
       ))}
 
       <footer className="guide__credits">

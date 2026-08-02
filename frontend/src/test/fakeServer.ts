@@ -94,6 +94,7 @@ export function guideFixture(overrides: Partial<Guide> = {}): Guide {
     steps: [
       {
         id: 's1',
+        kind: 'step',
         orderIndex: 0,
         title: 'Switch on the lasers',
         bullets: [{ id: 'b1', text: 'Turn the key.', color: 'black', icon: null, level: 0 }],
