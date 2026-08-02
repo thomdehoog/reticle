@@ -267,9 +267,9 @@ def test_asking_for_quick_links_returns_only_those(author, category):
     listing = author.get("/api/guides", params={"quickLink": "true"}).json()
 
     assert [entry["title"] for entry in listing] == ["Book an Instrument"]
-    assert [entry["title"] for entry in author.get("/api/guides", params={"quickLink": "false"}).json()] == [
-        "Aligning the Confocal"
-    ]
+    assert [
+        entry["title"] for entry in author.get("/api/guides", params={"quickLink": "false"}).json()
+    ] == ["Aligning the Confocal"]
 
 
 def test_a_quick_link_a_viewer_may_not_see_is_still_hidden_from_them(author, viewer, category):
@@ -283,7 +283,9 @@ def test_a_quick_link_a_viewer_may_not_see_is_still_hidden_from_them(author, vie
 def test_a_viewer_cannot_promote_a_guide(author, viewer, category):
     created = create_guide(author, category.id, "Book an Instrument")
 
-    response = viewer.put(f"/api/guides/{created['id']}", json=document_from(created, isQuickLink=True))
+    response = viewer.put(
+        f"/api/guides/{created['id']}", json=document_from(created, isQuickLink=True)
+    )
 
     assert response.status_code == 403
     assert author.get(f"/api/guides/{created['id']}").json()["isQuickLink"] is False

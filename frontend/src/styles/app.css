@@ -227,9 +227,11 @@ a:hover {
   border-radius: var(--radius-sm);
 }
 
-/* brand-600 on the dark header is 2.08:1 — below the 3:1 a focus indicator
-   needs, so tabbing across the header showed nothing at all. */
-.app__header :focus-visible {
+/* brand-600 on the dark blue of the rail and of the phone's bar is 2.08:1 —
+   below the 3:1 a focus indicator needs, so tabbing across them showed nothing
+   at all. The wide screen's bar is a light surface and keeps the default. */
+.rail :focus-visible,
+.app__header:not(.app__header--desk) :focus-visible {
   outline-color: #8fb6f5;
 }
 
@@ -732,11 +734,197 @@ a:hover {
 
 /* ------------------------------------------------------------------ layout */
 
+/**
+ * The rail down the left, everything else beside it.
+ *
+ * A grid rather than a flex row, so the rail's column is a fixed measure the
+ * content cannot squeeze. Below the phone breakpoint the rail is not built at
+ * all and the same two elements stack the bar over the page.
+ */
 .app {
   display: flex;
   flex-direction: column;
   min-height: 100%;
 }
+
+.app__column {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+@media (min-width: 861px) {
+  .app {
+    display: grid;
+    grid-template-columns: 236px minmax(0, 1fr);
+  }
+}
+
+/* ------------------------------------------------------------------- rail */
+
+/**
+ * Where you can go, and where you are, in one column.
+ *
+ * It is the full height of the window and stays there while the page scrolls,
+ * because its second half answers "what else is at this level" — a question a
+ * reader has in the middle of a procedure, not at the top of one.
+ */
+.rail {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 1rem 0;
+  background: var(--brand-900);
+  color: #fff;
+}
+
+.rail__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.25rem 1.1rem 0.2rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: #fff;
+}
+
+.rail__brand:hover {
+  text-decoration: none;
+}
+
+.rail__facility {
+  padding: 0 1.1rem 1rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: #9db4d8;
+}
+
+.rail__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 0.6rem;
+}
+
+.rail__link {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.65rem;
+  font-size: 0.9rem;
+  font-weight: 550;
+  color: #c7d6ee;
+  border-radius: var(--radius);
+}
+
+.rail__link:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  text-decoration: none;
+}
+
+/* Marked by weight and a filled ground, not by colour alone — a slightly
+   lighter blue on dark blue is not a distinction anybody can act on. */
+.rail__link.active {
+  color: #fff;
+  font-weight: 650;
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.rail__rule {
+  height: 1px;
+  margin: 1rem 1.1rem 0.8rem;
+  background: rgba(255, 255, 255, 0.13);
+  border: none;
+}
+
+.rail__section {
+  padding: 0 1.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #8aa4c8;
+}
+
+/* The list scrolls on its own, so a facility with twenty sections cannot push
+   the person signed in off the bottom of the window. */
+.rail__places {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.rail__item {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0.3rem 1.25rem;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  color: #c3d3e8;
+}
+
+.rail__item:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  text-decoration: none;
+}
+
+/* An inset bar rather than a border, so marking the current place does not
+   move its text a couple of pixels away from its neighbours. */
+.rail__item--on {
+  color: #fff;
+  font-weight: 650;
+  box-shadow: inset 2px 0 0 #8fb6f5;
+}
+
+.rail__spacer {
+  flex: 1 1 auto;
+}
+
+/* Who is signed in, at the foot. The whole row is the control: an avatar on
+   its own is a 26px target and a puzzle. */
+.rail__me {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.7rem 1.1rem 0.2rem;
+  margin-top: 0.6rem;
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  color: #dce6f5;
+  background: none;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.13);
+  cursor: pointer;
+}
+
+.rail__me:hover {
+  color: #fff;
+}
+
+.rail__me .avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 0.75rem;
+}
+
+.rail__me-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------- bars */
 
 .app__header {
   position: sticky;
@@ -749,6 +937,19 @@ a:hover {
   padding: 0 1.25rem;
   background: var(--brand-900);
   color: #fff;
+}
+
+/**
+ * On a wide screen the bar holds the search box and the one control that makes
+ * something, and nothing else. A strip of sections above the content is the
+ * shape of the intranet page Reticle replaces; everything that used to sit here
+ * is in the rail, where there is room for it to say where you are.
+ */
+.app__header--desk {
+  padding: 0 1.9rem;
+  color: var(--ink-900);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
 
 .app__brand {
