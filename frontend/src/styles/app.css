@@ -67,12 +67,16 @@
   --bullet-blue: var(--shape-blue);
   --bullet-violet: var(--shape-violet);
 
-  /* What a reminder is flagged in. Deliberately not one of the eight palette
-     colours: those say which mark on the picture a point belongs to, and a flag
-     says how much attention to pay. Teal because it is the one hue that is
-     neither the blue a note already owns nor close enough to red to be read as
-     a milder caution. */
-  --flag-reminder: #0f766e;
+  /* What a reminder is flagged in: amber, because a reminder is meant to catch
+     the eye — "log the session", "log in with your own account" — and grey
+     would let it pass unread.
+
+     It is close to the palette's orange, and that is a real cost rather than an
+     oversight. It is bearable because a flag and a palette colour never appear
+     in the same form: a palette colour is a filled dot beside the point, a flag
+     is an outlined icon and an uppercase word. The word is what a reader
+     actually reads, and it says REMINDER. */
+  --flag-reminder: #a5540b;
 
   --radius-sm: 4px;
   --radius: 8px;
@@ -144,7 +148,7 @@
     --bullet-light-blue: #3fc0d8;
     --bullet-blue: #67a8ff;
     --bullet-violet: #b98cff;
-    --flag-reminder: #45c9bd;
+    --flag-reminder: #e5a24a;
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow: 0 2px 4px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -172,7 +176,7 @@
     --bullet-light-blue: var(--shape-light-blue);
     --bullet-blue: var(--shape-blue);
     --bullet-violet: var(--shape-violet);
-    --flag-reminder: #0f766e;
+    --flag-reminder: #a5540b;
   }
 }
 
