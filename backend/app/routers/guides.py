@@ -137,7 +137,22 @@ def _load_for(db: DbSession, user: User, key: str) -> Guide:
 
 
 def _load_editable(db: DbSession, guide_id: str) -> Guide:
-    guide = db.get(Guide, guide_id)
+    """Load a guide for writing, holding its row until the transaction ends.
+
+    The lock is what makes the staleness check mean anything. Without it two
+    authors saving the same guide at the same moment both read the row, both
+    compare their timestamp against the same value, both pass, and both commit —
+    PostgreSQL's default isolation permits exactly that, and the later write
+    simply erases the earlier one. Both authors are told the save succeeded.
+
+    Taking the row lock makes the second transaction wait for the first, and the
+    row it then reads is the one the first committed, so its ``updated_at`` is
+    newer than what that author last saw and the conflict is raised. This is a
+    real race that a sequential test cannot see: every concurrency test in the
+    suite had the colleague's save complete before the author's began, which
+    passes against no locking at all.
+    """
+    guide = db.get(Guide, guide_id, with_for_update=True)
     if guide is None:
         raise errors.not_found("That guide does not exist.")
     return guide

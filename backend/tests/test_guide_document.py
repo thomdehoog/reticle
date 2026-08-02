@@ -578,3 +578,50 @@ def test_a_published_guide_can_still_be_edited_and_the_reader_sees_the_new_text(
     assert [s["title"] for s in viewer.get(f"/api/guides/{created['slug']}").json()["steps"]] == [
         "Added after publish"
     ]
+
+
+# ------------------------------------------------------- two authors at once
+
+
+def test_two_authors_saving_at_the_same_moment_do_not_erase_each_other(
+    author, as_role, category, database
+):
+    """The guard has to hold when the saves genuinely overlap.
+
+    Every other concurrency test here is sequential: the colleague's write
+    finishes before the author's begins, which passes against code that takes no
+    lock at all. It did — two overlapping transactions each read the row, each
+    compared their timestamp against the same value, each passed, and each
+    committed, so one author's work was erased while both were told it saved.
+
+    Threads and a barrier are the only way to see it, because the failure is in
+    what the database permits rather than in what the code says.
+    """
+    import threading
+
+    colleague = as_role("author", email="colleague@zmb.uzh.ch")
+    created = create_guide(author, category.id)
+    opened = author.get(f"/api/guides/{created['id']}").json()
+
+    codes: dict[str, int] = {}
+    both_ready = threading.Barrier(2)
+
+    def save(name: str, client, title: str) -> None:
+        body = document_from(opened, title=title)
+        both_ready.wait(timeout=10)
+        codes[name] = client.put(f"/api/guides/{created['id']}", json=body).status_code
+
+    threads = [
+        threading.Thread(target=save, args=("first", author, "Written by the first author")),
+        threading.Thread(target=save, args=("second", colleague, "Written by the second author")),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+
+    assert sorted(codes.values()) == [200, 409], codes
+
+    # Whichever won, the guide holds one author's text and not a mixture.
+    saved = author.get(f"/api/guides/{created['id']}").json()["title"]
+    assert saved in {"Written by the first author", "Written by the second author"}

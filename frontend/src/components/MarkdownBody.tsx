@@ -139,7 +139,7 @@ function GuideEmbed({ source }: { source: string }) {
   const slug = source.trim().split('\n')[0].trim()
 
   const { data, error, loading } = useAsync(
-    () => (slug === '' ? Promise.resolve(null) : api.getGuide(slug).catch(() => null)),
+    () => (slug === '' ? Promise.resolve(null) : api.getGuide(slug).then(asGuide, () => null)),
     [api, slug],
   )
 
@@ -169,6 +169,21 @@ function GuideEmbed({ source }: { source: string }) {
       </GuideRows>
     </section>
   )
+}
+
+/**
+ * A response that is shaped like a guide, or nothing.
+ *
+ * `getGuide` is typed as returning one, and at runtime it returns whatever
+ * arrived. A 200 carrying something else — a proxy's error page, a stub in a
+ * test, a future endpoint that answers differently — used to reach `asSummary`,
+ * which read `.steps.length` off it and threw inside render. A row that cannot
+ * be drawn is the same outcome as a slug that matches nothing, and is handled
+ * in the one place that already handles it.
+ */
+function asGuide(value: unknown): Guide | null {
+  const guide = value as Guide | null
+  return guide && typeof guide.slug === 'string' && Array.isArray(guide.steps) ? guide : null
 }
 
 /**
