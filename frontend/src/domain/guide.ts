@@ -236,6 +236,27 @@ export interface ValidationIssue {
 /** The server's ceilings, mirrored so the editor can name the offending field. */
 export const MAX_TITLE_LENGTH = 240
 export const MAX_TAGS_PER_GUIDE = 40
+/** The server stores minutes as a whole number in 0..100000 and refuses the rest. */
+export const MAX_TIME_REQUIRED_MINUTES = 100_000
+
+/**
+ * What a "time required" box is allowed to put into the guide.
+ *
+ * A number field hands back whatever was typed, so `1.5`, `-5` and
+ * `999999999` all arrive here as numbers the server will not store. It refuses
+ * the *whole document* when one of them does, which is the damage: the save
+ * that carries a stray decimal point also carries the three paragraphs written
+ * after it, and the author is told only "timeRequiredMinMinutes: Input should
+ * be a valid integer" — a field name that appears nowhere on their screen.
+ * Rounding and clamping here keeps the model inside what the server accepts, so
+ * a typo costs the typo and nothing else.
+ */
+export function cleanTimeRequired(raw: string): number | null {
+  if (raw.trim() === '') return null
+  const value = Number(raw)
+  if (!Number.isFinite(value)) return null
+  return Math.min(Math.max(Math.round(value), 0), MAX_TIME_REQUIRED_MINUTES)
+}
 
 /**
  * Publish-time validation. Drafts are intentionally allowed to be incomplete —

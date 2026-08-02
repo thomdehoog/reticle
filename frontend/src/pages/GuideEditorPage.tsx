@@ -28,7 +28,7 @@ import { TagInput } from '../components/editor/TagInput'
 import { IconHistory, IconPlus } from '../components/icons'
 import { StepGallery } from '../components/StepGallery'
 import { AutoTextarea, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
-import { DIFFICULTY_LABELS, DIFFICULTY_ORDER, createStep, insertStepAfter, moveStep, numberedSteps, removeStep, renumberSteps, type ValidationIssue, validateForPublish } from '../domain/guide'
+import { DIFFICULTY_LABELS, DIFFICULTY_ORDER, MAX_TIME_REQUIRED_MINUTES, cleanTimeRequired, createStep, insertStepAfter, moveStep, numberedSteps, removeStep, renumberSteps, type ValidationIssue, validateForPublish } from '../domain/guide'
 import { MAX_MEDIA_PER_STEP, type Difficulty, type Guide } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 import {
@@ -577,14 +577,15 @@ export function GuideEditorPage() {
                     className="input"
                     type="number"
                     min={0}
+                    max={MAX_TIME_REQUIRED_MINUTES}
+                    step={1}
                     aria-label="Time required, from"
                     placeholder="from"
                     value={guide.timeRequiredMinMinutes ?? ''}
                     onChange={(event) =>
                       mutate((current) => ({
                         ...current,
-                        timeRequiredMinMinutes:
-                          event.target.value === '' ? null : Number(event.target.value),
+                        timeRequiredMinMinutes: cleanTimeRequired(event.target.value),
                       }))
                     }
                   />
@@ -593,14 +594,15 @@ export function GuideEditorPage() {
                     className="input"
                     type="number"
                     min={0}
+                    max={MAX_TIME_REQUIRED_MINUTES}
+                    step={1}
                     aria-label="Time required, to"
                     placeholder="to"
                     value={guide.timeRequiredMaxMinutes ?? ''}
                     onChange={(event) =>
                       mutate((current) => ({
                         ...current,
-                        timeRequiredMaxMinutes:
-                          event.target.value === '' ? null : Number(event.target.value),
+                        timeRequiredMaxMinutes: cleanTimeRequired(event.target.value),
                       }))
                     }
                   />

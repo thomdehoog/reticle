@@ -19,7 +19,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from 'react'
 
-import { moveStep } from '../../domain/guide'
+import { moveStep, numberedSteps } from '../../domain/guide'
 import type { Step } from '../../domain/types'
 import { IconChevronDown, IconChevronUp } from '../icons'
 
@@ -65,6 +65,10 @@ export function StepNavigator({ steps, stepsContainer, onReorder }: StepNavigato
 
   const ids = steps.map((step) => step.id)
   const order = ids.join('\n')
+
+  /* The same map the editor's step cards and the reader's guide are numbered
+     from, so all three agree on what "step 3" means. */
+  const numbers = numberedSteps(steps)
 
   /**
    * Marks the step the author is looking at.
@@ -157,7 +161,16 @@ export function StepNavigator({ steps, stepsContainer, onReorder }: StepNavigato
 
       <ol className="step-nav__list">
         {steps.map((step, index) => {
-          const number = index + 1
+          /* Numbered the way the step card and the reader number, not by
+             position in the array. An Info or Pinned block is not a step and
+             carries no number anywhere else — counting it here made the
+             outline disagree with the card beside it and with the guide a
+             reader sees, so "Move step 3 down" named a block the reader calls
+             step 2, and the block whose own card reads "—" was listed as 1. */
+          const number = numbers.get(step.id) ?? null
+          /* Blocks still need telling apart by name, so an unnumbered one is
+             identified by where it sits. */
+          const name = number === null ? `Block ${index + 1}` : `Step ${number}`
           const title = step.title.trim()
           const thumbnail = step.media[0]
 
@@ -175,10 +188,10 @@ export function StepNavigator({ steps, stepsContainer, onReorder }: StepNavigato
                 type="button"
                 className="step-nav__link"
                 aria-current={step.id === activeId ? 'step' : undefined}
-                aria-label={`Step ${number}: ${title || UNTITLED}`}
+                aria-label={`${name}: ${title || UNTITLED}`}
                 onClick={() => show(index)}
               >
-                <span className="step-nav__number">{number}</span>
+                <span className="step-nav__number">{number ?? '—'}</span>
                 {thumbnail && <img className="step-nav__thumb" src={thumbnail.url} alt="" />}
                 <span className={`step-nav__title${title ? '' : ' step-nav__title--empty'}`}>
                   {title || UNTITLED}
@@ -189,7 +202,7 @@ export function StepNavigator({ steps, stepsContainer, onReorder }: StepNavigato
                 <button
                   type="button"
                   className="step-nav__nudge"
-                  aria-label={`Move step ${number} up`}
+                  aria-label={`Move ${name.toLowerCase()} up`}
                   disabled={index === 0}
                   onClick={() => move(index, -1)}
                 >
@@ -198,7 +211,7 @@ export function StepNavigator({ steps, stepsContainer, onReorder }: StepNavigato
                 <button
                   type="button"
                   className="step-nav__nudge"
-                  aria-label={`Move step ${number} down`}
+                  aria-label={`Move ${name.toLowerCase()} down`}
                   disabled={index === steps.length - 1}
                   onClick={() => move(index, 1)}
                 >

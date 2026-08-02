@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  MAX_TIME_REQUIRED_MINUTES,
   canAcceptMedia,
+  cleanTimeRequired,
   createStep,
   formatDurationRange,
   indentBullet,
@@ -354,5 +356,61 @@ describe('choosing which picture leads', () => {
   it('leaves the list alone when the picture is not in it', () => {
     const media = [pic('a')]
     expect(moveMedia(media, 'gone', 1)).toBe(media)
+  })
+})
+
+/**
+ * The server stores these as a whole number of minutes between 0 and 100000 and
+ * refuses the entire document when one is out of range. A number field will
+ * happily hand back "1.5" or "-5", and the refusal that followed did not just
+ * reject the stray digit — it rejected the save carrying everything else the
+ * author had written since, over a message naming a field they cannot see.
+ */
+describe('cleanTimeRequired', () => {
+  it('keeps a whole number of minutes as it is', () => {
+    expect(cleanTimeRequired('20')).toBe(20)
+    expect(cleanTimeRequired('0')).toBe(0)
+  })
+
+  it('reads an empty box as "not stated"', () => {
+    expect(cleanTimeRequired('')).toBeNull()
+    expect(cleanTimeRequired('   ')).toBeNull()
+  })
+
+  it('rounds a fraction to the nearest minute rather than sending it', () => {
+    expect(cleanTimeRequired('1.5')).toBe(2)
+    expect(cleanTimeRequired('1.4')).toBe(1)
+    expect(cleanTimeRequired('0.2')).toBe(0)
+  })
+
+  it('clamps a negative time to zero', () => {
+    expect(cleanTimeRequired('-5')).toBe(0)
+    expect(cleanTimeRequired('-0.4')).toBe(0)
+  })
+
+  it('clamps a wildly out-of-range time to the most the server will store', () => {
+    expect(cleanTimeRequired('999999999')).toBe(MAX_TIME_REQUIRED_MINUTES)
+    expect(cleanTimeRequired(String(MAX_TIME_REQUIRED_MINUTES + 1))).toBe(MAX_TIME_REQUIRED_MINUTES)
+    expect(cleanTimeRequired(String(MAX_TIME_REQUIRED_MINUTES))).toBe(MAX_TIME_REQUIRED_MINUTES)
+  })
+
+  it('reads something that is not a number at all as "not stated"', () => {
+    /* A number input can hand back "" for garbage, but `Number` turns "e" and
+       "--" into NaN, and NaN serialises to null in JSON — which the server
+       reads as a different field than the one that was typed in. */
+    expect(cleanTimeRequired('abc')).toBeNull()
+    expect(cleanTimeRequired('--')).toBeNull()
+    expect(cleanTimeRequired('Infinity')).toBeNull()
+  })
+
+  it('never returns a value the server would refuse', () => {
+    const typed = ['0', '1', '1.5', '-9', '99999999', '20', '100000', '100001', '0.5']
+    for (const raw of typed) {
+      const value = cleanTimeRequired(raw)
+      if (value === null) continue
+      expect(Number.isInteger(value)).toBe(true)
+      expect(value).toBeGreaterThanOrEqual(0)
+      expect(value).toBeLessThanOrEqual(MAX_TIME_REQUIRED_MINUTES)
+    }
   })
 })

@@ -41,4 +41,52 @@ describe('app.css', () => {
 
     expect(tooSmall).toEqual([])
   })
+
+  /**
+   * The annotation count sat at `bottom: 3px; left: 3px` — the same corner as
+   * "move image earlier" — and being painted last it took the click as well as
+   * the corner. A picture carrying an annotation could not be moved back down
+   * the strip with a mouse at all. The count is not a control, so it must not
+   * be able to answer a click wherever it ends up.
+   */
+  it('keeps the media badge from swallowing a click meant for a button', () => {
+    const badge = ruleFor('.media-slot__badge')
+    expect(badge).toMatch(/pointer-events:\s*none/)
+  })
+
+  it('does not park the media badge in the corner the reorder buttons use', () => {
+    /* `.media-slot__earlier` is pinned to the left of the bottom edge and
+       `.media-slot__later` sits just inboard of it, so the badge has to be
+       measured from the right or it lands on one of them. */
+    const badge = ruleFor('.media-slot__badge')
+    expect(badge).toMatch(/(^|;)\s*right:/)
+    expect(badge).not.toMatch(/(^|;)\s*left:/)
+  })
+
+  /**
+   * `Thumbnail` renders one element carrying both `.thumb` and `.tile__media`,
+   * so `.thumb`'s `height: 100%` lands on the element `.tile__media` is asking
+   * to hold at 16/10 — and a definite height beats a ratio. The tile with the
+   * shorter title grew its picture to fill the row's spare height, so cards
+   * side by side showed their images at different heights and the drawn
+   * placeholder had its monogram cropped away. The correction has to come
+   * after `.thumb`, because the two selectors weigh the same.
+   */
+  it('lets a tile keep its picture at the ratio it is composed at', () => {
+    const thumbHeight = stylesheet.indexOf('.thumb__image,')
+    const correction = stylesheet.lastIndexOf('.tile__media')
+
+    expect(thumbHeight).toBeGreaterThan(-1)
+    expect(correction).toBeGreaterThan(thumbHeight)
+    expect(stylesheet.slice(correction)).toMatch(/height:\s*auto/)
+  })
 })
+
+/** The body of the last rule whose selector list mentions `selector`. */
+function ruleFor(selector: string): string {
+  const at = stylesheet.lastIndexOf(selector)
+  if (at === -1) throw new Error(`No rule for ${selector} in app.css`)
+  const open = stylesheet.indexOf('{', at)
+  const close = stylesheet.indexOf('}', open)
+  return stylesheet.slice(open, close)
+}

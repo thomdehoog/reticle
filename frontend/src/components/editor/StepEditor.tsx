@@ -64,6 +64,12 @@ export function StepEditor({
      the bullets, so the pairing can be checked while it is being made. */
   const shapeNumbers = numberShapeColors(step)
 
+  /* What the card's controls call the thing they act on. An Info or Pinned
+     block carries no number here, on its own card, or in the guide a reader
+     opens, so it cannot be announced as "step 3" — and this is the wording the
+     drag handle had already settled on. */
+  const name = number === null ? 'this block' : `step ${number}`
+
   function replaceBullet(index: number, bullet: Bullet) {
     const bullets = [...step.bullets]
     bullets[index] = bullet
@@ -115,7 +121,7 @@ export function StepEditor({
         <button
           type="button"
           className="editor-step__handle"
-          aria-label={number === null ? 'Reorder this block' : `Reorder step ${number}`}
+          aria-label={`Reorder ${name}`}
           onMouseDown={() => setDraggable(true)}
           onMouseUp={() => setDraggable(false)}
         >
@@ -139,40 +145,51 @@ export function StepEditor({
           <option value="pinned">Pinned</option>
         </select>
 
+        <div className="editor-step__actions">
+          <button
+            type="button"
+            className="button button--ghost button--icon"
+            aria-label={`Move ${name} up`}
+            disabled={isFirst}
+            onClick={() => onMove(-1)}
+          >
+            <IconChevronUp />
+          </button>
+          <button
+            type="button"
+            className="button button--ghost button--icon"
+            aria-label={`Move ${name} down`}
+            disabled={isLast}
+            onClick={() => onMove(1)}
+          >
+            <IconChevronDown />
+          </button>
+          <button
+            type="button"
+            className="button button--ghost button--icon"
+            aria-label={`Delete ${name}`}
+            disabled={!canRemove}
+            onClick={onRemove}
+          >
+            <IconTrash />
+          </button>
+        </div>
+
+        {/* Its own full-width line, below the controls. It used to share the
+            row with them, which on a 1440px screen left it 274px — and "Book
+            the system and check the room", a perfectly ordinary ZMB step
+            title, needs 330px, so an author could not see the end of the
+            sentence they were typing. The phone layout had already dropped it
+            to a line of its own; the fault was never about phones.
+
+            Last in the markup as well as last on the screen, so that tabbing
+            through the card visits the fields in the order they are drawn. */}
         <input
           className="editor-step__title-input"
           value={step.title}
           placeholder={number === null ? 'Title (optional)' : `Step ${number} title (optional)`}
           onChange={(event) => onChange({ ...step, title: event.target.value })}
         />
-
-        <button
-          type="button"
-          className="button button--ghost button--icon"
-          aria-label="Move step up"
-          disabled={isFirst}
-          onClick={() => onMove(-1)}
-        >
-          <IconChevronUp />
-        </button>
-        <button
-          type="button"
-          className="button button--ghost button--icon"
-          aria-label="Move step down"
-          disabled={isLast}
-          onClick={() => onMove(1)}
-        >
-          <IconChevronDown />
-        </button>
-        <button
-          type="button"
-          className="button button--ghost button--icon"
-          aria-label="Delete step"
-          disabled={!canRemove}
-          onClick={onRemove}
-        >
-          <IconTrash />
-        </button>
       </div>
 
       <MediaSlots

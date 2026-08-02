@@ -63,6 +63,33 @@ describe('PageEditorPage', () => {
     await waitFor(() => expect(server.state.pages[0].heroMediaId).toBe('m-1'), { timeout: 4000 })
   })
 
+  /**
+   * `.hero-picker` is a flex row shared with the category dialog's picture
+   * picker. This editor had been left with the markup from when it was a
+   * stack — a bare `<img>` at `width: 100%` and a row of buttons beside it —
+   * so the picture claimed the whole row, the buttons could not shrink, and
+   * Remove ended up past the right edge of the window: the whole editor
+   * scrolled sideways at 1440 and at 390 alike. The classes are the contract
+   * that keeps the picture in a fixed box and stacks the buttons beside it.
+   */
+  it('shows an existing hero image in a box that cannot push the buttons off screen', async () => {
+    const server = createFakeServer({ pages: [pageFixture({ heroMediaId: 'm-hero' })] })
+    renderEditor(server)
+
+    expect(await screen.findByRole('button', { name: 'Remove' })).toBeInTheDocument()
+
+    const preview = document.querySelector('.hero-picker__preview')
+    expect(preview).not.toBeNull()
+    // The picture lives inside the fixed-size preview, not loose in the row.
+    expect(preview?.querySelector('img')?.getAttribute('src')).toBe('/api/media/m-hero')
+    expect(document.querySelector('.hero-picker > img')).toBeNull()
+
+    // The buttons are the column the stylesheet stacks, not the old row.
+    const controls = document.querySelector('.hero-picker__controls')
+    expect(controls).not.toBeNull()
+    expect(controls?.querySelectorAll('button')).toHaveLength(2)
+  })
+
   it('unpublishes a page after confirmation', async () => {
     const server = createFakeServer({
       pages: [pageFixture({ status: 'published', version: 1 })],

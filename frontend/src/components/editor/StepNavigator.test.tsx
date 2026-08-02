@@ -210,6 +210,63 @@ describe('StepNavigator', () => {
     expect(screen.getByRole('button', { name: 'Move step 1 down' })).toBeEnabled()
   })
 
+  /**
+   * The outline used to count array positions, so an Info or Pinned block —
+   * which is not a step and shows "—" on its own card and no number at all to
+   * a reader — was listed as "Step 1", and every real step after it was named
+   * one higher than the step card beside it and one higher than the guide a
+   * reader is holding. Three answers to "which step is this".
+   */
+  it('numbers blocks the way the step cards and the reader do', () => {
+    render(
+      <Editor
+        initial={[
+          createStep({ id: 'p1', kind: 'pinned', orderIndex: 0, title: 'Read this first' }),
+          createStep({ id: 's1', kind: 'step', orderIndex: 1, title: 'Switch on the lasers' }),
+          createStep({ id: 'i1', kind: 'info', orderIndex: 2, title: 'Why the order matters' }),
+          createStep({ id: 's2', kind: 'step', orderIndex: 3, title: 'Shut down' }),
+        ]}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Step 1: Switch on the lasers' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Step 2: Shut down' })).toBeInTheDocument()
+    // The unnumbered blocks are listed, and are not called steps.
+    expect(screen.getByRole('button', { name: 'Block 1: Read this first' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Block 3: Why the order matters' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Step 3/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Step 4/ })).toBeNull()
+  })
+
+  it('shows a dash for a block that carries no number, as its card does', () => {
+    render(
+      <Editor
+        initial={[
+          createStep({ id: 'p1', kind: 'pinned', orderIndex: 0, title: 'Read this first' }),
+          createStep({ id: 's1', kind: 'step', orderIndex: 1, title: 'Switch on the lasers' }),
+        ]}
+      />,
+    )
+
+    const numbers = document.querySelectorAll('.step-nav__number')
+    expect([...numbers].map((n) => n.textContent)).toEqual(['—', '1'])
+  })
+
+  it('names the move controls after the block they move, not its position', () => {
+    render(
+      <Editor
+        initial={[
+          createStep({ id: 'p1', kind: 'pinned', orderIndex: 0, title: 'Read this first' }),
+          createStep({ id: 's1', kind: 'step', orderIndex: 1, title: 'Switch on the lasers' }),
+        ]}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Move block 1 down' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Move step 1 up' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Move step 1 down' })).toBeDisabled()
+  })
+
   it('still lists and jumps where the browser has no IntersectionObserver', async () => {
     Reflect.deleteProperty(globalThis, 'IntersectionObserver')
     const user = userEvent.setup()

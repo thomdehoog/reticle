@@ -22,6 +22,7 @@ import { SaveConflict } from '../components/editor/SaveConflict'
 import { TagInput } from '../components/editor/TagInput'
 import { IconHistory } from '../components/icons'
 import { MarkdownBody } from '../components/MarkdownBody'
+import { Thumbnail } from '../components/Thumbnail'
 import { AutoTextarea, ErrorAlert, Modal, Spinner, StatusBadge } from '../components/ui'
 import type { Page } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
@@ -481,10 +482,21 @@ export function PageEditorPage() {
 
               <div className="field" style={{ marginTop: '1rem', marginBottom: 0 }}>
                 <span className="field__label">Hero image</span>
+                {/* The same control, and the same classes, as the category
+                    dialog's picture picker. This one had been left with the
+                    markup from when `.hero-picker` was a stack: once it became
+                    a flex row, a bare picture claimed the whole row and the
+                    buttons beside it could not shrink, so Remove sat past the
+                    right edge of the window and the whole editor scrolled
+                    sideways at every width. */}
                 {page.heroMediaId ? (
                   <div className="hero-picker">
-                    <img src={`/api/media/${page.heroMediaId}`} alt="" />
-                    <div className="hero-picker__actions">
+                    <Thumbnail
+                      seed={page.title}
+                      src={`/api/media/${page.heroMediaId}`}
+                      className="hero-picker__preview"
+                    />
+                    <div className="hero-picker__controls">
                       <button
                         className="button button--sm"
                         type="button"
