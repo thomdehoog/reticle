@@ -876,6 +876,21 @@ a:hover {
   color: #8aa4c8;
 }
 
+/* Naming the level is also the way back up to it, so the heading is a target
+   rather than a word: at 12px and uppercase it would otherwise be a 15px-tall
+   thing to hit with a thumb. */
+.rail__section a {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  color: inherit;
+}
+
+.rail__section a:hover {
+  color: #fff;
+  text-decoration: none;
+}
+
 /* The list scrolls on its own, so a facility with twenty sections cannot push
    the person signed in off the bottom of the window. */
 .rail__places {
@@ -2902,8 +2917,7 @@ a:hover {
   }
 
   .breadcrumb a,
-  .section-nav__section,
-  .section-nav__item,
+  .rail__section a,
   .table a {
     min-height: 44px;
   }
@@ -3731,137 +3745,6 @@ a:hover {
   flex-direction: column;
   gap: 0.5rem;
   align-items: flex-start;
-}
-
-/* --------------------------------------------------------- section sidebar */
-
-/**
- * A guide or a page, with the list of its neighbours beside it.
- *
- * The second column is asked for only when the sidebar is actually there.
- * `SectionNav` renders nothing when a guide has no neighbours to list, and with
- * a fixed two-column track that made the article the first grid item: every
- * guide in a category holding one guide was drawn 236px wide, in the column
- * meant for the list that was not there.
- */
-.with-sidebar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 2.25rem;
-  align-items: start;
-}
-
-.with-sidebar:has(> .section-nav) {
-  grid-template-columns: 236px minmax(0, 1fr);
-}
-
-.section-nav {
-  position: sticky;
-  top: calc(var(--header-height) + 1.25rem);
-  max-height: calc(100vh - var(--header-height) - 2.5rem);
-  padding-right: 0.4rem;
-  overflow-y: auto;
-  border-right: 1px solid var(--border);
-}
-
-.section-nav__head {
-  padding-bottom: 0.6rem;
-  margin-bottom: 0.6rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.section-nav__section {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  font-size: 0.9rem;
-  font-weight: 650;
-  color: var(--ink-900);
-}
-
-.section-nav__group {
-  margin: 0.9rem 0 0.35rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-400);
-}
-
-.section-nav__list {
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.section-nav__item {
-  display: flex;
-  gap: 0.45rem;
-  align-items: baseline;
-  min-height: 32px;
-  padding: 0.45rem 0.5rem;
-  font-size: 0.86rem;
-  line-height: 1.35;
-  color: var(--ink-700);
-  border-radius: var(--radius-sm);
-}
-
-.section-nav__item:hover {
-  color: var(--ink-900);
-  text-decoration: none;
-  background: var(--surface-sunken);
-}
-
-/* The one being read is marked rather than merely highlighted: on a list of
-   twenty procedures for one instrument, "where am I" is the question. */
-.section-nav__item--current {
-  font-weight: 650;
-  color: var(--brand-700);
-  background: var(--brand-050);
-}
-
-.section-nav__icon {
-  flex: 0 0 auto;
-  color: var(--ink-400);
-}
-
-.section-nav__item--current .section-nav__icon {
-  color: var(--brand-700);
-}
-
-/**
- * Below the two-column threshold the list follows what it is beside.
- *
- * Above the content it is navigation standing between a reader and the
- * procedure they opened — on a phone that is the whole first screenful, before
- * step 1. After the content it answers the question somebody actually has at
- * that point, which is what to read next.
- */
-@media (max-width: 900px) {
-  .with-sidebar {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1.25rem;
-  }
-
-  .section-nav {
-    order: 2;
-    position: static;
-    max-height: none;
-    padding-top: 0.75rem;
-    padding-right: 0;
-    border-right: none;
-    border-top: 1px solid var(--border);
-  }
-}
-
-@media print {
-  .with-sidebar {
-    display: block;
-  }
-
-  .section-nav {
-    display: none;
-  }
 }
 
 /* The crash screen. Deliberately plain: it renders when something else in the

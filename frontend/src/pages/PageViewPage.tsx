@@ -10,8 +10,8 @@
  * the two are shaped differently: a page has no steps, no pictures with shapes
  * on them and no difficulty, and folding them together would put half of a
  * guide's chrome on a page that has nothing to put in it. What they do share —
- * the section list beside them, the provenance line on paper, the version and
- * contributors — comes from the same components.
+ * the provenance line on paper, the version and contributors — comes from the
+ * same components, and what else is in the section is in the rail for both.
  */
 
 import { Link, useParams } from 'react-router'
@@ -20,7 +20,6 @@ import { useApi, useAuth } from '../auth/AuthContext'
 import { IconEdit, IconPrint } from '../components/icons'
 import { MarkdownBody } from '../components/MarkdownBody'
 import { Revision } from '../components/Revision'
-import { SectionNav } from '../components/SectionNav'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
 import { useAsync } from '../hooks/useAsync'
 
@@ -33,17 +32,7 @@ export function PageViewPage() {
     async () => {
       const page = await api.getPage(slug)
       const categories = await api.listCategories()
-      /* A standalone article belongs to no section, so there is nothing to list
-         beside it — asking for every guide in the institute to discover that is
-         not a trade worth making. */
-      const [siblings, pages] =
-        page.categoryId === null
-          ? [[], []]
-          : await Promise.all([
-              api.listGuides({ categoryId: page.categoryId }),
-              api.listPages({ categoryId: page.categoryId }),
-            ])
-      return { page, categories, siblings, pages }
+      return { page, categories }
     },
     [api, slug],
   )
@@ -52,20 +41,12 @@ export function PageViewPage() {
   if (error) return <ErrorAlert error={error} />
   if (!data) return <EmptyState>That page does not exist.</EmptyState>
 
-  const { page, categories, siblings, pages } = data
+  const { page, categories } = data
   const category = categories.find((candidate) => candidate.id === page.categoryId)
   const otherContributors = page.contributors.filter((person) => person.id !== page.author.id)
 
   return (
-    <div className="with-sidebar">
-      <SectionNav
-        section={category ? { name: category.name, slug: category.slug } : null}
-        pages={pages}
-        guides={siblings}
-        currentId={page.id}
-      />
-
-      <article className="guide">
+    <article className="guide">
       <nav className="breadcrumb">
         <Link to="/">Guides</Link>
         <span className="breadcrumb__sep">/</span>
@@ -135,7 +116,6 @@ export function PageViewPage() {
             `, with ${otherContributors.map((person) => person.displayName).join(', ')}`}
         </p>
       </footer>
-      </article>
-    </div>
+    </article>
   )
 }

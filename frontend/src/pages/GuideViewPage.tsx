@@ -19,7 +19,6 @@ import { useApi, useAuth } from '../auth/AuthContext'
 import { BulletList } from '../components/BulletList'
 import { Revision } from '../components/Revision'
 import { RichText } from '../components/RichText'
-import { SectionNav } from '../components/SectionNav'
 import { StepGallery } from '../components/StepGallery'
 import { IconEdit, IconPrint } from '../components/icons'
 import {
@@ -72,17 +71,13 @@ export function GuideViewPage() {
   const api = useApi()
   const { can, organisation } = useAuth()
 
+  /* The categories are only for the breadcrumb. What else is in this section is
+     the rail's business, and asking for it here as well was the same list
+     fetched twice to be drawn twice. */
   const { data, error, loading } = useAsync(
     async () => {
       const [guide, categories] = await Promise.all([api.getGuide(slug), api.listCategories()])
-      /* The rest of the section, for the list beside the guide. Asked for after
-         the guide rather than alongside it, because the category is not known
-         until the guide arrives. */
-      const [siblings, pages] = await Promise.all([
-        api.listGuides({ categoryId: guide.categoryId }),
-        api.listPages({ categoryId: guide.categoryId }),
-      ])
-      return { guide, categories, siblings, pages }
+      return { guide, categories }
     },
     [api, slug],
   )
@@ -91,7 +86,7 @@ export function GuideViewPage() {
   if (error) return <ErrorAlert error={error} />
   if (!data) return <EmptyState>That guide does not exist.</EmptyState>
 
-  const { guide, categories, siblings, pages } = data
+  const { guide, categories } = data
   const category = categories.find((candidate) => candidate.id === guide.categoryId)
 
   /**
@@ -107,15 +102,7 @@ export function GuideViewPage() {
   const numbers = numberedSteps(guide.steps)
 
   return (
-    <div className="with-sidebar">
-      <SectionNav
-        section={category ? { name: category.name, slug: category.slug } : null}
-        pages={pages}
-        guides={siblings}
-        currentId={guide.id}
-      />
-
-      <article className="guide">
+    <article className="guide">
       <nav className="breadcrumb">
         <Link to="/">Guides</Link>
         {category && (
@@ -204,7 +191,6 @@ export function GuideViewPage() {
           </div>
         )}
       </footer>
-      </article>
-    </div>
+    </article>
   )
 }

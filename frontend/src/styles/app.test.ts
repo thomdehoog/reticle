@@ -42,10 +42,10 @@ describe('app.css', () => {
     expect(tooSmall).toEqual([])
   })
 
-  it('keeps the section list after the guide rather than in front of it', () => {
-    /* Above the content on a narrow screen it is a list of other procedures
-       standing between a reader and the one they opened. */
-    const rule = stylesheet.match(/\.section-nav \{[^}]*order: 2;[^}]*\}/)
-    expect(rule, '.section-nav is not ordered after the content on a narrow screen').not.toBeNull()
-  })
+  /*
+   * There was a second test here, about keeping the column of neighbours below
+   * the guide on a narrow screen. That column is gone: the rail and the phone
+   * drawer carry the section's contents now, so there is no second navigation
+   * beside a guide to order.
+   */
 })
