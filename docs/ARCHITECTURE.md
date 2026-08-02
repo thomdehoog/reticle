@@ -98,26 +98,26 @@ collation. That is the shape of the whole trade — SQLite makes you hand-build
 what PostgreSQL already has, and each hand-built piece is one nobody else
 maintains.
 
-The code is SQLAlchemy throughout and does not depend on SQLite, but two things
-have to be dealt with first:
+The code is SQLAlchemy throughout and does not depend on SQLite. Both things
+that had to be dealt with first are **done**:
 
-- **Migrations.** Reticle currently calls `create_all`, which adds a missing
-  table and never alters an existing one. That is honest for a single operator
-  who can be told to run an `ALTER TABLE`, and it already bit once during
-  development when a column was added. A service cannot ship that. **Alembic is
-  a prerequisite, not an improvement**, and it is the first thing to do.
-- **Run the test suite against both.** The suite is fast and in-memory today;
-  a CI job running it against a real PostgreSQL is what keeps the two honest.
+- **Migrations. Done.** Alembic is in `backend/migrations/` and runs on
+  start-up, handling an empty database, one that predates migrations, and one
+  already stamped. `deploy/migrate-all.sh` is the multi-facility equivalent.
+  This was a prerequisite rather than an improvement: a PostgreSQL database
+  whose schema cannot be evolved is strictly worse than a SQLite file that can
+  be deleted and reseeded.
+- **The suite runs against both. Done.** Setting `RETICLE_TEST_DATABASE_URL`
+  points the whole suite at a real server, and CI runs a PostgreSQL job. It is
+  not a formality: SQLite accepts things PostgreSQL rejects, so a suite that has
+  only ever run on SQLite is evidence about SQLite.
 
-**On timing**, since it is the part that is easy to get wrong in both
-directions. Migrating *before* Alembic exists produces a PostgreSQL database
-whose schema cannot be evolved — strictly worse than a SQLite file that can be
-deleted and reseeded. Migrating *after* ZMB's corpus is loaded means moving
-tens of gigabytes rather than an empty schema. The window between those two is
-where this should happen, and it is open now: the database is empty and Alembic
-is a few days' work. The one thing that softens the second half is that
-`portability export` followed by `restore` into a PostgreSQL instance is already
-the migration path, and the suite proves that round trip on every run.
+**On timing**, since it is the part that is easy to get wrong. Migrating a
+facility *after* its corpus is loaded means moving tens of gigabytes rather than
+an empty schema, so the window is before the first real corpus lands. What
+softens that is `portability export` followed by `restore` into a PostgreSQL
+instance, which is already the migration path, and the suite proves that round
+trip on every run.
 
 #### 2. Local disk → object storage
 
@@ -133,9 +133,12 @@ each new way of displaying a file was a fresh copy of the same hole. A public
 bucket throws all of it away. Serve through **short-lived signed URLs** issued
 after the same visibility check the application already performs.
 
-This wants a small storage interface — `LocalStorage` and `S3Storage` behind one
-protocol — rather than the direct filesystem calls in `app/images.py` today.
-Contained, and testable without a network.
+**The storage interface is done.** `app/storage.py` holds one protocol with
+`LocalStorage` and `S3Storage` behind it, `build_storage(settings)` is the only
+way to obtain one, and every writer and reader in the application goes through
+it — the routers, the exporter, the static site generator, the importer and the
+restore. What remains is operational: choosing a provider, and running against a
+real bucket rather than only the fake the suite uses.
 
 #### 3. Tenancy: a database per facility
 
@@ -241,27 +244,36 @@ The honest caveats:
   already says. A restore procedure that has only ever been run in a test is a
   procedure with an unknown failure rate.
 
-### The order to do it in
+### The order to do it in, and where it has got to
 
-1. **Alembic migrations.** Blocks everything else, and is worth doing for the
-   single-facility install regardless.
-2. **Storage interface**, with the local implementation as the default. No
-   behaviour change; makes the next step small.
-3. **PostgreSQL support**, with CI running the suite against both engines.
-4. **S3 storage implementation**, with signed URLs behind the existing
-   visibility check.
-5. **Provisioning**: create facility → create database → migrate → seed admin →
-   certificate → done, as one command.
+1. ~~**Alembic migrations.**~~ Done — `backend/migrations/`, run on start-up.
+2. ~~**Storage interface**, with the local implementation as the default.~~
+   Done — `app/storage.py`.
+3. ~~**PostgreSQL support**, with CI running the suite against both engines.~~
+   Done — `RETICLE_TEST_DATABASE_URL` and the PostgreSQL job in CI.
+4. ~~**S3 storage implementation**, with signed URLs behind the existing
+   visibility check.~~ Done — `S3Storage` writes with no ACL and issues
+   five-minute signed URLs, always *after* the same visibility check the local
+   backend's route performs. Not yet exercised against a real provider.
+5. ~~**Provisioning**: create facility → create database → migrate → seed admin
+   → certificate → done, as one command.~~ Done — `deploy/`, including a
+   rollback that undoes everything it created if any step fails.
 6. **A control plane**: sign-up, per-facility administration, and whatever
-   billing the arrangement needs. This is a separate application; do not put it
-   inside Reticle.
-7. **Operability**: structured logs with a request id, metrics, a readiness
+   billing the arrangement needs. **This is the one that remains.** It is a
+   separate application; do not put it inside Reticle.
+7. ~~**Operability**: structured logs with a request id, metrics, a readiness
    probe distinct from the liveness one, rate limits beyond the login endpoint,
-   and a written incident runbook.
+   and a written incident runbook.~~ Done except metrics — JSON logs with a
+   request id on every line and in every error body (`app/observability.py`),
+   `/api/ready` separate from `/api/health`, read/write/upload rate limits with
+   `Retry-After` (`app/ratelimit.py`), and `MAINTENANCE.md`. There is still no
+   metrics endpoint; the logs are the only quantitative signal.
 
-Steps 1 and 2 are worth doing now whatever is decided about hosting. Step 3
-onwards should wait until at least one facility is live, because the first real
-tenant will change the requirements.
+Step 6 should wait until at least one facility other than ZMB is live, because
+the first real tenant will change the requirements. Everything below it is
+already carrying ZMB, which is the point: none of steps 1–5 and 7 was worth
+doing only for a hosted service, and each is worth having for the single
+institute running Reticle today.
 
 ### The decision to take before step 5
 

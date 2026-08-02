@@ -10,10 +10,24 @@ written against this document; changing it means changing both.
   snake_case columns to camelCase so the UI never translates.
 - Timestamps are ISO-8601 UTC with a trailing `Z`.
 - IDs are opaque strings (ULIDs). Clients must not parse them.
-- Errors return `{"error": {"code": "<machine_code>", "message": "<human>"}}`
+- Errors return
+  `{"error": {"code": "<machine_code>", "message": "<human>"}, "requestId": "<id>"}`
   with a conventional status. Codes used: `invalid_credentials`,
   `not_authenticated`, `forbidden`, `not_found`, `validation_failed`,
-  `conflict`, `rate_limited`, `payload_too_large`.
+  `conflict`, `rate_limited`, `payload_too_large`, `internal_error`.
+  Nothing else appears in the body — in particular there is no `detail` key,
+  because that is FastAPI's own shape and it leaks the raw validation structure.
+- **Every response carries `X-Request-ID`**, and every error repeats it in the
+  body as `requestId`. It is the same value the server writes into its log
+  lines, so a user quoting the id from an error on screen turns "it broke this
+  morning" into one findable request. A client may supply its own in the request
+  header; it is echoed back if it looks like an id — letters, digits, hyphen,
+  underscore, 8 to 200 characters — and replaced otherwise, because the value
+  ends up in log files.
+- `internal_error` means something failed that nobody anticipated. The message
+  is always the same sentence and never describes the failure, because the
+  description could name a table, echo submitted input or quote a filesystem
+  path. The `requestId` is how it gets diagnosed.
 
 ## Authentication
 
@@ -102,8 +116,9 @@ is how long a procedure honestly takes. A reversed pair is rejected rather than
 swapped — the author meant one of the two numbers to be something else, and
 guessing which would publish a time nobody wrote.
 
-`contributors` is everyone who has saved the guide, in the order they first
-touched it. `viewCount` increments when a **published** guide is read, and that
+`contributors` is everyone who has **saved** the guide, in the order they first
+touched it. Publishing is not saving: an administrator who releases a
+colleague's guide has not written a word of it, and the by-line is permanent. `viewCount` increments when a **published** guide is read, and that
 write deliberately does not move `updatedAt`: a read is not an edit, and moving
 the concurrency token would eject every editor who had the guide open.
 
@@ -206,18 +221,100 @@ it without Reticle, is `EXPORT.md`. `python -m app.portability` does the same
 job from the command line and can restore an export into an empty database —
 which is what makes the format a promise rather than a claim.
 
+## Rate limiting
+
+Two separate mechanisms. Both answer 429 `rate_limited` with a `Retry-After`
+header giving whole seconds.
+
+**The login throttle** is backed by a table, so it survives a restart, and it
+counts per (account, source address), per account and per source address.
+
+**Everything else** is a per-minute ceiling held in memory, applied to every
+endpoint except the two probes and the login. There are three independent
+allowances so that exhausting one does not close the others — a reader who has
+hit the read ceiling must still be able to sign out:
+
+| Bucket   | Applies to                | Default per minute |
+| -------- | ------------------------- | ------------------ |
+| `read`   | GET, HEAD, OPTIONS        | 600                |
+| `write`  | every other method        | 240                |
+| `upload` | non-GET on `/api/media`   | 60                 |
+
+Counted per source address, not per session: the session cookie is not checked
+against the database until much later, so a caller could mint a fresh one on
+every request and never be limited at all. The numbers are set where a person
+cannot reach them and a loop can — an author saving every few seconds, a reader
+opening thirty guides and an importer pushing a corpus all pass untouched.
+
+The ceiling is **per process**. Two workers give twice the configured rate, and
+a restart forgets everything. That is deliberate at this size; it is a brake on
+a runaway script, not a security boundary.
+
+A body larger than the limit is refused with 413 `payload_too_large` before
+anything reads it: 2 MB for JSON, and a larger ceiling on `POST /api/media`
+alone, sized above the video cap. That larger ceiling belongs to the route
+rather than to the `Content-Type`, so a request cannot claim it by saying it is
+an upload.
+
 ## Schema changes
 
-`create_all` adds tables that do not exist; it never alters one that does. A
-release that adds a column therefore needs either a fresh database or the
-`ALTER TABLE` run by hand — there is no migration tool here, deliberately, for
-an installation that has one operator and reboots twice a year. `DEPLOYMENT.md`
-says which release needs which.
+Migrations are Alembic, in `backend/migrations/`, and they run on start-up, so a
+deployment that forgets the migration step does not quietly serve traffic
+against last release's schema. Three states are handled: an empty database
+migrates from the beginning, a database predating migrations is stamped at the
+current revision, and an already-stamped one runs whatever is pending. See
+`app/db.py:init_db`; `deploy/migrate-all.sh` is the multi-facility equivalent.
 
-## Health
+A **destructive** migration should not run itself on start-up. When one is
+written, run it deliberately and take a backup first — `MAINTENANCE.md`.
 
-`GET /api/health` → `{"status": "ok"}`. Unauthenticated, for uptime checks. It
-reveals nothing beyond liveness.
+## Probes and public configuration
+
+Three endpoints answer without a session. They are the whole of the
+unauthenticated surface, and `app/main.PUBLIC_PATHS` is the list a test asserts
+against.
+
+| Method | Path          | Purpose                                            |
+| ------ | ------------- | -------------------------------------------------- |
+| GET    | `/api/health` | Liveness → `{"status": "ok"}`. Touches nothing.    |
+| GET    | `/api/ready`  | Readiness → `{"status": "ready"}`, or 503 with `{"status": "starting"}` or `{"status": "database_unavailable"}`. |
+| GET    | `/api/config` | `{"organisation": {"name", "shortName", "url"}}`.  |
+
+Liveness and readiness are different questions on purpose. A liveness probe that
+checked the database would turn a database blip into a restart loop — every
+instance killed for a fault none of them can fix by restarting. A readiness
+probe that did not check it would send requests to an instance that cannot
+answer them. `/api/ready` also reports not-ready while start-up migrations are
+running. Both probes are exempt from rate limiting, because an orchestrator
+polls them by design.
+
+`/api/ready` discloses one status word and nothing else: no error text, no
+driver message, no URL. It should still be bound to an internal interface where
+the deployment allows it.
+
+`/api/config` is reachable without a session because the login screen has to say
+which facility it belongs to, and it discloses nothing the hostname pointing at
+the server does not already give away.
+
+## Client error reports
+
+| Method | Path                 | Role | Purpose                                   |
+| ------ | -------------------- | ---- | ----------------------------------------- |
+| POST   | `/api/client-errors` | any  | `{message, componentStack?, url?}` → 204. |
+
+Where a browser-side crash goes. The frontend's error boundary posts here so a
+render failure reaches the same log stream as everything else, with a request
+id, instead of sitting in one person's devtools.
+
+Deliberately not "whatever the client wants to send": three bounded fields, and
+no user text, form values or local storage — a crash report that scoops up the
+surrounding state eventually contains a password somebody was typing. `message`
+is capped at 500 characters, `componentStack` at 4000 and `url` at 500, and both
+sides truncate. Newlines are collapsed before anything is written, so a report
+cannot forge the log entries around it. It sits behind the login and inside the
+write allowance, so it cannot be used to fill a disk.
+
+## Generated documentation
 
 `/docs`, `/redoc` and `/openapi.json` are served **only** when `RETICLE_DEBUG`
 is set. On a deployed instance they published the full route inventory and every

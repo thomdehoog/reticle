@@ -92,11 +92,13 @@ def _warn_about_collapsed_attribution(peer: str) -> None:
         return
     _untrusted_forwarding_warned = True
     logger.warning(
-        "Requests carry X-Forwarded-For, the peer address is still the proxy at %s, and "
-        "RETICLE_TRUST_FORWARDED_FOR is false — so every caller is attributed to that one address "
-        "and the per-address login throttle now covers all of them at once. Either run uvicorn with "
-        "--proxy-headers --forwarded-allow-ips <proxy>, or set RETICLE_TRUST_FORWARDED_FOR=true if "
-        "— and only if — the proxy overwrites the header rather than appending to it.",
+        "Requests carry X-Forwarded-For, the peer address is still %s, and it is not the address "
+        "in the header — so every caller is being attributed to that one address and the "
+        "per-address login throttle now covers all of them at once. The fix is to start uvicorn "
+        "with --proxy-headers --forwarded-allow-ips <the proxy's address>, which rewrites the peer "
+        "address before Reticle sees it. RETICLE_TRUST_FORWARDED_FOR is the last resort: it makes "
+        "Reticle read the first entry of the header itself, which a client can write if the proxy "
+        "appends to the header rather than overwriting it.",
         peer,
     )
 
@@ -122,11 +124,13 @@ def client_address(request: Request) -> str | None:
         if forwarded:
             return parse_ip_address(forwarded.split(",")[0])
     elif forwarded and peer is not None:
-        # Only when the peer really is somebody else. If uvicorn's own
-        # --proxy-headers already rewrote the peer to the forwarded address,
-        # attribution is correct and there is nothing to say.
+        # Only when a real address was forwarded and the peer is somebody else.
+        # If uvicorn's own --proxy-headers already rewrote the peer to the
+        # forwarded address the two match and attribution is correct, and a
+        # header that is not an address at all is evidence of a caller making
+        # things up rather than of a proxy nobody configured.
         claimed = parse_ip_address(forwarded.split(",")[0])
-        if claimed != peer:
+        if claimed is not None and claimed != peer:
             _warn_about_collapsed_attribution(peer)
     return peer
 

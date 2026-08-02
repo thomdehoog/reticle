@@ -51,13 +51,14 @@ ignore = [
 [tool.ruff.format]
 quote-style = "double"
 
-# `ruff format` is configured but NOT enforced in CI, and that is a decision
-# rather than an omission. Running it today reformats 53 of 72 files, which
-# would bury this codebase's real history under one mechanical commit and make
-# `git blame` useless for every line it touched. The linter catches defects;
-# the formatter would only settle arguments nobody is having. Adopt it at a
-# moment when a large diff costs nothing - a quiet week, not before a launch -
-# and in a commit that does nothing else.
+# The whole backend is formatted: `ruff format --check .` reports every file
+# already formatted, and the mechanical commit that got it there has been taken,
+# so the cost this block used to weigh - one diff touching most of the codebase
+# and a `git blame` full of it - has been paid and cannot be paid again.
+#
+# It is therefore worth enforcing. `ruff format --check .` belongs in CI beside
+# `ruff check .`, so that the next unformatted file is caught in the pull
+# request rather than accumulating until somebody reformats everything again.
 
 [tool.mypy]
 python_version = "3.11"

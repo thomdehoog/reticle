@@ -247,3 +247,31 @@ def test_a_time_range_reads_the_way_it_does_in_the_application():
 
 def test_an_image_with_no_shapes_gets_no_overlay():
     assert annotation_overlay([]) == ""
+
+
+def test_a_slug_that_is_not_a_slug_is_refused_rather_than_written(
+    admin, category, db_session, tmp_path
+):
+    """The slug becomes a file name, so a row holding ``../../../../tmp/PWNED``
+    writes the page outside the destination directory.
+
+    Every slug the API mints goes through ``slugs.slugify`` and cannot contain
+    anything but ``[a-z0-9-]``; a restored archive is the one way such a row can
+    exist. The restore sanitises as well, and this refuses independently — the
+    two are reached by different paths, and a snapshot writing outside its own
+    folder is not something to leave resting on one check.
+    """
+    import pytest
+    from sqlalchemy import select
+
+    from app.models import Guide
+
+    published_guide(admin, category)
+    guide = db_session.scalars(select(Guide)).one()
+    guide.slug = "../../../../tmp/PWNED"
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="not a slug"):
+        publish(db_session, get_settings(), tmp_path / "site")
+
+    assert not (tmp_path / "tmp").exists()

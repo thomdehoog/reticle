@@ -365,9 +365,13 @@ def create_app() -> FastAPI:
         allow_headers=["Content-Type", CSRF_HEADER],
     )
 
-    application.add_exception_handler(errors.ApiError, handle_api_error)
-    application.add_exception_handler(RequestValidationError, handle_validation_error)
-    application.add_exception_handler(StarletteHTTPException, handle_http_exception)
+    # Starlette types a handler as taking a bare ``Exception``; each of these
+    # takes the class it is registered for, which is the only thing it can be
+    # called with. Narrowing at the signature is worth more than matching the
+    # declared type.
+    application.add_exception_handler(errors.ApiError, handle_api_error)  # type: ignore[arg-type]
+    application.add_exception_handler(RequestValidationError, handle_validation_error)  # type: ignore[arg-type]
+    application.add_exception_handler(StarletteHTTPException, handle_http_exception)  # type: ignore[arg-type]
 
     for module in (
         auth,

@@ -547,3 +547,44 @@ def _request_from(peer: str, forwarded: str | None = None):
 
     headers = [(b"x-forwarded-for", forwarded.encode())] if forwarded else []
     return Request({"type": "http", "headers": headers, "client": (peer, 50000)})
+
+
+def test_no_warning_for_a_forwarded_header_that_is_not_an_address(monkeypatch, caplog):
+    """A header holding junk is evidence of a caller inventing one, not of a
+    proxy nobody configured — and ``parse_ip_address`` has already dropped it,
+    so nothing is being attributed anywhere it should not be."""
+    import logging
+
+    from app import auth
+
+    monkeypatch.setattr(auth, "_untrusted_forwarding_warned", False)
+    request = _request_from("10.0.0.1", forwarded="not-an-address")
+
+    with caplog.at_level(logging.WARNING, logger="app.auth"):
+        assert auth.client_address(request) == "10.0.0.1"
+
+    assert caplog.records == []
+
+
+def test_the_warning_points_at_uvicorn_rather_than_the_setting(monkeypatch, caplog):
+    """``RETICLE_TRUST_FORWARDED_FOR`` makes Reticle read the first entry of the
+    header itself.
+
+    Behind a proxy that appends rather than overwrites, that entry is one the
+    caller wrote — so the setting hands a client its own login-throttle bucket,
+    and a garbage value yields no address at all, which drops the tight
+    per-(email, address) limit and disables the per-address one. Telling an
+    operator to reach for it first is advice that makes the deployment worse.
+    """
+    import logging
+
+    from app import auth
+
+    monkeypatch.setattr(auth, "_untrusted_forwarding_warned", False)
+
+    with caplog.at_level(logging.WARNING, logger="app.auth"):
+        auth.client_address(_request_from("10.0.0.1", forwarded="198.51.100.7"))
+
+    message = caplog.records[0].getMessage()
+    assert "--forwarded-allow-ips" in message
+    assert message.index("--forwarded-allow-ips") < message.index("RETICLE_TRUST_FORWARDED_FOR")

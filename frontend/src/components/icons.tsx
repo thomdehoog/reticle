@@ -119,6 +119,14 @@ export function IconSearch(props: IconProps) {
   )
 }
 
+export function IconMenu(props: IconProps) {
+  return (
+    <svg {...svgProps(props)}>
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
+  )
+}
+
 export function IconClose(props: IconProps) {
   return (
     <svg {...svgProps(props)}>

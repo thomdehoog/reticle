@@ -202,3 +202,49 @@ def test_an_unfolded_german_tag_is_refused_rather_than_stored(author, category):
 
     assert refused.status_code == 422
     assert refused.json()["error"]["code"] == "validation_failed"
+
+
+# --- the slug rule, pinned to exact strings --------------------------------
+
+GERMAN_TAG_SLUGS = [
+    ("Präparation", "praparation"),
+    ("Färbung", "farbung"),
+    ("Größe", "grosse"),
+    ("Objektträger", "objekttrager"),
+    ("Immersionsöl", "immersionsol"),
+]
+"""What the browser's tag input produces for these words.
+
+The input slugifies as you type, in ``frontend/src/components/editor/
+TagInput.tsx``, and the backend refuses a tag that is not already a slug rather
+than re-slugifying it — deliberately, because a value that slugifies one way in
+the editor and another way on the server agrees on screen and disagrees in the
+database. So the two rules have to produce identical strings, and there is no
+test that can see both. These are the exact outputs, written down.
+"""
+
+
+@pytest.mark.parametrize(("typed", "expected"), GERMAN_TAG_SLUGS)
+def test_a_german_tag_slugs_the_same_way_on_both_sides(typed, expected):
+    from app.importer.mapping import slugify_tag
+    from app.slugs import slugify
+
+    assert slugify_tag(typed) == expected
+    # Document slugs use the same table and differ only in how long they may
+    # be, so anything short enough has to come out identical.
+    assert slugify(typed) == expected
+
+
+def test_a_tag_the_browser_produced_is_accepted_as_typed(author, category):
+    """The proof that the two rules agreeing actually matters: the server
+    refuses a tag that is not already a slug, so a browser producing anything
+    else would make the tag unsaveable."""
+    created = create_guide(author, category.id)
+
+    saved = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, tags=[slug for _, slug in GERMAN_TAG_SLUGS]),
+    )
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["tags"] == [slug for _, slug in GERMAN_TAG_SLUGS]

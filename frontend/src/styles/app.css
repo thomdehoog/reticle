@@ -312,9 +312,12 @@ a:hover {
   font-size: 0.85rem;
 }
 
+/* Square, and never below the 24px WCAG 2.2 floor: an icon button is all target
+   and no label, so its box is the only thing a thumb has to aim at. */
 .button--icon {
   padding: 0.35rem;
   min-width: 2rem;
+  min-height: 2rem;
 }
 
 .input,
@@ -562,7 +565,7 @@ a:hover {
   position: absolute;
   top: 0.4rem;
   right: 0.6rem;
-  font-size: 0.68rem;
+  font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -784,6 +787,31 @@ a:hover {
   flex: 1;
 }
 
+/**
+ * The wrapper around everything that is not the brand or the search box.
+ *
+ * `display: contents` removes it from the layout entirely, so on a wide screen
+ * the links and buttons inside are header flex items exactly as if it were not
+ * there. It only becomes a real box on a phone, below, where it is the panel the
+ * menu button opens.
+ */
+.app__drawer {
+  display: contents;
+}
+
+.app__menu-toggle {
+  display: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  color: #e8eefb;
+  background: transparent;
+  border: 1px solid #2c4f8f;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
 .app__header .button {
   color: #e8eefb;
   background: transparent;
@@ -978,8 +1006,8 @@ a:hover {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  padding: 0.1rem 0.5rem;
-  font-size: 0.74rem;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.78rem;
   font-weight: 650;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -1017,10 +1045,19 @@ a:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0 0.4rem;
   margin-bottom: 1rem;
   font-size: 0.85rem;
   color: var(--ink-500);
+}
+
+/* A line of text is 21px tall, which is under the 24px floor and impossible to
+   hit with a thumb. The height comes from padding rather than from a taller
+   font, so the crumb still reads as a small line above the heading. */
+.breadcrumb a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
 }
 
 .breadcrumb__sep {
@@ -1125,7 +1162,7 @@ a:hover {
 }
 
 .guide__meta-label {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 650;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1402,7 +1439,7 @@ a:hover {
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  width: 1.05rem;
+  width: 1.3rem;
   height: 1.55rem;
 }
 
@@ -1432,13 +1469,13 @@ a:hover {
 .bullet__number {
   display: grid;
   place-items: center;
-  width: 1.05rem;
-  height: 1.05rem;
+  width: 1.3rem;
+  height: 1.3rem;
   border-radius: 50%;
   background: var(--marker-ink);
   box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85);
   color: #ffffff;
-  font-size: 0.64rem;
+  font-size: 0.78rem;
   font-weight: 700;
   line-height: 1;
   print-color-adjust: exact;
@@ -1795,8 +1832,8 @@ a:hover {
    without competing with the instruction the author came here to write. */
 .media-slot__alt {
   margin-top: 0.25rem;
-  padding: 0.2rem 0.35rem;
-  font-size: 0.72rem;
+  padding: 0.3rem 0.35rem;
+  font-size: 0.78rem;
 }
 
 .media-slot--video > video {
@@ -1851,8 +1888,8 @@ a:hover {
   position: absolute;
   bottom: 3px;
   left: 3px;
-  padding: 0 0.35rem;
-  font-size: 0.68rem;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.78rem;
   font-weight: 700;
   color: #fff;
   background: rgba(16, 21, 28, 0.72);
@@ -1981,7 +2018,7 @@ a:hover {
 }
 
 .table th {
-  font-size: 0.76rem;
+  font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--ink-500);
@@ -2257,12 +2294,18 @@ a:hover {
   }
 }
 
+/**
+ * One row of header, and a menu holding the rest.
+ *
+ * Wrapped into four rows this bar cost 233px of a 568px screen on every screen
+ * in the application, before any content at all. The brand and the search box
+ * earn their place — search is how somebody at an instrument finds a procedure
+ * by name — and everything else is one tap away instead of always present.
+ */
 @media (max-width: 860px) {
   .app__header {
-    height: auto;
-    flex-wrap: wrap;
     gap: 0.5rem;
-    padding: 0.6rem 0.9rem;
+    padding: 0 0.75rem;
   }
 
   .app__brand-sub {
@@ -2270,21 +2313,60 @@ a:hover {
   }
 
   .searchbar {
-    order: 10;
-    flex: 1 1 100%;
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
-  /* The section links move onto their own line rather than being dropped: on a
-     phone the wiki and the tag index are the only ways to reach anything that
-     is not a guide. */
-  .app__nav {
-    order: 11;
-    flex: 1 1 100%;
-    justify-content: space-between;
+  .app__menu-toggle {
+    display: grid;
+    flex: 0 0 auto;
   }
 
-  .app__user span:not(.avatar) {
+  .app__drawer {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: 0;
     display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+    padding: 0.6rem 0.75rem 0.9rem;
+    background: var(--brand-900);
+    border-top: 1px solid #2c4f8f;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .app__drawer--open {
+    display: flex;
+  }
+
+  /* The spacer exists to push the actions to the far end of a row. In a column
+     it would push them off the bottom of the panel. */
+  .app__drawer .app__spacer {
+    display: none;
+  }
+
+  .app__nav {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.15rem;
+  }
+
+  .app__nav-link,
+  .app__user {
+    min-height: 44px;
+    padding: 0.5rem 0.6rem;
+    font-size: 1rem;
+  }
+
+  .app__nav-link.active {
+    background: var(--brand-800);
+  }
+
+  .app__drawer .button {
+    min-height: 44px;
+    justify-content: flex-start;
   }
 
   .app__main {
@@ -2737,7 +2819,7 @@ a:hover {
 
 .tile__flag {
   padding: 0.15rem 0.45rem;
-  font-size: 0.68rem;
+  font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2831,7 +2913,7 @@ a:hover {
 
 .section-nav__group {
   margin: 0.9rem 0 0.35rem;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2878,8 +2960,14 @@ a:hover {
   color: var(--brand-700);
 }
 
-/* Below the two-column threshold the sidebar goes above the content, where it
-   is a short list to scroll past rather than a column squeezed to nothing. */
+/**
+ * Below the two-column threshold the list follows what it is beside.
+ *
+ * Above the content it is navigation standing between a reader and the
+ * procedure they opened — on a phone that is the whole first screenful, before
+ * step 1. After the content it answers the question somebody actually has at
+ * that point, which is what to read next.
+ */
 @media (max-width: 900px) {
   .with-sidebar {
     grid-template-columns: minmax(0, 1fr);
@@ -2887,12 +2975,13 @@ a:hover {
   }
 
   .section-nav {
+    order: 2;
     position: static;
     max-height: none;
+    padding-top: 0.75rem;
     padding-right: 0;
-    padding-bottom: 0.75rem;
     border-right: none;
-    border-bottom: 1px solid var(--border);
+    border-top: 1px solid var(--border);
   }
 }
 

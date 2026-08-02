@@ -24,6 +24,7 @@ import json
 import tarfile
 
 import pytest
+from sqlalchemy import select
 
 from app import exporter
 from app.importer.client import MigrationError
@@ -433,3 +434,72 @@ def test_an_archive_and_a_directory_restore_identically(admin, category, db_sess
     from_archive.pop("reticleExport")
     assert from_directory == from_archive
     assert set(directory_files) == set(archive_files)
+
+
+# --- what an archive is allowed to contain --------------------------------
+
+
+def test_a_restored_slug_cannot_escape_the_directory_it_is_written_into(db_session, tmp_path):
+    """An archive is a file an administrator was handed, and its slugs become
+    URLs and — in ``static_site`` — file names.
+
+    ``(destination / "g" / f"{slug}.html").write_text(...)`` with a slug of
+    ``../../../../tmp/PWNED`` writes outside the destination entirely, and
+    restoring an archive and then publishing a snapshot is the documented
+    migration workflow.
+    """
+    from app.importer.reticle import safe_slug
+
+    assert safe_slug("../../../../tmp/PWNED", "guide") == "tmp-pwned"
+    assert safe_slug("/etc/passwd", "guide") == "etc-passwd"
+    assert safe_slug("", "guide") == "guide"
+    # An ordinary slug is untouched, so a real restore is not renamed.
+    assert safe_slug("aligning-the-confocal", "guide") == "aligning-the-confocal"
+
+
+def test_a_restore_writes_media_through_the_configured_storage_backend(
+    admin, category, db_session, tmp_path, monkeypatch
+):
+    """On an S3 installation, writing straight to local disk puts every image
+    somewhere ``Media.storage_path`` is never read from — so the restore reports
+    success and every picture in the corpus 404s."""
+    from app.storage import LocalStorage
+
+    build_corpus(admin, category)
+    exporter.write_to_directory(db_session, get_settings(), tmp_path / "out")
+    document, files = read_export(tmp_path / "out")
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app import importer
+    from app.db import Base
+
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(engine)
+    fresh = sessionmaker(bind=engine, autoflush=False, future=True)()
+
+    elsewhere = tmp_path / "bucket"
+    written: list[str] = []
+
+    class RecordingStorage(LocalStorage):
+        def write(self, storage_path: str, payload: bytes) -> None:
+            written.append(storage_path)
+            super().write(storage_path, payload)
+
+    monkeypatch.setattr(
+        importer.reticle, "build_storage", lambda settings: RecordingStorage(elsewhere)
+    )
+    restore(fresh, get_settings(), document, files)
+
+    assert written, "the restore bypassed the storage interface"
+    stored = fresh.scalars(select(Media)).all()
+    assert {media.storage_path for media in stored} >= set(written)
+    for storage_path in written:
+        assert (elsewhere / storage_path).is_file()
+
+    fresh.close()
+    engine.dispose()
