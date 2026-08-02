@@ -364,7 +364,7 @@ export function CategoriesPage() {
             <tbody>
               {rows.map(({ category, depth }) => (
                 <tr key={category.id}>
-                  <td>
+                  <td data-label="Name">
                     <span style={{ paddingLeft: `${depth * 1.25}rem` }}>
                       <Link to={`/c/${category.slug}`}>{category.name}</Link>
                     </span>
@@ -372,7 +372,7 @@ export function CategoriesPage() {
                       <div className="category-admin__desc">{category.description}</div>
                     )}
                   </td>
-                  <td>
+                  <td data-label="Visibility">
                     <button
                       className="button button--sm"
                       type="button"
@@ -382,7 +382,7 @@ export function CategoriesPage() {
                       {category.isHidden ? 'Hidden — show it' : 'Visible — hide it'}
                     </button>
                   </td>
-                  <td>
+                  <td data-label="Order">
                     <div className="category-admin__order">
                       <button
                         className="button button--sm button--icon"
@@ -404,7 +404,7 @@ export function CategoriesPage() {
                       </button>
                     </div>
                   </td>
-                  <td>
+                  <td data-label="">
                     <div className="category-admin__order">
                       <button
                         className="button button--sm"

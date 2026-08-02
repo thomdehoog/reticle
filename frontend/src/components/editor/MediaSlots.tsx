@@ -91,32 +91,38 @@ export function MediaSlots({
       >
         {media.map((image, index) => (
           <div className="media-slot" key={image.id}>
-            <AnnotatedImage
-              src={image.url}
-              alt={image.alt}
-              annotations={image.annotations}
-              shapeNumbers={shapeNumbers}
-            />
-            <button
-              type="button"
-              className="media-slot__action media-slot__annotate"
-              aria-label="Annotate image"
-              title="Draw on this image"
-              onClick={() => setAnnotating(image.id)}
-            >
-              <IconPalette size={12} />
-            </button>
-            <button
-              type="button"
-              className="media-slot__action media-slot__remove"
-              aria-label="Remove image"
-              onClick={() => onRemove(image.id)}
-            >
-              <IconClose size={12} />
-            </button>
-            {image.annotations.length > 0 && (
-              <span className="media-slot__badge">{image.annotations.length}</span>
-            )}
+            {/* The buttons and the badge are positioned against the picture, so
+                the picture is what they are inside. Measured from the slot they
+                land on the description field below it instead, and the shape
+                count sits on top of the author's own words. */}
+            <div className="media-slot__frame">
+              <AnnotatedImage
+                src={image.url}
+                alt={image.alt}
+                annotations={image.annotations}
+                shapeNumbers={shapeNumbers}
+              />
+              <button
+                type="button"
+                className="media-slot__action media-slot__annotate"
+                aria-label="Annotate image"
+                title="Draw on this image"
+                onClick={() => setAnnotating(image.id)}
+              >
+                <IconPalette size={12} />
+              </button>
+              <button
+                type="button"
+                className="media-slot__action media-slot__remove"
+                aria-label="Remove image"
+                onClick={() => onRemove(image.id)}
+              >
+                <IconClose size={12} />
+              </button>
+              {image.annotations.length > 0 && (
+                <span className="media-slot__badge">{image.annotations.length}</span>
+              )}
+            </div>
             <input
               className="input media-slot__alt"
               value={image.alt}
@@ -129,18 +135,20 @@ export function MediaSlots({
 
         {video && (
           <div className="media-slot media-slot--video">
-            <video src={video.url} poster={video.posterUrl ?? undefined} preload="metadata" muted />
-            <button
-              type="button"
-              className="media-slot__action media-slot__remove"
-              aria-label="Remove video"
-              onClick={onRemoveVideo}
-            >
-              <IconClose size={12} />
-            </button>
-            <span className="media-slot__badge">
-              {video.durationSeconds === null ? 'Video' : formatClipLength(video.durationSeconds)}
-            </span>
+            <div className="media-slot__frame">
+              <video src={video.url} poster={video.posterUrl ?? undefined} preload="metadata" muted />
+              <button
+                type="button"
+                className="media-slot__action media-slot__remove"
+                aria-label="Remove video"
+                onClick={onRemoveVideo}
+              >
+                <IconClose size={12} />
+              </button>
+              <span className="media-slot__badge">
+                {video.durationSeconds === null ? 'Video' : formatClipLength(video.durationSeconds)}
+              </span>
+            </div>
             <input
               className="input media-slot__alt"
               value={video.alt}

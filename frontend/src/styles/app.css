@@ -514,10 +514,29 @@ a:hover {
 
 .checkbox {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.5rem;
+  min-height: 32px;
   font-size: 0.9rem;
   cursor: pointer;
+}
+
+/* A browser draws a checkbox at 13px, which is half the 24px floor. The label
+   beside it is part of the same target, but the box has to be hittable on its
+   own — it is what a thumb aims at. */
+.checkbox input[type='checkbox'] {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  accent-color: var(--brand-600);
+}
+
+@media (hover: none) {
+  .checkbox input[type='checkbox'] {
+    width: 28px;
+    height: 28px;
+  }
 }
 
 /* ------------------------------------------------------------------- wiki */
@@ -1576,7 +1595,7 @@ a:hover {
  */
 .bullet__flag-label {
   margin-right: 0.45em;
-  font-size: 0.78em;
+  font-size: 0.82em;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1734,8 +1753,8 @@ a:hover {
    from the same table; either way a swatch shows the colour the shape will be
    drawn in, so the two pickers cannot offer different reds. */
 .swatch {
-  width: 1.4rem;
-  height: 1.4rem;
+  width: 1.75rem;
+  height: 1.75rem;
   padding: 0;
   border: 2px solid transparent;
   border-radius: 50%;
@@ -1806,12 +1825,17 @@ a:hover {
 /* The slot is the thumbnail plus its description field, so the box is only as
    tall as the picture and the column keeps them associated. */
 .media-slot {
-  position: relative;
   width: 110px;
 }
 
+/* The picture on its own, which is what the buttons and the badge measure
+   against. */
+.media-slot__frame {
+  position: relative;
+}
+
 .media-slot .annotated,
-.media-slot > video {
+.media-slot__frame > video {
   width: 100%;
   height: 82px;
   border-radius: var(--radius);
@@ -1821,7 +1845,7 @@ a:hover {
 }
 
 .media-slot .annotated img,
-.media-slot > video {
+.media-slot__frame > video {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -1836,7 +1860,7 @@ a:hover {
   font-size: 0.78rem;
 }
 
-.media-slot--video > video {
+.media-slot--video video {
   background: #000;
 }
 
@@ -2028,6 +2052,12 @@ a:hover {
    and the fix is to scroll the table rather than the whole page sideways. */
 .card:has(> .table) {
   overflow-x: auto;
+}
+
+.table a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
 }
 
 /* A switched-off account is greyed but still fully legible: it is often read to
@@ -2281,6 +2311,28 @@ a:hover {
   .tag {
     padding: 0.35rem 0.7rem;
   }
+
+  .button--icon {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
+  .swatch {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+
+  .step-nav__nudge {
+    width: 32px;
+    height: 32px;
+  }
+
+  .breadcrumb a,
+  .section-nav__section,
+  .section-nav__item,
+  .table a {
+    min-height: 44px;
+  }
 }
 
 @media (max-width: 900px) {
@@ -2424,7 +2476,11 @@ a:hover {
   }
 
   .guide__meta {
-    gap: 0.9rem 1.25rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.55rem 1rem;
+    padding: 0.7rem 0;
+    margin: 0.75rem 0 1rem;
   }
 
   .bullet--level-1 {
@@ -2490,7 +2546,7 @@ a:hover {
 
   .media-dropzone,
   .media-slot .annotated,
-  .media-slot > video {
+  .media-slot__frame > video {
     height: 66px;
   }
 
@@ -2502,13 +2558,61 @@ a:hover {
     padding: 1.5rem;
   }
 
-  .table {
-    font-size: 0.85rem;
+  /**
+   * The admin tables become a card per row.
+   *
+   * Four columns of controls need 457px and a phone has 320. Scrolling the
+   * table sideways keeps the layout but hides half of every row behind a
+   * gesture with nothing to suggest it, on the one screen where the thing you
+   * cannot see is a Delete button. Each row becomes a block instead, and the
+   * column headings — which have gone with the header row — come back on each
+   * cell from `data-label`.
+   */
+  .table,
+  .table thead,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
   }
 
-  .table th,
+  .table thead {
+    display: none;
+  }
+
+  .table tr {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+
   .table td {
-    padding: 0.5rem 0.4rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.75rem;
+    align-items: center;
+    padding: 0.2rem 0;
+    border-bottom: none;
+  }
+
+  .table td[data-label]:not([data-label=''])::before {
+    content: attr(data-label);
+    flex: 0 0 5.5rem;
+    font-size: 0.78rem;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-500);
+  }
+
+  /* The row is already scoped to one category, so its name leads it rather than
+     sitting behind a "NAME" label like an ordinary field. */
+  .table td[data-label='Name'] {
+    font-size: 1.05rem;
+    font-weight: 650;
+  }
+
+  .table td[data-label='Name']::before {
+    display: none;
   }
 }
 
@@ -2574,7 +2678,7 @@ a:hover {
 .step-nav__head {
   margin: 0 0 0.45rem;
   padding: 0 0.4rem;
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   font-weight: 650;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -2637,9 +2741,9 @@ a:hover {
 
 .step-nav__number {
   flex: 0 0 auto;
-  min-width: 1.1rem;
+  min-width: 1.3rem;
   text-align: right;
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   color: var(--ink-400);
@@ -2689,8 +2793,8 @@ a:hover {
 .step-nav__nudge {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 19px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   cursor: pointer;
   color: var(--ink-500);
@@ -2906,6 +3010,9 @@ a:hover {
 }
 
 .section-nav__section {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
   font-size: 0.9rem;
   font-weight: 650;
   color: var(--ink-900);
@@ -2930,7 +3037,8 @@ a:hover {
   display: flex;
   gap: 0.45rem;
   align-items: baseline;
-  padding: 0.32rem 0.5rem;
+  min-height: 32px;
+  padding: 0.45rem 0.5rem;
   font-size: 0.86rem;
   line-height: 1.35;
   color: var(--ink-700);

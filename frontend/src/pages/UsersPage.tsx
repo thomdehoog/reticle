@@ -246,11 +246,11 @@ export function UsersPage() {
           <tbody>
             {(data ?? []).map((person) => (
               <tr key={person.id} className={person.isActive ? undefined : 'user-row--inactive'}>
-                <td>
+                <td data-label="Name">
                   <NameCell person={person} onRenamed={reload} />
                 </td>
-                <td>{person.email}</td>
-                <td>
+                <td data-label="Email">{person.email}</td>
+                <td data-label="Role">
                   <select
                     className="select"
                     style={{ maxWidth: '9rem' }}
@@ -269,8 +269,8 @@ export function UsersPage() {
                     <option value="admin">Admin</option>
                   </select>
                 </td>
-                <td>{new Date(person.createdAt).toLocaleDateString()}</td>
-                <td>
+                <td data-label="Added">{new Date(person.createdAt).toLocaleDateString()}</td>
+                <td data-label="Access">
                   {/* Deactivating rather than deleting: their name stays on the
                       guides they wrote, and the audit trail stays readable. */}
                   <button
