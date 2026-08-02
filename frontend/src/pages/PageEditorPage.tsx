@@ -463,9 +463,10 @@ export function PageEditorPage() {
                 />
                 <span>Use as this category&rsquo;s landing page</span>
               </label>
+              {/* A checkbox that changes what a whole section looks like to
+                  everybody deserves one line saying so. */}
               <span className="field__hint">
-                The landing page is what people see when they open the category, instead of a bare
-                list of guides.
+                It becomes what people see when they open the category.
               </span>
 
               <div className="field" style={{ marginTop: '1rem', marginBottom: 0 }}>
@@ -512,10 +513,6 @@ export function PageEditorPage() {
                     if (file) void onPickHero(file)
                   }}
                 />
-                <span className="field__hint">
-                  Shown above the page. One picture of the instrument or the room is worth more here
-                  than a paragraph describing which door to use.
-                </span>
               </div>
             </div>
           </div>
@@ -558,9 +555,10 @@ function GuideListDialog({
 
   return (
     <Modal title="Insert a guide list" onClose={onClose}>
+      {/* The block is written as a fenced code span, so what it will become is
+          not visible from the dialog that inserts it. */}
       <p className="field__hint" style={{ marginBottom: '1rem' }}>
-        A guide list gathers every published guide carrying the tags you choose, and keeps itself up
-        to date as guides are added.
+        Gathers every published guide carrying these tags, and keeps itself up to date.
       </p>
 
       <div className="field">
@@ -594,10 +592,6 @@ function GuideListDialog({
           placeholder="every matching guide"
           onChange={(event) => setLimit(event.target.value)}
         />
-        <span className="field__hint">
-          For a &ldquo;recently added&rdquo; block on a busy page. Leave it empty and the list keeps
-          showing everything that carries the tags.
-        </span>
       </div>
 
       <div className="page-actions">

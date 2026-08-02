@@ -141,24 +141,13 @@ describe('GuideCard', () => {
     expect(container.querySelector('img')).toHaveAttribute('src', '/api/media/m-9')
   })
 
-  it('carries what a reader chooses on: steps, difficulty and how long it takes', () => {
-    render(
-      <GuideCard
-        guide={summary({ stepCount: 5, timeRequiredMinMinutes: 30, timeRequiredMaxMinutes: 90 })}
-      />,
-    )
-
-    expect(screen.getByText(/5 steps/)).toBeInTheDocument()
+  /* The card is down to the title, the picture and how hard it is. The step
+     count went because the steps are numbered on the guide itself, and the
+     duration because the card is only used where the guide is already the
+     subject rather than one of a list to choose between. */
+  it('carries the difficulty, which is what a reader chooses on', () => {
+    render(<GuideCard guide={summary()} />)
     expect(screen.getByText('Moderate')).toBeInTheDocument()
-    expect(screen.getByText('30 min – 1 h 30 min')).toBeInTheDocument()
-  })
-
-  it('says nothing about time when nobody estimated it', () => {
-    render(
-      <GuideCard guide={summary({ timeRequiredMinMinutes: null, timeRequiredMaxMinutes: null })} />,
-    )
-
-    expect(screen.queryByText(/min/)).toBeNull()
   })
 
   it('marks a draft, so nobody follows an unfinished procedure', () => {
@@ -178,13 +167,16 @@ describe('GuideCard', () => {
 })
 
 describe('WikiCard', () => {
-  it('distinguishes a section front page from an ordinary article', () => {
+  /* Only the exception is written out. An ordinary article carries the book
+     icon and sits under a heading that already says these are wiki pages, so
+     captioning every one of them "Wiki page" said nothing twice. */
+  it('marks a section front page, and leaves an ordinary article unlabelled', () => {
     const landing = render(<WikiCard page={pageSummaryFixture({ isLanding: true })} />)
     expect(screen.getByText('Section front page')).toBeInTheDocument()
     landing.unmount()
 
     render(<WikiCard page={pageSummaryFixture({ isLanding: false })} />)
-    expect(screen.getByText('Wiki page')).toBeInTheDocument()
+    expect(screen.queryByText('Wiki page')).not.toBeInTheDocument()
   })
 
   it('names the section it belongs to when it is seen away from it', () => {

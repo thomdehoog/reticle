@@ -63,7 +63,9 @@ describe('GuideViewPage', () => {
 
     expect(await screen.findByText('Very easy')).toBeInTheDocument()
     expect(screen.getByText('30 min – 1 h 30 min')).toBeInTheDocument()
-    expect(screen.getByText('Thom de Hoog')).toBeInTheDocument()
+    /* The name is a byline at the foot of the guide: it answers "who do I ask",
+       which is a question that arises after reading rather than before. */
+    expect(screen.getByText(/Written by Thom de Hoog/)).toBeInTheDocument()
   })
 
   it('labels a caution in words, not by colour or icon alone', async () => {

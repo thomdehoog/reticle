@@ -7,11 +7,16 @@
  * hit with a thumb (WCAG 2.2 Target Size, Minimum). Both are easy to reintroduce
  * one declaration at a time and impossible to notice from a desk.
  *
- * What is measured here is what the source says. Sizes given in `em` depend on
- * whatever the parent turns out to be, and a target's height usually comes from
- * padding and line-height rather than from any single declaration — those are
- * measured in a real browser by `e2e/smoke.mjs`, which walks the rendered page
- * at 320px and fails on anything under either floor.
+ * What is measured here is what the source says, and only where the source is
+ * the whole answer. Sizes given in `em` depend on whatever the parent turns out
+ * to be, and a target's height usually comes from padding and line-height
+ * rather than from any single declaration — those are measured in a real
+ * browser by `e2e/smoke.mjs`, which walks the rendered page at 320px and fails
+ * on anything under either floor.
+ *
+ * Nothing here names a class that only one layout would use. A test that
+ * asserts how the header is built stops the header being built another way,
+ * which is not what it is for.
  */
 
 import { readFileSync } from 'node:fs'
@@ -35,21 +40,6 @@ describe('app.css', () => {
     }
 
     expect(tooSmall).toEqual([])
-  })
-
-  /**
-   * The header collapses to one row on a phone and everything else moves into
-   * the menu. Without the panel rule the links would still be laid out in the
-   * header, wrapping it back to the four rows that cost 233px of a 568px screen
-   * before any content at all.
-   */
-  it('turns the header into one row and a menu on a phone', () => {
-    const mobile = stylesheet.match(/@media \(max-width: 860px\) \{([\s\S]*?)\n\}/)
-    expect(mobile, 'the phone header breakpoint is missing').not.toBeNull()
-
-    expect(mobile![1]).toContain('.app__menu-toggle')
-    expect(mobile![1]).toContain('.app__drawer')
-    expect(stylesheet).toContain('display: contents')
   })
 
   it('keeps the section list after the guide rather than in front of it', () => {

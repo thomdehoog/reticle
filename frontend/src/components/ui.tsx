@@ -15,7 +15,8 @@ import {
 } from 'react'
 
 import { ApiError } from '../api/client'
-import type { ContentStatus } from '../domain/types'
+import { DIFFICULTY_LABELS, DIFFICULTY_ORDER } from '../domain/guide'
+import type { ContentStatus, Difficulty } from '../domain/types'
 import { IconClose } from './icons'
 
 const STATUS_LABELS: Record<ContentStatus, string> = {
@@ -27,6 +28,33 @@ const STATUS_LABELS: Record<ContentStatus, string> = {
 
 export function StatusBadge({ status }: { status: ContentStatus }) {
   return <span className={`badge badge--${status}`}>{STATUS_LABELS[status]}</span>
+}
+
+/**
+ * Difficulty as a row of five marks rather than as a small-caps label and a
+ * word underneath it.
+ *
+ * The word stays beside the marks. Five bars on their own would need a legend,
+ * and somebody deciding whether to start a procedure now or after lunch should
+ * not have to learn a scale first — the picture makes the level comparable at a
+ * glance, the word makes it unambiguous.
+ */
+export function DifficultyMeter({ difficulty }: { difficulty: Difficulty }) {
+  const level = DIFFICULTY_ORDER.indexOf(difficulty) + 1
+
+  return (
+    <span className="difficulty">
+      <span className="difficulty__bars" aria-hidden="true">
+        {DIFFICULTY_ORDER.map((step, index) => (
+          <span
+            key={step}
+            className={`difficulty__bar${index < level ? ' difficulty__bar--filled' : ''}`}
+          />
+        ))}
+      </span>
+      {DIFFICULTY_LABELS[difficulty]}
+    </span>
+  )
 }
 
 export function Spinner() {
@@ -87,6 +115,8 @@ interface ModalProps {
   title: string
   onClose: () => void
   children: ReactNode
+  /** Set when a control elsewhere names this panel through `aria-controls`. */
+  id?: string
 }
 
 const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -101,7 +131,7 @@ const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tab
  * back to whatever opened the dialog, because dropping it on `<body>` sends the
  * next Tab to the top of the page.
  */
-export function Modal({ title, onClose, children }: ModalProps) {
+export function Modal({ title, onClose, children, id }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -149,6 +179,7 @@ export function Modal({ title, onClose, children }: ModalProps) {
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div
         className="modal"
+        id={id}
         role="dialog"
         aria-modal="true"
         aria-label={title}

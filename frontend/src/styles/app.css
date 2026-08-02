@@ -806,24 +806,71 @@ a:hover {
   flex: 1;
 }
 
-/**
- * The wrapper around everything that is not the brand or the search box.
- *
- * `display: contents` removes it from the layout entirely, so on a wide screen
- * the links and buttons inside are header flex items exactly as if it were not
- * there. It only becomes a real box on a phone, below, where it is the panel the
- * menu button opens.
- */
-.app__drawer {
-  display: contents;
+/* --------------------------------------------------------- header controls */
+
+.header-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+/* The panel is always a light surface, even in the header's dark blue: it is a
+   piece of the page that has come forward, not a piece of the bar. */
+.header-menu__panel {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 12rem;
+  padding: 0.3rem;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+
+/* One row of a menu, wherever the menu is. 44px because on the phone sheet this
+   is what a thumb has to land on. */
+.menu-item {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.5rem 0.7rem;
+  font: inherit;
+  font-weight: 550;
+  text-align: left;
+  color: var(--ink-700);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  color: var(--ink-900);
+  background: var(--surface-sunken);
+  text-decoration: none;
+}
+
+/* Whose account this is. A label, not a target — so it is not sized like one. */
+.menu-name {
+  padding: 0.4rem 0.7rem 0.5rem;
+  font-size: 0.8rem;
+  color: var(--ink-500);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.3rem;
 }
 
 .app__menu-toggle {
-  display: none;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0.4rem 0.7rem;
+  font: inherit;
+  font-weight: 550;
   color: #e8eefb;
   background: transparent;
   border: 1px solid #2c4f8f;
@@ -861,29 +908,34 @@ a:hover {
   padding: 1.75rem 1.25rem 4rem;
 }
 
+/* The account control is the avatar alone. The name is inside the panel it
+   opens, where there is room for it and where it answers "whose session is
+   this" at the moment somebody is about to sign out. */
 .app__user {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: #c7d6ee;
-}
-
-.app__user:hover {
-  color: #fff;
-  text-decoration: none;
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
 }
 
 .avatar {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: var(--brand-600);
   color: #fff;
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   font-weight: 650;
+}
+
+.app__user:hover .avatar {
+  background: #1a5fc4;
 }
 
 /* ------------------------------------------------------------------ search */
@@ -971,14 +1023,28 @@ a:hover {
   color: var(--brand-700);
 }
 
+/*
+ * A guide in a list of guides: title on the left, its first step image on the
+ * right.
+ *
+ * Eight guides under one instrument heading is the ordinary case, and as cards
+ * that was eight phone screens. As rows it is one, which is the difference
+ * between choosing a procedure and hunting for one.
+ */
+.guide-rows {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
 .guide-row {
   display: flex;
-  align-items: flex-start;
-  gap: 1rem;
-  padding: 0.9rem 1.1rem;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.7rem 0.9rem;
   color: inherit;
   border-bottom: 1px solid var(--border);
-  transition: background 0.1s ease;
 }
 
 .guide-row:last-child {
@@ -996,27 +1062,35 @@ a:hover {
 }
 
 .guide-row__title {
+  display: block;
   font-weight: 600;
   color: var(--ink-900);
 }
 
-.guide-row__summary {
-  font-size: 0.88rem;
-  color: var(--ink-500);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ink-400 is 3.69:1 on white — below AA, and this is the line people scan to
-   choose a guide, on a phone, in a darkened imaging room. */
 .guide-row__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 0.4rem 0.9rem;
   margin-top: 0.25rem;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   color: var(--ink-500);
+}
+
+/* Small, because it is the confirmation that you have the right guide rather
+   than the thing you are reading. */
+.guide-row__thumb {
+  flex: 0 0 auto;
+  width: 68px;
+  height: 46px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+/* In a row the meter is a mark beside the title, not a heading of its own. */
+.guide-row__meta .difficulty__bar {
+  height: 10px;
 }
 
 /* ------------------------------------------------------------------- badge */
@@ -1167,30 +1241,65 @@ a:hover {
 .guide__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 1.25rem;
-  padding: 0.9rem 0;
-  margin: 1rem 0 1.5rem;
+  align-items: center;
+  gap: 0.6rem 1.5rem;
+  padding: 0.7rem 0;
+  margin: 0.9rem 0 1.25rem;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
-  font-size: 0.85rem;
-}
-
-.guide__meta-item {
-  display: flex;
-  flex-direction: column;
-}
-
-.guide__meta-label {
-  font-size: 0.78rem;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--ink-500);
-}
-
-.guide__meta-value {
+  font-size: 0.92rem;
   font-weight: 550;
   color: var(--ink-700);
+}
+
+.guide__time {
+  color: var(--ink-700);
+}
+
+/*
+ * Difficulty drawn as five marks, filled up to the level.
+ *
+ * The colour never changes with the level: a red bar for "very difficult" reads
+ * as a warning, and difficulty is not a hazard — the CAUTION flags in the steps
+ * are, and nothing else on the page may borrow their meaning.
+ */
+.difficulty {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.difficulty__bars {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.difficulty__bar {
+  width: 5px;
+  height: 14px;
+  border-radius: 1px;
+  background: var(--border-strong);
+}
+
+.difficulty__bar--filled {
+  background: var(--brand-600);
+}
+
+/* Who wrote it, and what it is filed under. Quiet, and at the end. */
+.guide__credits {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  padding-top: 1.1rem;
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.guide__byline {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--ink-500);
 }
 
 .guide__intro {
@@ -2364,61 +2473,11 @@ a:hover {
     display: none;
   }
 
+  /* The search box takes whatever is left between the brand and the button, and
+     is allowed to become narrow rather than to push the row into a second one. */
   .searchbar {
     flex: 1 1 auto;
     min-width: 0;
-  }
-
-  .app__menu-toggle {
-    display: grid;
-    flex: 0 0 auto;
-  }
-
-  .app__drawer {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    left: 0;
-    display: none;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.35rem;
-    padding: 0.6rem 0.75rem 0.9rem;
-    background: var(--brand-900);
-    border-top: 1px solid #2c4f8f;
-    box-shadow: var(--shadow-lg);
-  }
-
-  .app__drawer--open {
-    display: flex;
-  }
-
-  /* The spacer exists to push the actions to the far end of a row. In a column
-     it would push them off the bottom of the panel. */
-  .app__drawer .app__spacer {
-    display: none;
-  }
-
-  .app__nav {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.15rem;
-  }
-
-  .app__nav-link,
-  .app__user {
-    min-height: 44px;
-    padding: 0.5rem 0.6rem;
-    font-size: 1rem;
-  }
-
-  .app__nav-link.active {
-    background: var(--brand-800);
-  }
-
-  .app__drawer .button {
-    min-height: 44px;
-    justify-content: flex-start;
   }
 
   .app__main {
@@ -2475,13 +2534,6 @@ a:hover {
     height: 3.4rem;
   }
 
-  .guide__meta {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.55rem 1rem;
-    padding: 0.7rem 0;
-    margin: 0.75rem 0 1rem;
-  }
 
   .bullet--level-1 {
     padding-left: 1rem;
@@ -2491,18 +2543,11 @@ a:hover {
     padding-left: 2rem;
   }
 
-  .guide-row {
-    padding: 0.8rem 0.9rem;
-  }
-
-  /* The summary is how you tell the confocal guide from the widefield one, so
-     wrap it to two lines rather than cutting it off mid-word. */
-  .guide-row__summary {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    white-space: normal;
-    overflow: hidden;
+  /* The title gets the width it needs to be told apart from its neighbours;
+     the picture shrinks, because it is only confirming the choice. */
+  .guide-row__thumb {
+    width: 54px;
+    height: 38px;
   }
 
   /**
@@ -2512,17 +2557,22 @@ a:hover {
    */
   .editor-bullet {
     flex-wrap: wrap;
+    gap: 0.1rem 0.45rem;
+    padding: 0.1rem 0;
+  }
+
+  /* The colour picker and the three actions share the first line — they are
+     both controls and neither needs the width. Given a line each, a three-bullet
+     step took most of the screen and the author scrolled to see what they had
+     just written. */
+  .editor-bullet__actions {
+    order: 2;
+    margin-left: auto;
   }
 
   .editor-bullet__text {
-    order: 2;
-    flex: 1 1 100%;
-  }
-
-  .editor-bullet__actions {
     order: 3;
-    flex: 1 0 100%;
-    justify-content: flex-end;
+    flex: 1 1 100%;
   }
 
   .editor-step {

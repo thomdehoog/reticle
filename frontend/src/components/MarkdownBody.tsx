@@ -24,7 +24,7 @@ import remarkGfm from 'remark-gfm'
 
 import { useApi } from '../auth/AuthContext'
 import { useAsync } from '../hooks/useAsync'
-import { GuideCard, TileGrid } from './BrowseCards'
+import { GuideRow, GuideRows } from './BrowseCards'
 import { EmptyState, ErrorAlert } from './ui'
 
 /** The fence language that marks a guide-list block. */
@@ -99,11 +99,11 @@ function GuideListEmbed({ source }: { source: string }) {
         </EmptyState>
       )}
       {guides.length > 0 && (
-        <TileGrid>
+        <GuideRows>
           {guides.map((guide) => (
-            <GuideCard key={guide.id} guide={guide} />
+            <GuideRow key={guide.id} guide={guide} />
           ))}
-        </TileGrid>
+        </GuideRows>
       )}
     </section>
   )

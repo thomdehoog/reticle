@@ -5,6 +5,12 @@
  * points on the right. This is the screen the whole product exists to produce,
  * and it is intentionally plain: somebody is reading it with one hand while doing
  * something with the other.
+ *
+ * What is above step 1 is held to what a reader acts on — the title, the one
+ * line saying what this is, how hard it is and how long it takes. The name of
+ * the author and the tags are at the bottom, because "who do I ask about this"
+ * and "what should I read next" are questions that arise after the procedure,
+ * not on the way into it.
  */
 
 import { Link, useParams } from 'react-router'
@@ -14,8 +20,14 @@ import { BulletList } from '../components/BulletList'
 import { SectionNav } from '../components/SectionNav'
 import { StepGallery } from '../components/StepGallery'
 import { IconEdit, IconPrint } from '../components/icons'
-import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
-import { DIFFICULTY_LABELS, formatDurationRange } from '../domain/guide'
+import {
+  DifficultyMeter,
+  EmptyState,
+  ErrorAlert,
+  Spinner,
+  StatusBadge,
+} from '../components/ui'
+import { formatDurationRange } from '../domain/guide'
 import type { Step } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 
@@ -125,62 +137,16 @@ export function GuideViewPage() {
         </div>
       </div>
 
+      {/* Two facts, no labels. Both change whether somebody starts the procedure
+          now or after lunch, and neither needs a caption to be understood. The
+          step count, the view count and the version number that used to sit here
+          answered questions nobody standing at an instrument was asking. */}
       <div className="guide__meta">
-        <div className="guide__meta-item">
-          <span className="guide__meta-label">Difficulty</span>
-          <span className="guide__meta-value">{DIFFICULTY_LABELS[guide.difficulty]}</span>
-        </div>
-        <div className="guide__meta-item">
-          <span className="guide__meta-label">Time required</span>
-          <span className="guide__meta-value">
-            {formatDurationRange(guide.timeRequiredMinMinutes, guide.timeRequiredMaxMinutes)}
-          </span>
-        </div>
-        <div className="guide__meta-item">
-          <span className="guide__meta-label">Steps</span>
-          <span className="guide__meta-value">{guide.steps.length}</span>
-        </div>
-        <div className="guide__meta-item">
-          <span className="guide__meta-label">Author</span>
-          <span className="guide__meta-value">{guide.author.displayName}</span>
-        </div>
-        {otherContributors.length > 0 && (
-          <div className="guide__meta-item">
-            <span className="guide__meta-label">
-              {otherContributors.length === 1 ? 'Contributor' : 'Contributors'}
-            </span>
-            <span className="guide__meta-value">
-              {otherContributors.map((person) => person.displayName).join(', ')}
-            </span>
-          </div>
-        )}
-        {guide.viewCount > 0 && (
-          <div className="guide__meta-item">
-            <span className="guide__meta-label">Read</span>
-            <span className="guide__meta-value">
-              {guide.viewCount.toLocaleString()} {guide.viewCount === 1 ? 'time' : 'times'}
-            </span>
-          </div>
-        )}
-        {guide.publishedAt && (
-          <div className="guide__meta-item">
-            <span className="guide__meta-label">Version</span>
-            <span className="guide__meta-value">
-              {guide.version} · {new Date(guide.publishedAt).toLocaleDateString()}
-            </span>
-          </div>
-        )}
+        <DifficultyMeter difficulty={guide.difficulty} />
+        <span className="guide__time">
+          {formatDurationRange(guide.timeRequiredMinMinutes, guide.timeRequiredMaxMinutes)}
+        </span>
       </div>
-
-      {guide.tags.length > 0 && (
-        <div className="tag-row">
-          {guide.tags.map((tag) => (
-            <Link key={tag} className="tag" to={`/t/${encodeURIComponent(tag)}`}>
-              {tag}
-            </Link>
-          ))}
-        </div>
-      )}
 
       {guide.introduction && <p className="guide__intro">{guide.introduction}</p>}
 
@@ -196,6 +162,24 @@ export function GuideViewPage() {
           </div>
         </section>
       )}
+
+      <footer className="guide__credits">
+        <p className="guide__byline">
+          Written by {guide.author.displayName}
+          {otherContributors.length > 0 &&
+            `, with ${otherContributors.map((person) => person.displayName).join(', ')}`}
+        </p>
+
+        {guide.tags.length > 0 && (
+          <div className="tag-row">
+            {guide.tags.map((tag) => (
+              <Link key={tag} className="tag" to={`/t/${encodeURIComponent(tag)}`}>
+                {tag}
+              </Link>
+            ))}
+          </div>
+        )}
+      </footer>
       </article>
     </div>
   )

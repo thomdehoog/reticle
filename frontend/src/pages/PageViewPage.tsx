@@ -106,39 +106,6 @@ export function PageViewPage() {
         </div>
       </div>
 
-      <div className="guide__meta">
-        <div className="guide__meta-item">
-          <span className="guide__meta-label">Author</span>
-          <span className="guide__meta-value">{page.author.displayName}</span>
-        </div>
-        {otherContributors.length > 0 && (
-          <div className="guide__meta-item">
-            <span className="guide__meta-label">
-              {otherContributors.length === 1 ? 'Contributor' : 'Contributors'}
-            </span>
-            <span className="guide__meta-value">
-              {otherContributors.map((person) => person.displayName).join(', ')}
-            </span>
-          </div>
-        )}
-        {page.viewCount > 0 && (
-          <div className="guide__meta-item">
-            <span className="guide__meta-label">Read</span>
-            <span className="guide__meta-value">
-              {page.viewCount.toLocaleString()} {page.viewCount === 1 ? 'time' : 'times'}
-            </span>
-          </div>
-        )}
-        {page.publishedAt && (
-          <div className="guide__meta-item">
-            <span className="guide__meta-label">Version</span>
-            <span className="guide__meta-value">
-              {page.version} · {new Date(page.publishedAt).toLocaleDateString()}
-            </span>
-          </div>
-        )}
-      </div>
-
       {/* Decorative: the title and the body already say what the page is, and a
           hero that repeats the heading aloud is noise in a screen reader. */}
       {page.heroMediaId && (
@@ -146,6 +113,16 @@ export function PageViewPage() {
       )}
 
       <MarkdownBody body={page.body} />
+
+      {/* The same reasoning as a guide's byline: a name answers "who do I ask
+          when this is wrong", which is a question that comes after reading. */}
+      <footer className="guide__credits">
+        <p className="guide__byline">
+          Written by {page.author.displayName}
+          {otherContributors.length > 0 &&
+            `, with ${otherContributors.map((person) => person.displayName).join(', ')}`}
+        </p>
+      </footer>
       </article>
     </div>
   )

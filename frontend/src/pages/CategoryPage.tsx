@@ -18,11 +18,11 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
-import { CategoryTile, GuideCard, TileGrid, WikiCard } from '../components/BrowseCards'
+import { CategoryTile, GuideRow, GuideRows, TileGrid, WikiCard } from '../components/BrowseCards'
 import { IconEdit, IconPlus } from '../components/icons'
 import { MarkdownBody } from '../components/MarkdownBody'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
-import { browsableCategories } from '../hooks/useCategories'
+import { browsableCategories, countGuidesByCategory } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
 export function CategoryPage() {
@@ -37,14 +37,20 @@ export function CategoryPage() {
     async () => {
       const categories = await api.listCategories()
       const category = categories.find((candidate) => candidate.slug === slug) ?? null
-      if (!category) return { categories, category, guides: [], landing: null, pages: [] }
+      if (!category)
+        return { categories, category, guides: [], published: [], landing: null, pages: [] }
 
-      const [guides, landing, pages] = await Promise.all([
+      /* `published` is every published guide in the institute, which is what
+         the sub-category counts are counted from: a listing scoped to this
+         category holds none of a child's guides, so counting children against
+         it returned nought for every one of them. */
+      const [guides, published, landing, pages] = await Promise.all([
         api.listGuides({ categoryId: category.id }),
+        api.listGuides({ status: 'published' }),
         api.getCategoryLandingPage(category.id),
         api.listPages({ categoryId: category.id }),
       ])
-      return { categories, category, guides, landing, pages }
+      return { categories, category, guides, published, landing, pages }
     },
     [api, slug],
   )
@@ -53,7 +59,8 @@ export function CategoryPage() {
   if (error) return <ErrorAlert error={error} />
   if (!data?.category) return <EmptyState>That category does not exist.</EmptyState>
 
-  const { category, categories, guides, landing, pages } = data
+  const { category, categories, guides, published, landing, pages } = data
+  const guideCount = countGuidesByCategory(categories, published)
   const articles = pages.filter((page) => !page.isLanding)
   const children = browsableCategories(categories)
     .filter((candidate) => candidate.parentId === category.id)
@@ -98,51 +105,28 @@ export function CategoryPage() {
           <h1>{category.name}</h1>
           {category.description && <p className="page-header__sub">{category.description}</p>}
         </div>
-        {can('author') && (
-          <div className="page-actions">
-            {landing && landing.status !== 'published' && <StatusBadge status={landing.status} />}
-            {landing ? (
-              <Link className="button" to={`/w/${landing.id}/edit`}>
-                <IconEdit />
-                Edit landing page
-              </Link>
-            ) : (
-              <button
-                className="button"
-                type="button"
-                disabled={creating}
-                onClick={() => void startLandingPage()}
-              >
-                <IconPlus />
-                {creating ? 'Creating…' : 'Write a landing page'}
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
       <ErrorAlert error={createError} />
 
-      {landing && <MarkdownBody body={landing.body} wide />}
-
+      {/* Sub-sections first: they are how somebody gets to the instrument they
+          came for, and underneath the guide lists they were the last thing on
+          the page. No heading — a row of pictures directly under a section's
+          name is not something a reader needs told is a list of sections. */}
       {children.length > 0 && (
-        <section className="section">
-          <h2 className="section__title">Sections</h2>
-          <TileGrid>
-            {children.map((child) => (
-              <CategoryTile
-                key={child.id}
-                category={child}
-                guideCount={guides.filter((guide) => guide.categoryId === child.id).length}
-              />
-            ))}
-          </TileGrid>
-        </section>
+        <TileGrid>
+          {children.map((child) => (
+            <CategoryTile key={child.id} category={child} guideCount={guideCount(child.id)} />
+          ))}
+        </TileGrid>
       )}
+
+      {landing && <MarkdownBody body={landing.body} wide />}
 
       {/* Wiki pages other than the landing one: at ZMB these are the written
           material a section carries beside its procedures, and they are reached
-          from here rather than only from search. */}
+          from here rather than only from search. The heading stays because the
+          cards no longer carry the words "wiki page" themselves. */}
       {articles.length > 0 && (
         <section className="section">
           <h2 className="section__title">Wiki pages</h2>
@@ -154,23 +138,49 @@ export function CategoryPage() {
         </section>
       )}
 
-      {guides.length === 0 ? (
-        !landing && <EmptyState>No guides in this section yet.</EmptyState>
-      ) : (
-        <section className="section category-guides">
-          {/* With a landing page in front of it, the full list is a reference
-              rather than the navigation, so it says so and does not claim the
-              page. */}
-          <h2 className="section__title">
-            {landing ? `Everything in ${category.name}` : 'Guides'}
-          </h2>
-          <TileGrid>
+      {/* A landing page lists its guides itself, grouped under the instrument
+          they belong to. Repeating all of them underneath it as one flat run is
+          the same guides a second time, which is what the landing page was
+          written to replace. Without one, this list is the section. */}
+      {!landing && guides.length > 0 && (
+        <section className="section">
+          <GuideRows>
             {guides.map((guide) => (
-              <GuideCard key={guide.id} guide={guide} />
+              <GuideRow key={guide.id} guide={guide} />
             ))}
-          </TileGrid>
+          </GuideRows>
         </section>
       )}
+
+      {!landing && guides.length === 0 && children.length === 0 && (
+        <EmptyState>No guides in this section yet.</EmptyState>
+      )}
+
+      {/* Writing the section's front page is an authoring job, and it sat at the
+          top of a screen whose readers are almost never authors. It belongs
+          after the thing it would change. */}
+      {can('author') && (
+        <div className="page-actions page-actions--footer">
+          {landing && landing.status !== 'published' && <StatusBadge status={landing.status} />}
+          {landing ? (
+            <Link className="button" to={`/w/${landing.id}/edit`}>
+              <IconEdit />
+              Edit landing page
+            </Link>
+          ) : (
+            <button
+              className="button"
+              type="button"
+              disabled={creating}
+              onClick={() => void startLandingPage()}
+            >
+              <IconPlus />
+              {creating ? 'Creating…' : 'Write a landing page'}
+            </button>
+          )}
+        </div>
+      )}
+
     </>
   )
 }

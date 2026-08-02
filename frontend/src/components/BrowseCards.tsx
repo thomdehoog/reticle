@@ -14,11 +14,11 @@
 
 import { Link } from 'react-router'
 
-import { DIFFICULTY_LABELS, formatDurationRange } from '../domain/guide'
+import { formatDurationRange } from '../domain/guide'
 import type { Category, GuideSummary, PageSummary } from '../domain/types'
-import { IconBook, IconSteps } from './icons'
+import { IconBook } from './icons'
 import { Thumbnail } from './Thumbnail'
-import { StatusBadge } from './ui'
+import { DifficultyMeter, StatusBadge } from './ui'
 
 /** A section. The count is the only number worth carrying on the way in. */
 export function CategoryTile({
@@ -48,6 +48,11 @@ export function CategoryTile({
 /**
  * A guide. The picture is its first step image, so the card shows the thing the
  * guide starts by showing you.
+ *
+ * This is the big shape, and it is now used only where a guide is the subject
+ * rather than one of a list — an author's own unfinished work on the front page.
+ * Inside a section, where the answer to "which of these eight" is the title,
+ * `GuideRow` shows five in the space this takes for one.
  */
 export function GuideCard({ guide, to }: { guide: GuideSummary; to?: string }) {
   return (
@@ -56,24 +61,7 @@ export function GuideCard({ guide, to }: { guide: GuideSummary; to?: string }) {
       <span className="tile__body">
         <span className="tile__name">{guide.title}</span>
         <span className="tile__meta">
-          <IconSteps size={13} />
-          <span>
-            {guide.stepCount} {guide.stepCount === 1 ? 'step' : 'steps'}
-          </span>
-          <span className="tile__dot" aria-hidden="true">
-            ·
-          </span>
-          <span>{DIFFICULTY_LABELS[guide.difficulty]}</span>
-          {(guide.timeRequiredMinMinutes !== null || guide.timeRequiredMaxMinutes !== null) && (
-            <>
-              <span className="tile__dot" aria-hidden="true">
-                ·
-              </span>
-              <span>
-                {formatDurationRange(guide.timeRequiredMinMinutes, guide.timeRequiredMaxMinutes)}
-              </span>
-            </>
-          )}
+          <DifficultyMeter difficulty={guide.difficulty} />
         </span>
       </span>
       {guide.status !== 'published' && (
@@ -83,6 +71,43 @@ export function GuideCard({ guide, to }: { guide: GuideSummary; to?: string }) {
       )}
     </Link>
   )
+}
+
+/**
+ * A guide in a list of guides: the title, and its first step image beside it.
+ *
+ * Under an instrument heading there are typically eight of these and the reader
+ * already knows which instrument they are looking at, so the thing that tells
+ * them apart is the title — which means the title gets the width and the picture
+ * gets a corner of it. Five fit on a phone screen where five cards would have
+ * been five screens of scrolling.
+ *
+ * The thumbnail is decorative here: the link is already named by its title, and
+ * a screen reader announcing the first step's image before the title would put
+ * a description of a photograph between the reader and the name of the
+ * procedure.
+ */
+export function GuideRow({ guide, to }: { guide: GuideSummary; to?: string }) {
+  return (
+    <Link className="guide-row" to={to ?? `/g/${guide.slug}`}>
+      <span className="guide-row__main">
+        <span className="guide-row__title">{guide.title}</span>
+        <span className="guide-row__meta">
+          <DifficultyMeter difficulty={guide.difficulty} />
+          <span>
+            {formatDurationRange(guide.timeRequiredMinMinutes, guide.timeRequiredMaxMinutes)}
+          </span>
+          {guide.status !== 'published' && <StatusBadge status={guide.status} />}
+        </span>
+      </span>
+      <Thumbnail seed={guide.title} src={guide.thumbnailUrl} className="guide-row__thumb" />
+    </Link>
+  )
+}
+
+/** The list a run of rows sits in, so they read as one block with one border. */
+export function GuideRows({ children }: { children: React.ReactNode }) {
+  return <div className="guide-rows">{children}</div>
 }
 
 /**
@@ -98,17 +123,14 @@ export function WikiCard({ page, context }: { page: PageSummary; context?: strin
       <Thumbnail seed={page.title} src={page.heroImageUrl} className="tile__media" />
       <span className="tile__body">
         <span className="tile__name">{page.title}</span>
+        {/* The book icon and the heading above the group already say this is a
+            wiki page. What is worth a line is the exception — a landing page is
+            a section's front rather than an article — and, where the card is
+            seen away from its section, which section that is. */}
         <span className="tile__meta">
           <IconBook size={13} />
-          <span>{page.isLanding ? 'Section front page' : 'Wiki page'}</span>
-          {context && (
-            <>
-              <span className="tile__dot" aria-hidden="true">
-                ·
-              </span>
-              <span>{context}</span>
-            </>
-          )}
+          {page.isLanding && <span>Section front page</span>}
+          {context && <span>{context}</span>}
         </span>
       </span>
       {page.status !== 'published' && (

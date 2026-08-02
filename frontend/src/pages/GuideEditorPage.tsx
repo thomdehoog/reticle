@@ -512,10 +512,9 @@ export function GuideEditorPage() {
                   tags={guide.tags}
                   onChange={(tags) => mutate((current) => ({ ...current, tags }))}
                 />
-                <span className="field__hint">
-                  Tags decide where this guide appears. A wiki page can gather every guide
-                  carrying a tag, so one guide can show up under several instruments.
-                </span>
+                {/* Not obvious from the label, and getting it wrong is why a
+                    finished guide never appears anywhere. */}
+                <span className="field__hint">Tags decide where this guide appears.</span>
               </div>
 
               <div className="field">
@@ -592,10 +591,6 @@ export function GuideEditorPage() {
                     }
                   />
                 </div>
-                <span className="field__hint">
-                  A range is more honest than a single number. Leave the second box empty if it is
-                  reliably one duration.
-                </span>
               </div>
             </div>
           </div>

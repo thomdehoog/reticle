@@ -63,6 +63,41 @@ export function browsableCategories(categories: Category[]): Category[] {
 }
 
 /**
+ * How many guides a category holds, counting everything nested under it.
+ *
+ * A parent's number has to include its children's, hidden children included:
+ * those guides really are reachable from the card through the pages underneath
+ * it, and "0 guides" printed over a section full of them reads as a broken
+ * section rather than as an empty one.
+ *
+ * Counting from one listing rather than asking per category is what keeps a
+ * page with five sub-sections to one request instead of six.
+ */
+export function countGuidesByCategory(
+  categories: Category[],
+  guides: { categoryId: string }[],
+): (categoryId: string) => number {
+  const direct = new Map<string, number>()
+  for (const guide of guides) {
+    direct.set(guide.categoryId, (direct.get(guide.categoryId) ?? 0) + 1)
+  }
+
+  const childrenOf = new Map<string, Category[]>()
+  for (const category of categories) {
+    if (!category.parentId) continue
+    const siblings = childrenOf.get(category.parentId) ?? []
+    siblings.push(category)
+    childrenOf.set(category.parentId, siblings)
+  }
+
+  const total = (categoryId: string): number =>
+    (direct.get(categoryId) ?? 0) +
+    (childrenOf.get(categoryId) ?? []).reduce((sum, child) => sum + total(child.id), 0)
+
+  return total
+}
+
+/**
  * Every category, hidden ones included.
  *
  * This is what the admin screen and the editors need: an author moving a guide

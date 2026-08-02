@@ -137,7 +137,7 @@ describe('PageEditorPage', () => {
 })
 
 describe('PageViewPage', () => {
-  it('credits contributors and shows the version it is serving', async () => {
+  it('credits contributors, and keeps the provenance on the printed copy', async () => {
     const server = createFakeServer({
       pages: [
         pageFixture({
@@ -161,9 +161,12 @@ describe('PageViewPage', () => {
       { route: '/w/immersion-oil', fetchImpl: server.fetchImpl },
     )
 
-    expect(await screen.findByText('Eva Meier')).toBeInTheDocument()
-    expect(screen.getByText('42 times')).toBeInTheDocument()
-    expect(screen.getByText(/^3 ·/)).toBeInTheDocument()
+    expect(await screen.findByText(/Written by Thom de Hoog, with Eva Meier/)).toBeInTheDocument()
+    /* The view count and the version number are gone from the screen: a reader
+       does nothing differently because a page has been read 42 times, and the
+       version is for the revision history, which authors reach from the editor. */
+    expect(screen.queryByText('42 times')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^3 ·/)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Print/ })).toBeInTheDocument()
     /* The same provenance line a printed guide carries — a wiki page taped to a
        door is just as capable of being two years out of date. */

@@ -181,8 +181,12 @@ for (const viewport of VIEWPORTS) {
   const menu = page.getByRole('button', { name: 'Menu' })
   if (await menu.isVisible()) {
     await menu.click()
+    await page.waitForSelector('.menu-sheet')
     await checkReadability(page, viewport, 'menu')
-    await menu.click()
+    /* Escape rather than the button again: the sheet is a dialog over the page,
+       so its backdrop is what a click at the button's position would land on. */
+    await page.keyboard.press('Escape')
+    await page.waitForSelector('.menu-sheet', { state: 'detached' })
   }
 
   /**
@@ -214,17 +218,17 @@ for (const viewport of VIEWPORTS) {
      "networkidle" fires immediately, because a client-side route change has
      nothing in flight at the moment of the click. Waiting for the spinner to
      detach can resolve before the spinner has been rendered at all. And
-     ".tile--guide, .empty-state" is satisfied by the empty state a guide-list
+     ".guide-row, .empty-state" is satisfied by the empty state a guide-list
      embedded in the landing page shows while it is still fetching, which is
      not the category's own list.
      Waiting for the response that carries the list is the thing that actually
      means the data is here. */
   await listing
-  await page.waitForSelector('.tile--guide, .empty-state')
+  await page.waitForSelector('.guide-row, .empty-state')
   await page.screenshot({ path: join(SHOTS, `${viewport.name}-3-category.png`), fullPage: true })
   await checkReadability(page, viewport, 'category')
 
-  const guideRow = page.locator('.tile--guide').first()
+  const guideRow = page.locator('.guide-row').first()
   if (await guideRow.count()) {
     await guideRow.click()
     await page.waitForSelector('.step')
@@ -237,18 +241,37 @@ for (const viewport of VIEWPORTS) {
      * The point of the whole exercise: nothing but the guide's own front matter
      * stands between the top of the screen and step 1.
      *
-     * Measured as "no navigation below the header" rather than "step 1 is in the
-     * first screenful", because how far down step 1 lands also depends on how
-     * long its author made the introduction — which is content, and not this
+     * Measured as "the section list is not above step 1" rather than "step 1 is
+     * in the first screenful", because how far down step 1 lands also depends on
+     * how long its author made the introduction — which is content, and not this
      * test's business.
+     *
+     * Where the list is a column beside the guide rather than a block stacked
+     * above it, the question does not arise: it is not in the reader's way, it
+     * is next to them. That is detected from the boxes rather than from a width,
+     * so the check follows the stylesheet's breakpoint wherever it moves to.
      */
-    const navBelowStep = await page.evaluate(() => {
+    const stepOrder = await page.evaluate(() => {
       const nav = document.querySelector('.section-nav')
       const step = document.querySelector('.step')
-      if (!nav || !step) return true
-      return nav.getBoundingClientRect().top > step.getBoundingClientRect().top
+      if (!nav || !step) return { stacked: false, navAbove: false }
+      const navBox = nav.getBoundingClientRect()
+      const stepBox = step.getBoundingClientRect()
+      return {
+        stacked: navBox.right > stepBox.left,
+        navAbove: navBox.top < stepBox.top,
+      }
     })
-    record(`[${viewport.name}] the section list does not precede step 1`, navBelowStep)
+    if (stepOrder.stacked) {
+      record(`[${viewport.name}] the section list does not precede step 1`, !stepOrder.navAbove)
+    }
+
+    /* What the reader actually scrolls past to reach the first instruction. */
+    const stepTop = await page.evaluate(() => {
+      const step = document.querySelector('.step')
+      return step ? Math.round(step.getBoundingClientRect().top + window.scrollY) : -1
+    })
+    record(`[${viewport.name}] step 1 begins at ${stepTop}px`, stepTop > 0)
 
     const edit = page.getByRole('link', { name: 'Edit' })
     if (await edit.count()) {

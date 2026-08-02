@@ -17,6 +17,13 @@ function renderIndex(server: ReturnType<typeof createFakeServer>) {
   )
 }
 
+/* Creating a guide and creating a page are one control in the header now, so
+   every one of these starts by opening it. */
+async function openNewPageDialog(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('button', { name: 'New' }))
+  await user.click(await screen.findByRole('button', { name: 'Page' }))
+}
+
 describe('WikiIndexPage', () => {
   it('lists the wiki pages with the category each belongs to', async () => {
     const server = createFakeServer({
@@ -86,7 +93,7 @@ describe('the New page dialog', () => {
     const user = userEvent.setup()
     renderShell(server)
 
-    await user.click(await screen.findByRole('button', { name: /New page/ }))
+    await openNewPageDialog(user)
     await user.type(screen.getByLabelText('Title'), 'Immersion oil')
     await user.click(screen.getByRole('button', { name: 'Create and start writing' }))
 
@@ -101,7 +108,7 @@ describe('the New page dialog', () => {
     const user = userEvent.setup()
     renderShell(server)
 
-    await user.click(await screen.findByRole('button', { name: /New page/ }))
+    await openNewPageDialog(user)
     await user.type(screen.getByLabelText('Title'), 'Light Microscopy')
     await user.selectOptions(screen.getByLabelText('Category'), 'c-light')
     await user.click(screen.getByRole('checkbox'))
@@ -119,7 +126,7 @@ describe('the New page dialog', () => {
     const user = userEvent.setup()
     renderShell(server)
 
-    await user.click(await screen.findByRole('button', { name: /New page/ }))
+    await openNewPageDialog(user)
     expect(screen.getByRole('checkbox')).toBeDisabled()
   })
 
@@ -130,7 +137,7 @@ describe('the New page dialog', () => {
     const user = userEvent.setup()
     renderShell(server)
 
-    await user.click(await screen.findByRole('button', { name: /New page/ }))
+    await openNewPageDialog(user)
     await user.type(screen.getByLabelText('Title'), 'Another one')
     await user.selectOptions(screen.getByLabelText('Category'), 'c-light')
     await user.click(screen.getByRole('checkbox'))
