@@ -102,6 +102,15 @@ head is a line, and losing the shape entirely would leave the reader with a
 colour and nothing pointing at anything.
 """
 
+NO_TIME_ESTIMATE = frozenset({"no estimate", "not specified", "unknown", "n/a"})
+"""What the vendor writes where an author gave no duration.
+
+An absent value spelled in words. It has to be listed rather than inferred —
+the importer refuses to guess at anything it does not recognise, and that is
+right for a *time* it cannot parse — but reporting "No estimate" as unmapped
+stopped the run over a guide that had nothing to lose in the first place.
+"""
+
 MAX_BULLET_LEVEL = 2
 
 KNOWN_GUIDE_FIELDS = frozenset(
@@ -433,6 +442,12 @@ def map_time_required(raw: Any, where: str) -> tuple[int | None, int | None, lis
     if not text:
         return None, None, []
 
+    # The vendor writes this where an author left the estimate blank, so it is
+    # an absent value spelled in words rather than an unreadable one. Reported
+    # as unmapped it stopped a migration on a guide that had nothing to lose.
+    if text.casefold() in NO_TIME_ESTIMATE:
+        return None, None, []
+
     clock = _clock_range(text)
     if clock is not None:
         return clock[0], clock[1], []
@@ -558,7 +573,12 @@ def map_bullet(line: dict[str, Any], where: str) -> tuple[MappedBullet | None, l
     text = line.get("text_raw")
     if not isinstance(text, str):
         text = line.get("text_rendered") or line.get("text") or ""
-    text = strip_markup(text) if "<" in str(text) else str(text).strip()
+    # A bullet carries the same wiki syntax the front matter does — a link to
+    # the manufacturer's page, a bolded warning — and a bullet is where most of
+    # a ZMB guide's words are. `wiki_to_markdown` reduces vendor HTML first, so
+    # this covers a `_rendered` payload as well; the block constructs it also
+    # knows about simply do not occur in one line.
+    text = wiki_to_markdown(str(text))
 
     raw_bullet = line.get("bullet") or line.get("color") or "black"
     key = str(raw_bullet).strip().lower()
@@ -928,15 +948,27 @@ def map_guide(payload: dict[str, Any]) -> tuple[MappedGuide, list[Unmapped]]:
             difficulty=difficulty,
             time_min_minutes=low,
             time_max_minutes=high,
-            introduction=strip_markup(
-                payload.get("introduction_raw")
-                or payload.get("introduction_rendered")
-                or payload.get("introduction")
+            # `_raw` is the vendor's wiki syntax, not HTML, so stripping tags
+            # left it untouched and a reader met `'''widefield'''` and
+            # `[https://svi.nl/HomePage|SVI Huygens]` in the middle of a
+            # sentence. Reticle renders these as rich text, which is exactly
+            # what those constructs mean, so they are translated the same way a
+            # wiki page's body already was.
+            introduction=wiki_to_markdown(
+                str(
+                    payload.get("introduction_raw")
+                    or payload.get("introduction_rendered")
+                    or payload.get("introduction")
+                    or ""
+                )
             ),
-            conclusion=strip_markup(
-                payload.get("conclusion_raw")
-                or payload.get("conclusion_rendered")
-                or payload.get("conclusion")
+            conclusion=wiki_to_markdown(
+                str(
+                    payload.get("conclusion_raw")
+                    or payload.get("conclusion_rendered")
+                    or payload.get("conclusion")
+                    or ""
+                )
             ),
             is_public=bool(payload.get("public", True)),
             is_quick_link=bool(payload.get("featured_guide", False)),
@@ -1012,6 +1044,27 @@ _WIKI_HEADING = re.compile(r"^(={2,6})\s*(.+?)\s*\1\s*$", re.MULTILINE)
 _WIKI_BOLD = re.compile(r"'''(.+?)'''", re.DOTALL)
 _WIKI_ITALIC = re.compile(r"''(.+?)''", re.DOTALL)
 _WIKI_LINK = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
+
+_WIKI_URL_LINK = re.compile(r"\[(?:link\|)?(https?://[^\]|]+)(?:\|([^\]]*))?\]", re.IGNORECASE)
+"""A link, in the two single-bracket spellings the corpus writes.
+
+``[https://svi.nl/HomePage|SVI Huygens]`` and
+``[link|https://svi.nl/HowtoCiteHuygens|cite Huygens]`` — nine and fifteen of
+them in the sample, against no ``[[target|label]]`` at all. The MediaWiki form
+above was what the converter knew, which is why every link in every guide
+reached the reader as its own source text.
+
+Anchored on the scheme rather than on "anything before a pipe", so the
+constructs that share this shape and are *not* links are left for the code that
+does understand them: ``[guide|26|new_window=true]`` and
+``[guidelist|tags=ASTED|type=howto]`` are Reticle blocks resolved once the
+import knows what those ids became, and swallowing them here would turn a guide
+embed into a dead link to nowhere.
+"""
+
+_WIKI_MAILTO = re.compile(r"\[mailto\|([^\]|]+)(?:\|([^\]]*))?\]", re.IGNORECASE)
+
+_HTML_TAG = re.compile(r"<\s*/?[a-zA-Z][^>]*>")
 _WIKI_LIST = re.compile(r"^\*\s+", re.MULTILINE)
 
 
@@ -1036,16 +1089,21 @@ def wiki_to_markdown(source: str) -> str:
 
     text = source.replace("\r\n", "\n")
 
-    if "<" in text and ">" in text:
-        # A rendered payload rather than a source one: reduce it to text first,
-        # because vendor HTML must never survive the crossing.
-        if re.search(r"<(p|div|ul|ol|h[1-6]|table)\b", text, re.IGNORECASE):
-            text = strip_markup(text)
+    # Any tag at all, not only the block ones. A bullet carries inline markup —
+    # `<b>Never</b> touch the lens` — and matching on `<p>` and its neighbours
+    # let that through to be rendered as literal angle brackets. Vendor HTML
+    # must never survive the crossing, whatever shape it arrives in.
+    if _HTML_TAG.search(text):
+        text = strip_markup(text)
 
     text = _WIKI_HEADING.sub(lambda m: f"{'#' * len(m.group(1))} {m.group(2)}", text)
     text = _WIKI_BOLD.sub(r"**\1**", text)
     text = _WIKI_ITALIC.sub(r"*\1*", text)
     text = _WIKI_LINK.sub(lambda m: _wiki_link(m.group(1), m.group(2)), text)
+    text = _WIKI_URL_LINK.sub(lambda m: _wiki_link(m.group(1), m.group(2)), text)
+    text = _WIKI_MAILTO.sub(
+        lambda m: f"[{(m.group(2) or m.group(1)).strip()}](mailto:{m.group(1).strip()})", text
+    )
     text = _WIKI_LIST.sub("- ", text)
     return _BLANK_LINES.sub("\n\n", text).strip()
 

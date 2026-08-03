@@ -120,6 +120,11 @@ def test_an_unreadable_tag_is_reported_rather_than_dropped():
         ({"min": 1800, "max": 5400}, (30, 90)),
         (None, (None, None)),
         ("", (None, None)),
+        # What the site writes where an author gave no estimate. An absent value
+        # spelled in words, not an unreadable one — reporting it as unmapped
+        # stopped the run over a guide with nothing to lose.
+        ("No estimate", (None, None)),
+        ("no estimate", (None, None)),
     ],
 )
 def test_time_estimates_survive_as_the_range_they_were_written_as(raw, expected):
@@ -210,6 +215,58 @@ def test_indent_levels_beyond_two_are_clamped_and_reported():
 def test_bullet_html_is_reduced_to_text():
     bullet, _ = map_bullet({"text_raw": "<b>Never</b> touch the lens."}, "s1")
     assert bullet is not None and bullet.text == "Never touch the lens."
+
+
+def test_a_bullet_written_in_wiki_syntax_arrives_as_rich_text():
+    """`text_raw` is the vendor's wiki syntax, not HTML.
+
+    Stripping tags left it exactly as it was, so a reader met
+    ``'''widefield'''`` and ``[https://svi.nl|SVI]`` in the middle of a
+    sentence. Reticle renders a bullet as rich text, which is what those
+    constructs mean.
+    """
+    bullet, problems = map_bullet(
+        {"text_raw": "Use '''widefield''' and see [https://svi.nl|the manual]."}, "s1"
+    )
+
+    assert problems == []
+    assert bullet is not None
+    assert bullet.text == "Use **widefield** and see [the manual](https://svi.nl)."
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("[https://svi.nl/HomePage|SVI Huygens]", "[SVI Huygens](https://svi.nl/HomePage)"),
+        ("[link|https://svi.nl/cite|cite Huygens]", "[cite Huygens](https://svi.nl/cite)"),
+        ("[link|https://svi.nl/cite]", "[https://svi.nl/cite](https://svi.nl/cite)"),
+        ("[mailto|it@zmb.uzh.ch]", "[it@zmb.uzh.ch](mailto:it@zmb.uzh.ch)"),
+        ("[mailto|it@zmb.uzh.ch|the IT desk]", "[the IT desk](mailto:it@zmb.uzh.ch)"),
+    ],
+)
+def test_the_link_spellings_the_corpus_actually_writes(source, expected):
+    """Counted across the sample: fifteen ``[link|..]``, nine ``[url|label]``,
+    three ``[mailto|..]`` — and no ``[[target|label]]`` anywhere, which is the
+    only form the converter used to know."""
+    assert wiki_to_markdown(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "[guide|26|new_window=true]",
+        "[guidelist|tags=ASTED|type=howto]",
+        "[image|13484|align=center]",
+    ],
+)
+def test_a_construct_that_is_not_a_link_is_left_for_the_code_that_understands_it(source):
+    """These share a link's shape and are not links.
+
+    A guide embed becomes a Reticle block once the import knows what id 26 has
+    turned into, and a guide list becomes a tag-filtered listing. Matching them
+    here on "anything before a pipe" would have turned both into dead links.
+    """
+    assert wiki_to_markdown(source) == source
 
 
 def test_an_empty_bullet_is_dropped_without_complaint():
@@ -473,6 +530,24 @@ def test_a_whole_guide_maps_with_nothing_left_unrecognised():
     # Annotations are not among them: they live on the image document, not on
     # the guide payload, and the run attaches them once it has fetched it.
     assert step.images[0].annotations == []
+
+
+def test_a_guides_front_matter_is_translated_out_of_wiki_syntax():
+    """The introduction and the conclusion are wiki source like a page's body.
+
+    They were run through the HTML stripper, which leaves wiki syntax alone, so
+    a guide's first paragraph reached the reader full of markers. Both are
+    translated the same way a wiki page's body already was.
+    """
+    payload = _guide_payload()
+    payload["introduction_raw"] = "Uses '''Huygens''' — see [https://svi.nl|the site]."
+    payload["conclusion_raw"] = "Cite it with [https://svi.nl/cite|these words]."
+
+    mapped, problems = map_guide(payload)
+
+    assert problems == []
+    assert mapped.introduction == "Uses **Huygens** — see [the site](https://svi.nl)."
+    assert mapped.conclusion == "Cite it with [these words](https://svi.nl/cite)."
 
 
 def test_a_private_guide_is_marked_private_so_it_does_not_arrive_published():
