@@ -515,7 +515,11 @@ def test_a_whole_guide_maps_with_nothing_left_unrecognised():
     assert mapped.title == "Starting a Session on the Confocal"
     assert mapped.summary == "From booking to shutdown."
     assert mapped.category_name == "Light Microscopy"
-    assert mapped.tags == ["confocal", "stellaris"]
+    # Empty from the payload alone: a guide document carries no `tags` key, and
+    # the groups it belongs to are a separate request the run makes. Asserted
+    # rather than omitted, because reading them from here is exactly the mistake
+    # that reported "0 tags" against a corpus of eighty-nine.
+    assert mapped.tags == []
     assert mapped.difficulty == "easy"
     assert (mapped.time_min_minutes, mapped.time_max_minutes) == (30, 90)
     assert mapped.is_public is True

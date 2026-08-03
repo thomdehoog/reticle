@@ -41,6 +41,14 @@ class FakeDozuki:
         self._wikis = wikis or {}
         self.downloads: list[str] = []
         self.failing_urls: set[str] = set()
+        # The two things a guide payload does not carry, each on its own
+        # endpoint: which sections sit under which, and which groups a guide
+        # belongs to. Default to what the fixture guide claims so the existing
+        # assertions keep meaning what they meant.
+        self.category_tree: dict = {"Light Microscopy": {}}
+        self.guide_tags: dict[str, list[str]] = {
+            str(guide["guideid"]): list(guide.get("tags") or []) for guide in guides
+        }
         # The record for the standard fixture image, carrying one rectangle in
         # the vendor's own notation. A thousand pixels square keeps the
         # arithmetic legible: 100/1000 and 300-100 over 1000 are the 0.1 and 0.2
@@ -76,6 +84,14 @@ class FakeDozuki:
             if entry.get("title") == title:
                 return entry
         raise MigrationError(f"No such wiki {namespace}/{title}")
+
+    def get_category_tree(self):
+        """The nesting, which a guide's own payload does not carry."""
+        return self.category_tree
+
+    def get_guide_tags(self, guide_id):
+        """The groups a guide belongs to, which live on their own endpoint."""
+        return self.guide_tags.get(str(guide_id), [])
 
     def get_image(self, image_id):
         """An image's own record, which is the only place its shapes live.
@@ -165,6 +181,7 @@ def _run(db_session, client, options=None):
     """Everything ``main`` does, in the order it does it."""
     resolved = options or _options()
     importer = Importer(db_session, client, resolved, get_settings())
+    importer.adopt_category_tree()
     importer.import_guides()
     importer.import_pages()
     if not resolved.dry_run:
@@ -197,6 +214,64 @@ def test_the_category_is_created_from_the_source_and_reused(db_session, author_a
 
     categories = db_session.scalars(select(Category)).all()
     assert [category.name for category in categories] == ["Light Microscopy"]
+
+
+def test_the_sections_arrive_nested_the_way_the_site_nests_them(
+    db_session, author_account, media_root
+):
+    """A guide names its section and nothing above it.
+
+    Built from guides alone the hierarchy flattens — which is what the first
+    real run produced: twenty-four sections, every one of them top-level. The
+    nesting is published by itself and has to be read by itself.
+    """
+    client = FakeDozuki([_guide(1, category="Widefield Microscopy")])
+    client.category_tree = {
+        "Light Micrscopy": {"Widefield Microscopy": {}, "Basic Guides": {}},
+        "CryoEM": {},
+    }
+
+    _run(db_session, client)
+
+    by_name = {c.name: c for c in db_session.scalars(select(Category)).all()}
+    assert by_name["Light Micrscopy"].parent_id is None
+    assert by_name["CryoEM"].parent_id is None
+    assert by_name["Widefield Microscopy"].parent_id == by_name["Light Micrscopy"].id
+    assert by_name["Basic Guides"].parent_id == by_name["Light Micrscopy"].id
+    # And the guide lands in the child, not beside it.
+    guide = db_session.scalars(select(Guide)).one()
+    assert guide.category_id == by_name["Widefield Microscopy"].id
+
+
+def test_children_are_ordered_within_their_parent(db_session, author_account, media_root):
+    """Numbering across the whole tree gave one parent's five children the
+    indices 3, 9, 14, 15, 22 — an order that means nothing and cannot be
+    adjusted without renumbering the rest of the site."""
+    client = FakeDozuki([_guide(1)])
+    client.category_tree = {"A": {"A1": {}, "A2": {}}, "B": {"B1": {}}}
+
+    _run(db_session, client)
+
+    by_name = {c.name: c for c in db_session.scalars(select(Category)).all()}
+    assert [by_name["A1"].order_index, by_name["A2"].order_index] == [0, 1]
+    assert by_name["B1"].order_index == 0
+
+
+def test_the_groups_a_guide_belongs_to_come_from_their_own_endpoint(
+    db_session, author_account, media_root
+):
+    """No `tags` key exists on a guide document.
+
+    Reading one produced "0 tags" against a corpus where eighty-nine groups
+    drive thirteen section front pages.
+    """
+    client = FakeDozuki([_guide(1)])
+    client.guide_tags["1"] = ["OSD", "THUNDER"]
+
+    _run(db_session, client)
+
+    guide = db_session.scalars(select(Guide)).one()
+    assert guide.tag_slugs == ["osd", "thunder"]
 
 
 def test_pictures_are_fetched_and_stored_through_the_upload_validation(

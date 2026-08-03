@@ -758,6 +758,29 @@ def parse_markup(
     return mapped, problems
 
 
+def attach_groups(
+    mapped: MappedGuide, fetch: Callable[[str], list[str]], where: str
+) -> list[Unmapped]:
+    """Fill in the groups a guide belongs to, given a way to fetch them.
+
+    A guide names one section in its own payload and nothing else. Which
+    instruments it covers — ``OSD``, ``THUNDER``, ``TitanG3i`` — lives on
+    ``/guides/{id}/tags``, and eighty-nine of those drive thirteen section front
+    pages. They are the level between a section and a guide, and a fifth of the
+    corpus belongs to more than one of them, which is why this is a list and not
+    a second parent.
+
+    Separated from the fetch itself for the reason ``attach_image_details`` is:
+    the mapping talks to nothing, and the import and the verification pass have
+    to agree about what the source holds or the comparison between them means
+    nothing.
+    """
+    names = fetch(mapped.source_id)
+    slugs, problems = map_tags(names, where)
+    mapped.tags = slugs
+    return problems
+
+
 def attach_image_details(
     mapped: MappedGuide, fetch: Callable[[str], dict[str, Any]]
 ) -> list[Unmapped]:
@@ -916,8 +939,12 @@ def map_guide(payload: dict[str, Any]) -> tuple[MappedGuide, list[Unmapped]]:
     difficulty, difficulty_problems = map_difficulty(payload.get("difficulty"), where)
     problems.extend(difficulty_problems)
 
-    tags, tag_problems = map_tags(payload.get("tags"), where)
-    problems.extend(tag_problems)
+    # Deliberately not read from the payload: a guide document carries no
+    # `tags` key at all. The groups it belongs to are a separate request, and
+    # the run attaches them once it has made it — see `attach_groups`. Reaching
+    # for a key that has never existed is what produced "0 tags" against a
+    # corpus of eighty-nine.
+    tags: list[str] = []
 
     low, high, time_problems = map_time_required(
         payload.get("time_required") if "time_required" in payload else payload.get("time"),

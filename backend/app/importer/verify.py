@@ -39,7 +39,7 @@ from sqlalchemy.orm import Session as DbSession
 from ..models import Guide, ImportedRecord
 from ..schemas import guide_out
 from .client import MigrationError
-from .mapping import MappedGuide, attach_image_details, map_guide
+from .mapping import MappedGuide, attach_groups, attach_image_details, map_guide
 
 SOURCE_SYSTEM = "dozuki"
 
@@ -198,6 +198,11 @@ def verify(db: DbSession, client, limit: int | None = None) -> VerificationRepor
         # invention check would accuse a faithful migration of making the corpus
         # up.
         attach_image_details(source, client.get_image)
+        # And the groups, for the same reason: they are a separate request, so a
+        # verification that skipped it would find every group Reticle holds to
+        # have no counterpart in the source and call a faithful import an
+        # invention.
+        attach_groups(source, client.get_guide_tags, f"guide {record.source_id}")
         compare(source, guide_out(guide).model_dump(mode="json", by_alias=True), verdict)
 
     return report

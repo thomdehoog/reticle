@@ -73,6 +73,7 @@ from .mapping import (
     MappedImage,
     MappedPage,
     MappedVideo,
+    attach_groups,
     attach_image_details,
     map_guide,
     map_page,
@@ -192,10 +193,47 @@ class Importer:
             )
         return user
 
-    def _category(self, name: str) -> Category:
+    def adopt_category_tree(self) -> None:
+        """Create the sections in their nesting, before any guide names one.
+
+        A guide's payload says only "Light Micrscopy", with nothing to say that
+        it sits under anything or has anything under it, so an import built from
+        guides alone flattens the whole hierarchy — twenty-four sections, every
+        one of them top-level, which is what the first run produced. The nesting
+        is published once, by itself, and this is the only place it can be read.
+
+        Run before the guides so that ``_category`` finds a section already in
+        its right place. A name the tree does not mention still gets created
+        flat when a guide claims it: the alternative is refusing to import a
+        guide because its section is missing from a listing, which loses the
+        guide to fix the shelf.
+        """
+        try:
+            tree = self.client.get_category_tree()
+        except MigrationError as error:
+            self.report.failures.append(f"category tree: {error}")
+            return
+
+        def adopt(node: dict[str, Any], parent: Category | None) -> None:
+            for name, children in node.items():
+                if not isinstance(name, str) or not name.strip():
+                    continue
+                category = self._category(name, parent=parent)
+                if isinstance(children, dict) and children:
+                    adopt(children, category)
+
+        adopt(tree, None)
+        self.db.flush()
+
+    def _category(self, name: str, parent: Category | None = None) -> Category:
         wanted = (name or "").strip() or UNCATEGORISED
         if wanted in self._categories:
-            return self._categories[wanted]
+            existing = self._categories[wanted]
+            # A section met first as a guide's bare name and only afterwards in
+            # the tree: the tree is the one that knows where it belongs.
+            if parent is not None and existing.parent_id is None:
+                existing.parent_id = parent.id
+            return existing
 
         category = self.db.scalars(select(Category).where(Category.name == wanted)).one_or_none()
         if category is None:
@@ -203,8 +241,8 @@ class Importer:
                 slug=unique_slug(wanted, self._category_slug_taken, fallback="category"),
                 name=wanted,
                 description="",
-                parent_id=None,
-                order_index=self._next_category_order(),
+                parent_id=parent.id if parent is not None else None,
+                order_index=self._next_order_under(parent),
                 # Imported sections start visible; the ones that are really
                 # holding pens are marked hidden afterwards, from the report,
                 # rather than guessed at from a name.
@@ -213,15 +251,25 @@ class Importer:
             self.db.add(category)
             self.db.flush()
             self.report.categories_created += 1
+        elif parent is not None and category.parent_id is None:
+            category.parent_id = parent.id
         self._categories[wanted] = category
         return category
 
     def _category_slug_taken(self, slug: str) -> bool:
         return self.db.scalars(select(Category).where(Category.slug == slug)).first() is not None
 
-    def _next_category_order(self) -> int:
-        existing = self.db.scalars(select(Category)).all()
-        return max((item.order_index for item in existing), default=-1) + 1
+    def _next_order_under(self, parent: Category | None) -> int:
+        """Ordering runs within a parent, not across the whole tree.
+
+        Counting every section together numbered a child by how many sections
+        existed anywhere when it arrived, so five children of one parent could
+        come out as 3, 9, 14, 15, 22 — an order that means nothing and cannot be
+        adjusted without renumbering the rest of the site.
+        """
+        parent_id = parent.id if parent is not None else None
+        siblings = self.db.scalars(select(Category).where(Category.parent_id == parent_id)).all()
+        return max((item.order_index for item in siblings), default=-1) + 1
 
     def _tag(self, slug: str) -> Tag:
         if slug in self._tags:
@@ -435,6 +483,17 @@ class Importer:
 
         tally = GuideTally(source_id=mapped.source_id, title=mapped.title)
         count_source(payload, tally)
+
+        def groups(guide_id: str) -> list[str]:
+            """A guide with unreachable groups still arrives, in its section."""
+            try:
+                return self.client.get_guide_tags(guide_id)
+            except MigrationError as error:
+                tally.failures.append(f"groups: {error}")
+                return []
+
+        self.report.unmapped.extend(attach_groups(mapped, groups, f"guide {mapped.source_id}"))
+
         if not self.options.skip_media:
             self._attach_image_details(mapped, tally)
         self.report.guides.append(tally)
@@ -887,6 +946,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if verification.faithful else 5
 
         importer = Importer(db, client, options, settings)
+        # Before anything claims a section, so a guide arriving in "Widefield
+        # Microscopy" lands under Light Micrscopy rather than beside it.
+        importer.adopt_category_tree()
         if not args.pages_only:
             importer.import_guides()
         if not args.guides_only:

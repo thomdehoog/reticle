@@ -185,6 +185,34 @@ class DozukiClient:
             raise MigrationError(f"Guide {guide_id} was not an object.")
         return payload
 
+    def get_category_tree(self) -> dict[str, Any]:
+        """The section hierarchy, as nested names.
+
+        ``{"Light Micrscopy": {"Widefield Microscopy": {}, ...}, ...}`` — the
+        only place the nesting is published. A guide's own payload names its
+        section as a bare string with nothing above it, so an import that reads
+        only guides produces a flat list of sections and loses which sits under
+        which.
+        """
+        payload = self.get_json("/api/2.0/categories")
+        if not isinstance(payload, dict):
+            raise MigrationError("The category listing was not an object.")
+        return payload
+
+    def get_guide_tags(self, guide_id: str | int) -> list[str]:
+        """The groups a guide belongs to, which its payload does not carry.
+
+        ``/guides/56/tags`` answers ``["Balgrist Campus", "Confocal",
+        "Laserscanning"]``. There is no ``tags`` key on the guide itself, so
+        this is the only source — and an import that never called it recorded
+        "0 tags" against a corpus that has eighty-nine of them driving thirteen
+        section front pages.
+        """
+        payload = self.get_json(f"/api/2.0/guides/{guide_id}/tags")
+        if not isinstance(payload, list):
+            raise MigrationError(f"Tags for guide {guide_id} were not a list.")
+        return [item for item in payload if isinstance(item, str)]
+
     def get_image(self, image_id: str | int) -> dict[str, Any]:
         """One image's own record, which is the only place its shapes exist.
 
