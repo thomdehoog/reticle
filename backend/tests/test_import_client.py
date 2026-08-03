@@ -79,23 +79,57 @@ def _client(responses, **kwargs) -> tuple[DozukiClient, FakeOpener, list]:
     return client, opener, slept
 
 
-def test_a_full_page_is_followed_by_another_request():
-    """Stopping on a full page would take the tail of the corpus with it."""
-    first = [{"guideid": index} for index in range(PAGE_SIZE)]
-    second = [{"guideid": 9001}]
-    client, opener, _ = _client([_json_response(first), _json_response(second)])
+def test_a_short_page_does_not_end_the_walk():
+    """The site filters each slice *after* taking it.
+
+    This is the shape the live catalogue actually has, and the assumption that
+    a short page meant the last page is what made this worth a test: six of the
+    eight pages of ZMB's catalogue come back short, so the walk stopped at the
+    first one and fetched 47 guides of 257. Nothing reported it, because the
+    reconciliation takes both the raw count and the mapped count from this same
+    listing — the two agreed with each other about 18% of the corpus.
+    """
+    short = [{"guideid": index} for index in range(PAGE_SIZE - 24)]
+    client, opener, _ = _client(
+        [_json_response(short), _json_response([{"guideid": 9001}]), _json_response([])]
+    )
 
     guides = list(client.iter_guides())
 
-    assert len(guides) == PAGE_SIZE + 1
-    assert f"offset={PAGE_SIZE}" in opener.urls[1]
+    assert len(guides) == len(short) + 1
+    assert len(opener.urls) == 3
 
 
-def test_a_short_page_ends_the_walk():
-    client, opener, _ = _client([_json_response([{"guideid": 1}])])
+def test_an_empty_page_ends_the_walk():
+    client, opener, _ = _client([_json_response([{"guideid": 1}]), _json_response([])])
 
     assert len(list(client.iter_guides())) == 1
-    assert len(opener.urls) == 1
+    assert len(opener.urls) == 2
+
+
+def test_the_offset_advances_by_the_size_asked_for_not_the_size_received():
+    """The offset indexes the listing before the vendor filters it.
+
+    Advancing by what arrived would re-read guides it had already seen and
+    walk off the end of the catalogue without ever reaching the tail.
+    """
+    short = [{"guideid": index} for index in range(3)]
+    client, opener, _ = _client([_json_response(short), _json_response(short), _json_response([])])
+
+    list(client.iter_guides())
+
+    assert f"offset={PAGE_SIZE}" in opener.urls[1]
+    assert f"offset={PAGE_SIZE * 2}" in opener.urls[2]
+
+
+def test_a_wiki_listing_pages_the_same_way():
+    """The two listings were separate copies of this loop, so they drifted
+    together and would have drifted apart."""
+    short = [{"title": f"Page {index}"} for index in range(4)]
+    client, opener, _ = _client([_json_response(short), _json_response([])])
+
+    assert len(list(client.iter_wikis())) == 4
+    assert len(opener.urls) == 2
 
 
 def test_an_empty_catalogue_is_not_an_error():

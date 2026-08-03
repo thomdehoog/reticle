@@ -136,29 +136,48 @@ class DozukiClient:
 
     # -- catalogue --------------------------------------------------------
 
-    def iter_guides(self, include_private: bool = False) -> Iterator[dict[str, Any]]:
-        """Page through the guide catalogue.
+    def _iter_listing(self, path: str, **params: Any) -> Iterator[dict[str, Any]]:
+        """Page a listing endpoint until it is exhausted.
 
-        Paging stops on a short page rather than on an empty one, and the caller
-        counts what it received: an off-by-one in this loop is exactly the sort
-        of mistake that loses the last few guides of a corpus without any error.
+        Two things this must not do, both measured against the live site rather
+        than reasoned about:
+
+        **It must not stop on a short page.** The vendor takes a slice of the
+        catalogue and filters it afterwards, so a page of 200 comes back holding
+        176 and that says nothing at all about whether more exist. Six of the
+        eight pages of ZMB's catalogue are short. Stopping at the first one
+        fetched 47 guides of 257 and reported success — silently, because the
+        reconciliation counts both the raw payload and the mapped document from
+        the same truncated listing, so the two agreed with each other about a
+        corpus that was 18% of the real one.
+
+        **It must not advance by what arrived.** The offset indexes the list
+        before that filtering, so it moves by the size asked for, never by the
+        size received.
+
+        The end is therefore an empty page, which is the only signal the API
+        gives. That is exact unless a whole 200-wide window is filtered away
+        while later windows still hold guides; nothing like it appears in ZMB's
+        catalogue, where 43 of 300 slots are filtered and no page is empty
+        before the last.
         """
         offset = 0
         while True:
-            batch = self.get_json(
-                "/api/2.0/guides",
-                limit=PAGE_SIZE,
-                offset=offset,
-                includePrivate="true" if include_private else None,
-            )
+            batch = self.get_json(path, limit=PAGE_SIZE, offset=offset, **params)
             if not isinstance(batch, list):
-                raise MigrationError(f"Guide listing at offset {offset} was not a list.")
+                raise MigrationError(f"Listing {path} at offset {offset} was not a list.")
+            if not batch:
+                return
             for item in batch:
                 if isinstance(item, dict):
                     yield item
-            if len(batch) < PAGE_SIZE:
-                return
             offset += PAGE_SIZE
+
+    def iter_guides(self, include_private: bool = False) -> Iterator[dict[str, Any]]:
+        yield from self._iter_listing(
+            "/api/2.0/guides",
+            includePrivate="true" if include_private else None,
+        )
 
     def get_guide(self, guide_id: str | int) -> dict[str, Any]:
         payload = self.get_json(f"/api/2.0/guides/{guide_id}")
@@ -167,17 +186,7 @@ class DozukiClient:
         return payload
 
     def iter_wikis(self, namespace: str = "CATEGORY") -> Iterator[dict[str, Any]]:
-        offset = 0
-        while True:
-            batch = self.get_json(f"/api/2.0/wikis/{namespace}", limit=PAGE_SIZE, offset=offset)
-            if not isinstance(batch, list):
-                raise MigrationError(f"Wiki listing at offset {offset} was not a list.")
-            for item in batch:
-                if isinstance(item, dict):
-                    yield item
-            if len(batch) < PAGE_SIZE:
-                return
-            offset += PAGE_SIZE
+        yield from self._iter_listing(f"/api/2.0/wikis/{namespace}")
 
     def get_wiki(self, namespace: str, title: str) -> dict[str, Any]:
         quoted = urllib.parse.quote(title, safe="")
