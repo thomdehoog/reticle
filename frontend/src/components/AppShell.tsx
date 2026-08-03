@@ -217,8 +217,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   )
 
   /* At the foot of the rail rather than in the bar: whose session this is is a
-     question asked once a day, and it was taking a corner of every screen. */
-  const account = (
+     question asked once a day, and it was taking a corner of every screen.
+
+     A reader who is not signed in gets a way in rather than an empty avatar.
+     Most people who open Reticle came to read a procedure and will never use
+     this, so it stays where the account menu was rather than being promoted to
+     something the reader has to get past. */
+  const account = user ? (
     <HeaderMenu
       id="account-menu"
       className="header-menu--rail"
@@ -238,6 +243,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     >
       {accountItems}
     </HeaderMenu>
+  ) : (
+    <Link className="rail__me" to="/login">
+      <span className="rail__me-name">Sign in to edit</span>
+    </Link>
   )
 
   /* The rail's own cell is one window tall, so the stylesheet paints the column
@@ -370,7 +379,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </button>
               </>
             )}
-            {accountItems}
+            {user ? (
+              accountItems
+            ) : (
+              <Link className="menu-item" to="/login" onClick={close}>
+                Sign in to edit
+              </Link>
+            )}
           </nav>
         </Modal>
       )}

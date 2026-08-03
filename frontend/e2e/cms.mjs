@@ -81,7 +81,9 @@ page.on('console', (message) => {
 })
 page.on('pageerror', (error) => consoleErrors.push(String(error)))
 
-await page.goto(BASE, { waitUntil: 'networkidle' })
+/* `/login` rather than `/`: the front page is the public corpus now, and the
+   sign-in form lives at its own address. */
+await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' })
 await page.getByLabel('Email').fill(EMAIL)
 await page.getByLabel('Password').fill(PASSWORD)
 await page.getByRole('button', { name: 'Sign in' }).click()
@@ -147,8 +149,8 @@ for (const tag of TAGS) {
 const chipCount = await page.locator('.tag-input__chips .tag').count()
 record('add tags', chipCount === TAGS.length, `${chipCount} chips`)
 
-await page.getByLabel('Time required, from').fill('30')
-await page.getByLabel('Time required, to').fill('90')
+/* No difficulty or duration to fill: neither is shown to a reader any more, so
+   neither is asked of an author. */
 await page.getByLabel('Summary').fill('Created by the end-to-end test.')
 
 await page.waitForSelector('text=All changes saved', { timeout: 10000 })
@@ -201,8 +203,11 @@ for (const [index, spec] of STEPS.entries()) {
   }
 }
 
-const bodyText = await page.locator('.guide').innerText()
-record('time range rendered', bodyText.includes('30 min – 1 h 30 min'), '30 min – 1 h 30 min')
+/* The version and the date are what the meta row carries now. Asserted as the
+   whole of it, so restoring the difficulty meter or the duration without
+   meaning to shows up here as well as in the component tests. */
+const meta = (await page.locator('.guide__meta').innerText()).trim()
+record('the meta row is the version and the date', /^v\d+\b/.test(meta), meta)
 
 for (const tag of TAGS) {
   const link = page.getByRole('link', { name: tag })

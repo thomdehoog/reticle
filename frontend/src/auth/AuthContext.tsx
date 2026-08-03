@@ -1,9 +1,14 @@
 /**
  * Session state for the whole application.
  *
- * Reticle has no anonymous access, so this provider sits above the router: the
- * first thing the app does is ask the server who it is talking to, and nothing
- * else renders until that question is answered.
+ * This provider sits above the router: the first thing the app does is ask the
+ * server who it is talking to, and nothing else renders until that question is
+ * answered.
+ *
+ * ``anonymous`` is an ordinary answer rather than a failure. Reading is public,
+ * so a visitor with no session gets the site and an offer to sign in; what a
+ * session decides is whether the editing controls appear, and the server
+ * enforces that regardless of what this says.
  */
 
 import {

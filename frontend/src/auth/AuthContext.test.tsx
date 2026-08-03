@@ -42,10 +42,14 @@ function renderApp(fetchImpl: typeof fetch) {
 }
 
 describe('deciding whether somebody is signed in', () => {
-  it('shows the login screen when the server says they are not', async () => {
+  it('shows the site, not a login form, when the server says they are not', async () => {
+    /* Reading is public. Somebody who arrives without a session came to follow
+       a procedure, and the sign-in is an offer at the foot of the rail rather
+       than a gate across the front of the site. */
     renderApp(serverThat(401, 'not_authenticated'))
 
-    expect(await screen.findByLabelText(/email/i)).toBeInTheDocument()
+    expect(await screen.findByText(/sign in to edit/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument()
   })
 
   it('does not sign anybody out because the server was busy', async () => {

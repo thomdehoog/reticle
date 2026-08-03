@@ -11,11 +11,13 @@
  * nobody can reach.
  */
 
+import type { ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router'
 
 import { AppShell } from './components/AppShell'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAuth } from './auth/AuthContext'
+import type { Role } from './domain/types'
 import { AccountPage } from './pages/AccountPage'
 import { CategoriesPage } from './pages/CategoriesPage'
 import { CategoryPage } from './pages/CategoryPage'
@@ -32,13 +34,38 @@ import { UsersPage } from './pages/UsersPage'
 import { WikiIndexPage } from './pages/WikiIndexPage'
 
 /**
- * Reticle has no public surface, so an unauthenticated visitor gets the login
- * screen whatever the URL says. Keeping the requested path in the address bar
- * means that after logging in, the very same render tree resolves the page they
- * originally asked for — no redirect dance, no "returnTo" parameter to leak.
+ * Reading is public, so a visitor who is not signed in gets the site rather
+ * than a login screen. Signing in is what unlocks writing, and `/login` is the
+ * one address that asks for it — reached from the header, or from an editing
+ * address somebody typed without a session.
+ *
+ * The editing routes are the only ones that turn a visitor away, and they send
+ * them to the login screen rather than home: arriving at an edit URL is a
+ * statement of intent, and answering it with the front page loses what they
+ * were trying to do.
  */
-export function App() {
+/**
+ * A screen that needs an account, and what to do with somebody who lacks one.
+ *
+ * The two outcomes are deliberately different. Nobody signed in is *asked* to
+ * sign in, at the address they were heading for. Somebody signed in whose role
+ * is too junior is sent home, because there is nothing for them to do about it
+ * and a login form would imply there is.
+ *
+ * None of this is a security boundary — the server refuses these calls whatever
+ * the browser renders. It is what stops an author being shown an editor that
+ * cannot save.
+ */
+function Guarded({ role, children }: { role: Role; children: ReactNode }) {
   const { status, can } = useAuth()
+
+  if (status !== 'authenticated') return <Navigate to="/login" replace />
+  if (!can(role)) return <Navigate to="/" replace />
+  return <>{children}</>
+}
+
+export function App() {
+  const { status } = useAuth()
   // Keying the boundary on the path gives it a fresh instance per page, so a
   // guide that fails to render does not leave every subsequent page showing
   // that guide's error. Navigating away is the recovery; re-rendering the same
@@ -47,10 +74,6 @@ export function App() {
 
   if (status === 'checking') {
     return <div className="spinner">Loading Reticle…</div>
-  }
-
-  if (status === 'anonymous') {
-    return <LoginPage />
   }
 
   /* The server could not be asked, which is not the same as being signed out.
@@ -79,19 +102,24 @@ export function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/c/:slug" element={<CategoryPage />} />
           <Route path="/g/:slug" element={<GuideViewPage />} />
-          <Route path="/g/:id/edit" element={<GuideEditorPage />} />
           <Route path="/w" element={<WikiIndexPage />} />
           <Route path="/w/:slug" element={<PageViewPage />} />
-          <Route path="/w/:id/edit" element={<PageEditorPage />} />
           <Route path="/t" element={<TagIndexPage />} />
           <Route path="/t/:tag" element={<TagPage />} />
           <Route path="/search" element={<SearchPage />} />
-          <Route path="/account" element={<AccountPage />} />
-          <Route path="/users" element={can('admin') ? <UsersPage /> : <Navigate to="/" replace />} />
-          <Route
-            path="/categories"
-            element={can('admin') ? <CategoriesPage /> : <Navigate to="/" replace />}
-          />
+          <Route path="/login" element={status === 'authenticated' ? <Navigate to="/" replace /> : <LoginPage />} />
+
+          {/* Everything below needs an account. A visitor is sent to the login
+              screen rather than to the front page, because typing an editing
+              address says what they came to do and the front page discards it.
+              An account that is signed in but too junior goes home instead:
+              they are not being asked for anything, they simply cannot. */}
+          <Route path="/g/:id/edit" element={<Guarded role="author"><GuideEditorPage /></Guarded>} />
+          <Route path="/w/:id/edit" element={<Guarded role="author"><PageEditorPage /></Guarded>} />
+          <Route path="/account" element={<Guarded role="viewer"><AccountPage /></Guarded>} />
+          <Route path="/users" element={<Guarded role="admin"><UsersPage /></Guarded>} />
+          <Route path="/categories" element={<Guarded role="admin"><CategoriesPage /></Guarded>} />
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </ErrorBoundary>

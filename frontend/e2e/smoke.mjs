@@ -153,8 +153,16 @@ for (const viewport of VIEWPORTS) {
   })
   page.on('pageerror', (error) => consoleErrors.push(String(error)))
 
+  /* The front page is public, so the walk starts by proving that — a reader
+     reaches the corpus with no session — and only then signs in for the rest,
+     which covers the screens an author sees. */
   await page.goto(BASE, { waitUntil: 'networkidle' })
+  record(
+    `[${viewport.name}] the corpus reads without signing in`,
+    (await page.locator('.tile').count()) > 0,
+  )
 
+  await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' })
   const signIn = page.getByRole('button', { name: 'Sign in' })
   record(`[${viewport.name}] login screen renders`, await signIn.isVisible())
   await page.screenshot({ path: join(SHOTS, `${viewport.name}-1-login.png`), fullPage: true })
