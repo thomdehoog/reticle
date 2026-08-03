@@ -10,14 +10,30 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from fastapi import APIRouter, File, Form, Request, UploadFile, status
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from .. import audit, errors, images, videos
 from ..auth import AnyUser, AuthorUser, DbDep, client_address
-from ..models import EVERYONE, PUBLISHED, Guide, Media, Page, Step, StepMedia, User, new_id
+from ..models import (
+    EVERYONE,
+    PUBLISHED,
+    Annotation,
+    Category,
+    Guide,
+    Media,
+    Page,
+    Step,
+    StepMedia,
+    User,
+    new_id,
+)
 from ..schemas import MediaOut, media_out
 from ..settings import Settings, get_settings
 from ..storage import build_storage
@@ -147,50 +163,134 @@ def _store_video(
     return media_out(media)
 
 
-def _shown_by_a_guide_a_reader_can_open(db: DbSession, media_id: str) -> bool:
-    """Whether any guide a viewer may read actually displays this image.
+GUIDE_IS_READABLE = (Guide.status == PUBLISHED, Guide.visibility == EVERYONE)
+"""Both halves of it.
 
-    Authentication was the only gate on the bytes, and authentication is not
-    visibility: a viewer who was correctly given 404 for a draft guide was given
-    200 for the photographs inside it, so the whole unpublished pipeline was
-    readable one image at a time by anybody with an account. This is the same
-    rule ``guides._load_for`` applies to the surrounding text, asked of the
-    ``StepMedia -> Step -> Guide`` path that put the image on a page — which is
-    why both halves of that rule are here, not only the status.
+Authentication was once the only gate on the bytes, and authentication is not
+visibility: a viewer correctly given 404 for a draft guide was given 200 for the
+photographs inside it, so the unpublished pipeline was readable one image at a
+time by anybody with an account. A staff guide reopens the same hole through the
+other half — it *is* published, so a check on status alone waves its pictures
+through, and a screenshot of an access-control panel is the kind of thing one
+carries.
+"""
 
-    A staff guide reopens exactly the same hole through the other half: it is
-    published, so a check on status alone waves its pictures through, and a
-    screenshot of an access-control panel is the kind of thing one carries.
+
+def _shown_in_a_readable_guide(db: DbSession, media_id: str) -> bool:
+    return bool(
+        db.scalar(
+            select(func.count())
+            .select_from(StepMedia)
+            .join(Step, Step.id == StepMedia.step_id)
+            .join(Guide, Guide.id == Step.guide_id)
+            .where(StepMedia.media_id == media_id, *GUIDE_IS_READABLE)
+        )
+    )
+
+
+def _played_by_a_readable_guide(db: DbSession, media_id: str) -> bool:
+    return bool(
+        db.scalar(
+            select(func.count())
+            .select_from(Step)
+            .join(Guide, Guide.id == Step.guide_id)
+            .where(Step.video_media_id == media_id, *GUIDE_IS_READABLE)
+        )
+    )
+
+
+def _heading_a_published_page(db: DbSession, media_id: str) -> bool:
+    return bool(
+        db.scalar(
+            select(func.count())
+            .select_from(Page)
+            .where(Page.hero_media_id == media_id, Page.status == PUBLISHED)
+        )
+    )
+
+
+def _heading_a_section(db: DbSession, media_id: str) -> bool:
+    """Unconditional, because ``categories.list_categories`` is.
+
+    Every category is listed to every role, the hidden holding categories
+    included — they are hidden from *browsing*, not from the API, which is how
+    one LAS X guide reaches ten instrument headings. Narrowing this to visible
+    categories would therefore refuse a picture the same request already handed
+    the reader a URL for, which is a broken image rather than a kept secret.
     """
-    readable = (Guide.status == PUBLISHED, Guide.visibility == EVERYONE)
-
-    in_a_step = db.scalar(
-        select(func.count())
-        .select_from(StepMedia)
-        .join(Step, Step.id == StepMedia.step_id)
-        .join(Guide, Guide.id == Step.guide_id)
-        .where(StepMedia.media_id == media_id, *readable)
+    return bool(
+        db.scalar(
+            select(func.count()).select_from(Category).where(Category.hero_media_id == media_id)
+        )
     )
-    if in_a_step:
-        return True
 
-    # The video slot and a wiki page's hero image are two more ways a file
-    # reaches a reader, and each was a second copy of the same hole.
-    as_a_video = db.scalar(
-        select(func.count())
-        .select_from(Step)
-        .join(Guide, Guide.id == Step.guide_id)
-        .where(Step.video_media_id == media_id, *readable)
-    )
-    if as_a_video:
-        return True
 
-    as_a_hero = db.scalar(
-        select(func.count())
-        .select_from(Page)
-        .where(Page.hero_media_id == media_id, Page.status == PUBLISHED)
-    )
-    return bool(as_a_hero)
+_DIRECT_REFERENCES: tuple[
+    tuple[InstrumentedAttribute[Any], Callable[[DbSession, str], bool]], ...
+] = (
+    (StepMedia.media_id, _shown_in_a_readable_guide),
+    (Step.video_media_id, _played_by_a_readable_guide),
+    (Page.hero_media_id, _heading_a_published_page),
+    (Category.hero_media_id, _heading_a_section),
+)
+"""Every column pointing at ``media.id`` whose owner carries its own rule."""
+
+_POSTER_REFERENCE = Media.poster_media_id
+"""The one column whose owner is another file.
+
+A poster frame is displayed wherever the file it belongs to is displayed, so it
+inherits that answer rather than holding a rule of its own. Nothing writes this
+column over HTTP — the importer is its only author, and it sets one for every
+vendor step video.
+"""
+
+_NOT_A_DISPLAY = (Annotation.media_id,)
+"""Columns that point at a file without putting it on a screen.
+
+An annotation is a shape drawn *over* an image — a child of it, not a container
+that shows it — so its existence says nothing about who may see the image, and
+it carries no rule. It is named here only so the completeness check below has an
+answer for every foreign key rather than for the ones somebody remembered.
+"""
+
+MEDIA_REFERENCE_COLUMNS = (
+    *(column for column, _ in _DIRECT_REFERENCES),
+    _POSTER_REFERENCE,
+    *_NOT_A_DISPLAY,
+)
+"""Every column in the schema that points at ``media.id``, each one classified.
+
+This is the list that kept going stale. The rule was appended to three times,
+once per newly-discovered reference, and was still two behind: a section picture
+and a video's poster frame both answered 404 to viewers who had just been handed
+their URLs. ``test_every_column_pointing_at_media_declares_who_may_read_it``
+compares this tuple against the foreign keys SQLAlchemy actually holds, so the
+next column fails the suite instead of becoming the fourth instance.
+
+Reading the schema rather than the source is the point: ``Annotation.media_id``
+was missed by an eye and by a grep for ``ForeignKey("media.id")``, because it is
+written with an ``ondelete`` argument.
+"""
+
+
+def _displayed_by_something_a_viewer_can_open(db: DbSession, media_id: str) -> bool:
+    """Whether any content a viewer may read actually puts this file on a screen.
+
+    Walked rather than assumed one level deep: ``poster_media_id`` is a
+    self-reference, so the schema permits a chain, and the ``seen`` set means a
+    cycle in it is a false answer rather than a hung worker.
+    """
+    pending = {media_id}
+    seen: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        if any(displays(db, current) for _, displays in _DIRECT_REFERENCES):
+            return True
+        pending.update(db.scalars(select(Media.id).where(Media.poster_media_id == current)).all())
+    return False
 
 
 @router.get("/{media_id}")
@@ -206,7 +306,7 @@ def read_media(media_id: str, db: DbDep, user: AnyUser) -> Response:
     media = db.get(Media, media_id)
     if media is None:
         raise errors.not_found("That file does not exist.")
-    if user.role == "viewer" and not _shown_by_a_guide_a_reader_can_open(db, media_id):
+    if user.role == "viewer" and not _displayed_by_something_a_viewer_can_open(db, media_id):
         raise errors.not_found("That file does not exist.")
 
     store = build_storage(get_settings())

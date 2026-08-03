@@ -13,7 +13,8 @@ import pytest
 from PIL import Image
 from sqlalchemy import select
 
-from app.models import Media
+from app.models import Base, Media
+from app.routers.media import MEDIA_REFERENCE_COLUMNS
 from app.settings import get_settings
 
 from .conftest import (
@@ -24,6 +25,7 @@ from .conftest import (
     noisy_png,
     step,
     upload_media,
+    upload_video,
 )
 
 
@@ -333,6 +335,112 @@ def test_an_orphaned_upload_is_not_readable_by_a_viewer(viewer, author):
 
     assert author.get(f"/api/media/{image['id']}").status_code == 200
     assert viewer.get(f"/api/media/{image['id']}").status_code == 404
+
+
+def test_a_viewer_can_read_the_picture_a_section_is_browsed_by(viewer, admin, category):
+    """The browse screens hand a viewer this URL, so the same request must serve it.
+
+    ``GET /api/categories`` answers every role with every category and puts an
+    ``imageUrl`` on each one that has a picture. Refusing the bytes afterwards
+    does not keep anything back — it draws a broken image on the section banner
+    and on every tile, for viewers only, which is the one role nobody develops
+    as.
+    """
+    image = upload_media(admin)
+    assert (
+        admin.patch(f"/api/categories/{category.id}", json={"heroMediaId": image["id"]}).status_code
+        == 200
+    )
+
+    listed = next(
+        item for item in viewer.get("/api/categories").json() if item["id"] == category.id
+    )
+    assert listed["imageUrl"] == f"/api/media/{image['id']}"
+    assert viewer.get(listed["imageUrl"]).status_code == 200
+
+
+def test_a_viewer_can_read_the_poster_of_a_video_on_a_published_guide(
+    viewer, author, category, db_session
+):
+    """A poster frame is displayed wherever the clip it belongs to is displayed.
+
+    Nothing writes ``poster_media_id`` over HTTP; the importer is its only
+    author, and it sets one for every vendor step video. So this is written the
+    way the importer leaves it, and it is the shape the whole migrated corpus
+    will have.
+    """
+    poster = upload_media(author, filename="poster.png")
+    video = upload_video(author)
+    created = create_guide(author, category.id)
+    assert (
+        author.put(
+            f"/api/guides/{created['id']}",
+            json=document_from(created, steps=[step("Watch the stage", video={"id": video["id"]})]),
+        ).status_code
+        == 200
+    )
+    assert author.post(f"/api/guides/{created['id']}/publish").status_code == 200
+
+    db_session.get(Media, video["id"]).poster_media_id = poster["id"]
+    db_session.commit()
+
+    assert viewer.get(f"/api/media/{video['id']}").status_code == 200
+    assert viewer.get(f"/api/media/{poster['id']}").status_code == 200
+
+
+def test_a_poster_is_withheld_when_the_clip_it_belongs_to_is(viewer, author, category, db_session):
+    """Inheriting the owner's answer has to inherit a refusal too.
+
+    Otherwise following the poster link would be a way to read a frame of any
+    unpublished clip — the hole this whole rule exists to close, reopened one
+    indirection further out.
+    """
+    poster = upload_media(author, filename="poster.png")
+    video = upload_video(author)
+    created = create_guide(author, category.id)
+    assert (
+        author.put(
+            f"/api/guides/{created['id']}",
+            json=document_from(created, steps=[step("Watch the stage", video={"id": video["id"]})]),
+        ).status_code
+        == 200
+    )
+
+    db_session.get(Media, video["id"]).poster_media_id = poster["id"]
+    db_session.commit()
+
+    assert viewer.get(f"/api/media/{video['id']}").status_code == 404
+    assert viewer.get(f"/api/media/{poster['id']}").status_code == 404
+
+
+def test_every_column_pointing_at_media_declares_who_may_read_it():
+    """The guard this rule never had.
+
+    Whether a viewer may read a file is decided from a list of the columns that
+    reference it, and that list is what kept going stale: it was appended to
+    three times, once per newly-found reference, and was still two behind. A
+    section picture and a video's poster frame both answered 404 to viewers who
+    had just been handed their URLs, and no test noticed because every test of
+    those two features signs in as an author or an administrator, for whom the
+    check short-circuits.
+
+    So the schema is asked instead of a person. Adding a column that points at
+    ``media.id`` now fails here until somebody says who may read what it points
+    at — the same shape as
+    ``test_every_api_route_is_behind_authentication``.
+    """
+    declared = {
+        (column.expression.table.name, column.expression.name) for column in MEDIA_REFERENCE_COLUMNS
+    }
+    in_the_schema = {
+        (table.name, key.parent.name)
+        for table in Base.metadata.tables.values()
+        for key in table.foreign_keys
+        if key.column.table.name == "media" and key.column.name == "id"
+    }
+
+    assert in_the_schema, "no foreign keys into media.id were found — the query is wrong"
+    assert declared == in_the_schema
 
 
 def test_an_unknown_media_id_is_not_found(author):
