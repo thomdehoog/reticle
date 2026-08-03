@@ -338,9 +338,33 @@ for (const viewport of VIEWPORTS) {
     const edit = page.getByRole('link', { name: 'Edit' })
     if (await edit.count()) {
       await edit.click()
-      await page.waitForSelector('.editor-step')
+      /*
+       * `DesktopOnly` renders both halves at every width and lets `@media`
+       * choose: the editor above the editing breakpoint, one sentence asking
+       * the author to come back at a desk below it. So the arrival of the
+       * screen is `.desktop-only` existing, and which half is on show is a
+       * separate question answered by asking what is visible.
+       *
+       * Both parts matter. Waiting for `.editor-step` alone waited on step
+       * cards that a narrow screen renders but hides, which timed out at the
+       * tablet and took the phone viewport down with it, unrun. Waiting for
+       * `.editor-step, .desktop-only` is no better: a comma selector resolves
+       * to whichever matches first in the document, and that is the hidden
+       * sentence on a wide screen.
+       *
+       * The width itself stays in the CSS, where `DesktopOnly` says it
+       * belongs. A number written here would be a second copy of it, free to
+       * drift, and drifting silently is the failure it would be hiding.
+       */
+      await page.waitForSelector('.desktop-only', { state: 'attached' })
+      const tooNarrow = await page.locator('.desktop-only').isVisible()
+      if (!tooNarrow) await page.waitForSelector('.editor-step', { state: 'visible' })
       const editorSteps = await page.locator('.editor-step').count()
-      record(`[${viewport.name}] editor opens`, editorSteps > 0, `${editorSteps} step cards`)
+      record(
+        `[${viewport.name}] ${tooNarrow ? 'the editor asks for a wider screen' : 'editor opens'}`,
+        tooNarrow || editorSteps > 0,
+        tooNarrow ? 'below the editing breakpoint' : `${editorSteps} step cards`,
+      )
       await page.screenshot({ path: join(SHOTS, `${viewport.name}-5-editor.png`), fullPage: true })
       await checkReadability(page, viewport, 'editor')
     }
