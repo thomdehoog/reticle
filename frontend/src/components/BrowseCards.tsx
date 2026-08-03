@@ -14,11 +14,10 @@
 
 import { Link } from 'react-router'
 
-import { formatDurationRange } from '../domain/guide'
 import type { Category, GuideSummary, PageSummary } from '../domain/types'
 import { IconBook } from './icons'
 import { Thumbnail } from './Thumbnail'
-import { DifficultyMeter, StatusBadge } from './ui'
+import { StatusBadge } from './ui'
 
 /**
  * A section: the picture and its name.
@@ -56,9 +55,6 @@ export function GuideCard({ guide, to }: { guide: GuideSummary; to?: string }) {
       <Thumbnail seed={guide.title} src={guide.thumbnailUrl} className="tile__media" />
       <span className="tile__body">
         <span className="tile__name">{guide.title}</span>
-        <span className="tile__meta">
-          <DifficultyMeter difficulty={guide.difficulty} />
-        </span>
       </span>
       {guide.status !== 'published' && (
         <span className="tile__status">
@@ -89,10 +85,6 @@ export function GuideRow({ guide, to }: { guide: GuideSummary; to?: string }) {
       <span className="guide-row__main">
         <span className="guide-row__title">{guide.title}</span>
         <span className="guide-row__meta">
-          <DifficultyMeter difficulty={guide.difficulty} />
-          <span>
-            {formatDurationRange(guide.timeRequiredMinMinutes, guide.timeRequiredMaxMinutes)}
-          </span>
           {guide.status !== 'published' && <StatusBadge status={guide.status} />}
         </span>
       </span>

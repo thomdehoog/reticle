@@ -144,9 +144,10 @@ describe('GuideCard', () => {
      count went because the steps are numbered on the guide itself, and the
      duration because the card is only used where the guide is already the
      subject rather than one of a list to choose between. */
-  it('carries the difficulty, which is what a reader chooses on', () => {
+  it('carries the title and the picture, and no grading', () => {
     render(<GuideCard guide={summary()} />)
-    expect(screen.getByText('Moderate')).toBeInTheDocument()
+    expect(screen.getByText('Confocal startup')).toBeInTheDocument()
+    expect(screen.queryByText('Moderate')).not.toBeInTheDocument()
   })
 
   it('marks a draft, so nobody follows an unfinished procedure', () => {

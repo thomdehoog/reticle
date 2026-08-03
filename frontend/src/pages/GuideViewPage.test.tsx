@@ -51,7 +51,7 @@ describe('GuideViewPage', () => {
     expect(second).toBeInTheDocument()
   })
 
-  it('shows the guide metadata a microscopist needs before starting', async () => {
+  it('shows what tells a reader whether this is still the current procedure', async () => {
     const server = createFakeServer({
       guides: [
         guideFixture({
@@ -63,11 +63,14 @@ describe('GuideViewPage', () => {
     })
     renderGuide(server)
 
-    expect(await screen.findByText('Very easy')).toBeInTheDocument()
-    expect(screen.getByText('30 min – 1 h 30 min')).toBeInTheDocument()
-    /* The name is a byline at the foot of the guide: it answers "who do I ask",
-       which is a question that arises after reading rather than before. */
-    expect(screen.getByText(/Written by Thom de Hoog/)).toBeInTheDocument()
+    /* Difficulty and duration are carried by the API and deliberately not
+       drawn: ZMB grades almost everything alike and the estimates were
+       inherited rather than measured, so both took the eye without varying.
+       Asserted as absent rather than simply dropped, because the way this
+       reappears is somebody restoring the meter without meaning to. */
+    expect(await screen.findByText(/Written by Thom de Hoog/)).toBeInTheDocument()
+    expect(screen.queryByText('Very easy')).not.toBeInTheDocument()
+    expect(screen.queryByText('30 min – 1 h 30 min')).not.toBeInTheDocument()
   })
 
   it('labels a caution in words, not by colour or icon alone', async () => {

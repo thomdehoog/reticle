@@ -22,13 +22,12 @@ import { RichText } from '../components/RichText'
 import { StepGallery } from '../components/StepGallery'
 import { IconEdit, IconPrint } from '../components/icons'
 import {
-  DifficultyMeter,
   EmptyState,
   ErrorAlert,
   Spinner,
   StatusBadge,
 } from '../components/ui'
-import { formatDurationRange, numberedSteps } from '../domain/guide'
+import { numberedSteps } from '../domain/guide'
 import type { Step } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 
@@ -129,16 +128,15 @@ export function GuideViewPage() {
         </div>
       </div>
 
-      {/* Difficulty and duration carry no labels: both change whether somebody
-          starts the procedure now or after lunch, and neither needs a caption.
-          The version and date sit with them, quieter, because they answer a
-          different question - is what I am reading still the current
-          procedure - which is asked less often but has no other answer. */}
+      {/* The version and the date, and deliberately nothing else.
+          Difficulty and duration are not shown: ZMB's corpus grades almost
+          everything the same way and the estimates were inherited rather than
+          measured, so a meter and a range that never vary say nothing while
+          taking the eye first. Both are still imported and still stored - this
+          is a decision about what a reader is shown, and it reverses by putting
+          the two back in this row. What is left answers the question a reader
+          actually asks, which is whether this is still the current procedure. */}
       <div className="guide__meta">
-        <DifficultyMeter difficulty={guide.difficulty} />
-        <span className="guide__time">
-          {formatDurationRange(guide.timeRequiredMinMinutes, guide.timeRequiredMaxMinutes)}
-        </span>
         <Revision
           version={guide.version}
           publishedAt={guide.publishedAt}

@@ -28,8 +28,8 @@ import { TagInput } from '../components/editor/TagInput'
 import { IconHistory, IconPlus } from '../components/icons'
 import { StepGallery } from '../components/StepGallery'
 import { AutoTextarea, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
-import { DIFFICULTY_LABELS, DIFFICULTY_ORDER, MAX_TIME_REQUIRED_MINUTES, cleanTimeRequired, createStep, insertStepAfter, moveStep, numberedSteps, removeStep, renumberSteps, type ValidationIssue, validateForPublish } from '../domain/guide'
-import { MAX_MEDIA_PER_STEP, type Difficulty, type Guide } from '../domain/types'
+import { createStep, insertStepAfter, moveStep, numberedSteps, removeStep, renumberSteps, type ValidationIssue, validateForPublish } from '../domain/guide'
+import { MAX_MEDIA_PER_STEP, type Guide } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 import {
   forgetFailedSave,
@@ -425,62 +425,12 @@ export function GuideEditorPage() {
           onChange={(event) => mutate((current) => ({ ...current, summary: event.target.value }))}
         />
 
-        {/* The reader's meta row, made editable in place: difficulty, how long
-            it takes, where it lives. No captions, for the reason the reader has
-            none — each control says what it is by what it shows. */}
+        {/* Where it lives, and nothing else. The difficulty and duration
+            controls that used to sit here are gone with the row they fed: an
+            author should not be asked for two values no reader is shown. Both
+            are still carried by the API and still arrive from the migration, so
+            putting the controls back is all it takes to show them again. */}
         <div className="editor__meta">
-          <select
-            className="select"
-            aria-label="Difficulty"
-            value={guide.difficulty}
-            onChange={(event) =>
-              mutate((current) => ({ ...current, difficulty: event.target.value as Difficulty }))
-            }
-          >
-            {DIFFICULTY_ORDER.map((value) => (
-              <option key={value} value={value}>
-                {DIFFICULTY_LABELS[value]}
-              </option>
-            ))}
-          </select>
-
-          <span className="editor__minutes">
-            <input
-              className="input"
-              type="number"
-              min={0}
-              max={MAX_TIME_REQUIRED_MINUTES}
-              step={1}
-              aria-label="Time required, from"
-              placeholder="from"
-              value={guide.timeRequiredMinMinutes ?? ''}
-              onChange={(event) =>
-                mutate((current) => ({
-                  ...current,
-                  timeRequiredMinMinutes: cleanTimeRequired(event.target.value),
-                }))
-              }
-            />
-            <span aria-hidden="true">–</span>
-            <input
-              className="input"
-              type="number"
-              min={0}
-              max={MAX_TIME_REQUIRED_MINUTES}
-              step={1}
-              aria-label="Time required, to"
-              placeholder="to"
-              value={guide.timeRequiredMaxMinutes ?? ''}
-              onChange={(event) =>
-                mutate((current) => ({
-                  ...current,
-                  timeRequiredMaxMinutes: cleanTimeRequired(event.target.value),
-                }))
-              }
-            />
-            minutes
-          </span>
-
           <select
             className="select"
             aria-label="Category"
