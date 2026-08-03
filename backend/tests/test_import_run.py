@@ -41,6 +41,13 @@ class FakeDozuki:
         self._wikis = wikis or {}
         self.downloads: list[str] = []
         self.failing_urls: set[str] = set()
+        # The record for the standard fixture image, carrying one rectangle in
+        # the vendor's own notation. A thousand pixels square keeps the
+        # arithmetic legible: 100/1000 and 300-100 over 1000 are the 0.1 and 0.2
+        # the assertions read.
+        self.images: dict[str, dict] = {
+            "9001": {"width": 1000, "height": 1000, "markup": ";rectangle,100x100,300x300,red;"}
+        }
 
     def iter_guides(self, include_private: bool = False):
         for guide in self._guides.values():
@@ -58,6 +65,15 @@ class FakeDozuki:
             if entry.get("title") == title:
                 return entry
         raise MigrationError(f"No such wiki {namespace}/{title}")
+
+    def get_image(self, image_id):
+        """An image's own record, which is the only place its shapes live.
+
+        Defaults to a picture nobody drew on, so a test that says nothing about
+        annotations gets none rather than whatever a shared fixture happened to
+        carry. A test that wants shapes puts them in ``images``.
+        """
+        return self.images.get(str(image_id), {"width": 4032, "height": 3024, "markup": None})
 
     def download(self, url: str):
         self.downloads.append(url)
@@ -108,19 +124,12 @@ def _guide(guide_id: int = 1234, **overrides) -> dict:
                 "media": [
                     {
                         "type": "image",
+                        # No markup here: a guide payload has never carried any.
+                        # The shapes drawn on this picture are on its own record,
+                        # which ``FakeDozuki.get_image`` serves.
                         "data": {
                             "id": 9001,
                             "original": "https://example.test/one.png",
-                            "markup": [
-                                {
-                                    "shape": "rectangle",
-                                    "color": "red",
-                                    "x": 0.1,
-                                    "y": 0.1,
-                                    "width": 0.2,
-                                    "height": 0.2,
-                                }
-                            ],
                         },
                     }
                 ],

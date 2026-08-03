@@ -185,6 +185,18 @@ class DozukiClient:
             raise MigrationError(f"Guide {guide_id} was not an object.")
         return payload
 
+    def get_image(self, image_id: str | int) -> dict[str, Any]:
+        """One image's own record, which is the only place its shapes exist.
+
+        A guide payload lists an image's transcode URLs and nothing else: no
+        ``markup`` key appears on it at any point, so the annotations drawn over
+        a step image can only be had one request at a time from here.
+        """
+        payload = self.get_json(f"/api/2.0/media/images/{image_id}")
+        if not isinstance(payload, dict):
+            raise MigrationError(f"Image {image_id} was not an object.")
+        return payload
+
     def iter_wikis(self, namespace: str = "CATEGORY") -> Iterator[dict[str, Any]]:
         yield from self._iter_listing(f"/api/2.0/wikis/{namespace}")
 

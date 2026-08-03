@@ -73,6 +73,7 @@ from .mapping import (
     MappedImage,
     MappedPage,
     MappedVideo,
+    attach_annotations,
     map_guide,
     map_page,
     resolve_guide_embeds,
@@ -132,18 +133,28 @@ def count_source(payload: dict[str, Any], tally: GuideTally) -> None:
             if not isinstance(entry, dict):
                 continue
             kind = str(entry.get("type") or entry.get("mediatype") or "image").strip().lower()
-            data = entry.get("data") if isinstance(entry.get("data"), dict) else entry
             if kind in ("video", "movie"):
                 tally.source_videos += 1
                 continue
             if kind not in ("image", "photo", ""):
                 continue
-            tally.source_images += 1
-            markup = data.get("markup") or data.get("annotations")
-            if isinstance(markup, dict):
-                markup = markup.get("shapes") or markup.get("annotations") or markup.get("markup")
-            if isinstance(markup, list):
-                tally.source_annotations += sum(1 for shape in markup if isinstance(shape, dict))
+
+            # A step's attachments arrive as one block holding a *list*:
+            # ``{"type": "image", "data": [image, image, image]}``. Counting the
+            # block counted one image per step, so ten guides reported 90
+            # against the 177 the mapping had correctly read and the run failed
+            # to reconcile on every guide it touched. The mapping was right;
+            # this was the side that was wrong.
+            data = entry.get("data")
+            records = (
+                data if isinstance(data, list) else [data if isinstance(data, dict) else entry]
+            )
+            tally.source_images += sum(1 for record in records if isinstance(record, dict))
+
+        # Annotations are counted where they actually live — on each image's own
+        # record, fetched separately. Counting them here, from a payload that
+        # has never carried a `markup` key, made both sides of the comparison
+        # agree on zero and reported a corpus of shapes as fully migrated.
 
 
 class Importer:
@@ -384,12 +395,48 @@ class Importer:
                 continue
             self._import_one_guide(payload)
 
+    def _attach_annotations(self, mapped: MappedGuide, tally: GuideTally) -> None:
+        """Fetch each image's own record and read the shapes drawn on it.
+
+        One request per image, because the vendor offers no other way: the guide
+        payload carries an image's transcode URLs and never its ``markup``. That
+        is why this is the only count in the report taken outside
+        ``count_source`` — counting from the guide payload is precisely how a
+        corpus of annotations came to be reported as fully migrated when none of
+        it had been read.
+
+        Both sides come from the one document, so a shape this importer refuses
+        to place still appears in the source count and the run does not
+        reconcile. That is the intended outcome: a shape nobody can place is a
+        finding, not a rounding error.
+        """
+
+        def fetch(image_id: str) -> dict[str, Any]:
+            """One image's record, or nothing if the site would not give it up.
+
+            An image that cannot be fetched fails its guide rather than the run,
+            the same way a picture that will not download does.
+            """
+            try:
+                return self.client.get_image(image_id)
+            except MigrationError as error:
+                tally.failures.append(f"image {image_id}: {error}")
+                return {}
+
+        problems = attach_annotations(mapped, fetch)
+        self.report.unmapped.extend(problems)
+        tally.source_annotations = sum(
+            len(image.annotations) for step in mapped.steps for image in step.images
+        ) + len(problems)
+
     def _import_one_guide(self, payload: dict[str, Any]) -> None:
         mapped, problems = map_guide(payload)
         self.report.unmapped.extend(problems)
 
         tally = GuideTally(source_id=mapped.source_id, title=mapped.title)
         count_source(payload, tally)
+        if not self.options.skip_media:
+            self._attach_annotations(mapped, tally)
         self.report.guides.append(tally)
 
         if self.options.dry_run:

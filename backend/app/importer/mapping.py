@@ -26,9 +26,11 @@ from __future__ import annotations
 import html
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..schemas import EDGE_TOLERANCE
 from ..slugs import NON_SLUG, TRANSLITERATIONS
 
 # ---------------------------------------------------------------------------
@@ -606,92 +608,177 @@ def best_image_url(data: dict[str, Any]) -> str | None:
     return None
 
 
-def _coerce_fraction(value: Any) -> float | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, (int, float)):
-        number = float(value)
-    elif isinstance(value, str):
-        text = value.strip().rstrip("%")
-        try:
-            number = float(text)
-        except ValueError:
-            return None
-        if value.strip().endswith("%"):
-            number /= 100.0
-    else:
-        return None
-    # Percentages arrive both as 0..1 and as 0..100 depending on the field.
-    if number > 1.5:
-        number /= 100.0
-    return number
+MARKUP_NOT_A_SHAPE = frozenset({"crop", "null"})
+"""Entries in a markup string that are not annotations.
+
+``crop`` is the window the photograph was cropped to, which the stored image
+already reflects — drawing it would put a rectangle around the whole picture.
+``null`` is what an image whose shapes were all deleted leaves behind.
+"""
 
 
-def map_annotations(raw: Any, where: str) -> tuple[list[MappedAnnotation], list[Unmapped]]:
-    """Shapes drawn over a step image, in the colour of the bullet they belong to.
+def _points(text: str) -> tuple[float, float]:
+    first, _, second = text.partition("x")
+    return float(first), float(second)
 
-    This is the part of a ZMB guide that a naive migration loses without anyone
-    noticing: the picture arrives intact and the red rectangle around the button
-    the text is talking about does not, so the sentence "click the highlighted
-    control" now points at nothing.
 
-    Coordinates are normalised to fractions of the image so they survive being
-    rendered at any size, which is also how Reticle stores them natively.
+def parse_markup(
+    markup: Any, width: Any, height: Any, where: str
+) -> tuple[list[MappedAnnotation], list[Unmapped]]:
+    """The shapes drawn over one image, read from that image's own record.
+
+    This is the part of a ZMB guide a naive migration loses in silence: the
+    photograph arrives intact and the red rectangle around the button the text
+    is talking about does not, so "click the highlighted control" points at
+    nothing. It was being lost here too, and worse than silently — the markup
+    lives on the **image** document, which has to be fetched one image at a
+    time, and nothing was fetching it. Both sides of the reconciliation read
+    the guide payload, where the key has never existed, so every run reported
+    that it had lost no annotations at all.
+
+    The format is measured rather than guessed, and this function is narrow to
+    what was measured::
+
+        ;rectangle,828x1164,586x430,red;arrow,2272.5x1096.5,2558.6x1552.9,red;
+
+    Each entry is ``kind,first,second,colour``. ``rectangle`` and ``arrow``
+    both carry two *points*, not a corner and a size: read as points every one
+    of the 111 rectangles in the sample lands inside its picture, and read as
+    sizes a third of the arrows land outside it. ``circle`` is the one entry
+    whose second field is a single number, being a centre and a radius.
+
+    Pixels become fractions of the image here, because that is how Reticle
+    stores a shape and it is what lets one survive being rendered at any size.
+    A rectangle or an ellipse is normalised to its top-left corner with
+    positive extents; an arrow keeps a **signed** vector, because which end
+    carries the head is the whole point of drawing one.
+
+    A shape that does not land on the picture is reported rather than clamped.
+    Roughly a fifth of them do not, and what that means is not yet known — a
+    guess here would either move a shape off the control it points at or, if it
+    stayed out of range, make the guide it belongs to permanently unsaveable.
     """
-    if raw in (None, "", [], {}):
+    if markup in (None, "", [], {}):
         return [], []
+    if not isinstance(markup, str):
+        return [], [Unmapped("markup", repr(markup)[:200], where)]
 
-    items: list[Any]
-    if isinstance(raw, dict):
-        items = raw.get("shapes") or raw.get("annotations") or raw.get("markup") or []
-        if not isinstance(items, list):
-            return [], [Unmapped("markup", repr(raw)[:200], where)]
-    elif isinstance(raw, list):
-        items = raw
-    else:
-        return [], [Unmapped("markup", repr(raw)[:200], where)]
+    try:
+        image_width, image_height = float(width), float(height)
+    except (TypeError, ValueError):
+        return [], [Unmapped("markup_image_size", f"{width!r}x{height!r}", where)]
+    if image_width <= 0 or image_height <= 0:
+        return [], [Unmapped("markup_image_size", f"{image_width}x{image_height}", where)]
 
     mapped: list[MappedAnnotation] = []
     problems: list[Unmapped] = []
 
-    for item in items:
-        if not isinstance(item, dict):
-            problems.append(Unmapped("markup_shape", repr(item)[:120], where))
+    for entry in markup.strip(";").split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        fields = entry.split(",")
+        kind = fields[0].strip().lower()
+        if kind in MARKUP_NOT_A_SHAPE:
+            continue
+        if len(fields) != 4:
+            problems.append(Unmapped("markup_shape", entry[:120], where))
             continue
 
-        raw_shape = str(item.get("shape") or item.get("type") or "").strip().lower()
-        shape = ANNOTATION_SHAPES.get(raw_shape)
+        _, first, second, raw_colour = fields
+        shape = ANNOTATION_SHAPES.get(kind)
         if shape is None:
-            problems.append(Unmapped("markup_shape", raw_shape or repr(item)[:120], where))
+            problems.append(Unmapped("markup_shape", kind or entry[:120], where))
             continue
 
-        raw_colour = str(item.get("color") or item.get("colour") or "red").strip().lower()
-        colour = BULLET_COLOURS.get(raw_colour)
-        if colour is None and raw_colour in BULLET_FLAGS:
-            colour = BULLET_FLAGS[raw_colour][0]
+        colour = BULLET_COLOURS.get(raw_colour.strip().lower())
         if colour is None:
-            problems.append(Unmapped("markup_colour", raw_colour, where))
+            problems.append(Unmapped("markup_colour", raw_colour.strip(), where))
             continue
 
-        coordinates = [
-            _coerce_fraction(item.get(key) if item.get(key) is not None else item.get(alias))
-            for key, alias in (("x", "x1"), ("y", "y1"), ("width", "w"), ("height", "h"))
-        ]
-        if any(value is None for value in coordinates):
-            # Some shapes are stored as two corners rather than a corner and a size.
-            x1, y1 = _coerce_fraction(item.get("x1")), _coerce_fraction(item.get("y1"))
-            x2, y2 = _coerce_fraction(item.get("x2")), _coerce_fraction(item.get("y2"))
-            if None in (x1, y1, x2, y2):
-                problems.append(Unmapped("markup_geometry", repr(item)[:120], where))
-                continue
-            coordinates = [x1, y1, x2 - x1, y2 - y1]
+        try:
+            x1, y1 = _points(first)
+            if kind == "circle":
+                radius = float(second)
+                x, y = x1 - radius, y1 - radius
+                extent_x, extent_y = radius * 2, radius * 2
+            else:
+                x2, y2 = _points(second)
+                if shape == "arrow":
+                    x, y = x1, y1
+                    extent_x, extent_y = x2 - x1, y2 - y1
+                else:
+                    x, y = min(x1, x2), min(y1, y2)
+                    extent_x, extent_y = abs(x2 - x1), abs(y2 - y1)
+        except ValueError:
+            problems.append(Unmapped("markup_geometry", entry[:120], where))
+            continue
 
-        x, y, width, height = coordinates
+        fractions = (
+            x / image_width,
+            y / image_height,
+            extent_x / image_width,
+            extent_y / image_height,
+        )
+        if not _lands_on_the_picture(fractions):
+            problems.append(Unmapped("markup_off_the_image", entry[:120], where))
+            continue
+
         mapped.append(
-            MappedAnnotation(shape=shape, color=colour, x=x, y=y, width=width, height=height)
+            MappedAnnotation(
+                shape=shape,
+                color=colour,
+                x=fractions[0],
+                y=fractions[1],
+                width=fractions[2],
+                height=fractions[3],
+            )
         )
 
     return mapped, problems
+
+
+def attach_annotations(
+    mapped: MappedGuide, fetch: Callable[[str], dict[str, Any]]
+) -> list[Unmapped]:
+    """Fill in the shapes drawn on each of a guide's images.
+
+    Takes a way to fetch an image record rather than a client, because nothing
+    else in this module talks to anything and that is worth keeping.
+
+    Both the import and the verification pass come through here. A second copy
+    would drift from this one, and the two would then disagree about how many
+    shapes the source holds — which is the number that decides whether a
+    migration is called faithful, so the disagreement would read as data loss
+    that never happened, or hide some that did.
+    """
+    problems: list[Unmapped] = []
+    for step in mapped.steps:
+        for image in step.images:
+            if not image.source_id.isdigit():
+                continue
+            record = fetch(image.source_id)
+            shapes, trouble = parse_markup(
+                record.get("markup"),
+                record.get("width"),
+                record.get("height"),
+                f"image {image.source_id}",
+            )
+            image.annotations = shapes
+            problems.extend(trouble)
+    return problems
+
+
+def _lands_on_the_picture(fractions: tuple[float, float, float, float]) -> bool:
+    """Both ends of a shape inside the frame, within the tolerance the schema allows.
+
+    Checked against the far corner as well as the origin, because an arrow is
+    stored from its tail and a tail on the picture says nothing about where the
+    head is.
+    """
+    x, y, extent_x, extent_y = fractions
+    limit = 1.0 + EDGE_TOLERANCE
+    return all(-EDGE_TOLERANCE <= value <= limit for value in (x, y, x + extent_x, y + extent_y))
 
 
 def map_step_media(
@@ -727,16 +814,15 @@ def map_step_media(
             if url is None:
                 problems.append(Unmapped("image_url", repr(data)[:120], where))
                 continue
-            annotations, shape_problems = map_annotations(
-                data.get("markup") or data.get("annotations"), where
-            )
-            problems.extend(shape_problems)
+            # Annotations are deliberately not read here. They live on the
+            # image document, one fetch per image, and are attached by the run
+            # once it has them — see `parse_markup`. Reaching for them in this
+            # payload is what produced a corpus with none.
             images.append(
                 MappedImage(
                     source_id=str(data.get("id") or data.get("imageid") or url),
                     url=url,
                     alt=strip_markup(str(data.get("alt") or data.get("caption") or "")),
-                    annotations=annotations,
                 )
             )
         elif kind in ("video", "movie"):

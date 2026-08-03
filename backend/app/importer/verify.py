@@ -39,7 +39,7 @@ from sqlalchemy.orm import Session as DbSession
 from ..models import Guide, ImportedRecord
 from ..schemas import guide_out
 from .client import MigrationError
-from .mapping import MappedGuide, map_guide
+from .mapping import MappedGuide, attach_annotations, map_guide
 
 SOURCE_SYSTEM = "dozuki"
 
@@ -192,6 +192,12 @@ def verify(db: DbSession, client, limit: int | None = None) -> VerificationRepor
             continue
 
         source, _ = map_guide(payload)
+        # The shapes drawn on a picture live on the picture's own record, so the
+        # source side has to fetch them exactly as the import did. Without this
+        # every annotation Reticle holds looks like one nobody drew, and the
+        # invention check would accuse a faithful migration of making the corpus
+        # up.
+        attach_annotations(source, client.get_image)
         compare(source, guide_out(guide).model_dump(mode="json", by_alias=True), verdict)
 
     return report

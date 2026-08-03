@@ -24,7 +24,6 @@ import pytest
 
 from app.importer.mapping import (
     guide_list_block,
-    map_annotations,
     map_bullet,
     map_difficulty,
     map_guide,
@@ -32,6 +31,7 @@ from app.importer.mapping import (
     map_step_media,
     map_tags,
     map_time_required,
+    parse_markup,
     resolve_guide_embeds,
     slugify_tag,
     strip_markup,
@@ -221,59 +221,128 @@ def test_an_empty_bullet_is_dropped_without_complaint():
 # --- annotations ----------------------------------------------------------
 
 
-def test_annotations_survive_with_their_shape_and_colour():
-    raw = [
-        {"shape": "rectangle", "color": "red", "x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4},
-        {"shape": "circle", "color": "green", "x": 0.5, "y": 0.5, "width": 0.1, "height": 0.1},
-        {"shape": "arrow", "color": "blue", "x": 0.0, "y": 0.0, "width": 0.5, "height": 0.5},
-    ]
-    mapped, problems = map_annotations(raw, "s1")
-    assert [item.shape for item in mapped] == ["rectangle", "ellipse", "arrow"]
-    assert [item.color for item in mapped] == ["red", "green", "blue"]
+"""Every string in this section is copied from a live image record.
+
+The mapping used to accept a list of dictionaries in any of several shapes,
+because nobody had seen the real thing. The real thing is a delimited string on
+a document the importer was not fetching, so the flexible version had nothing to
+be flexible about and every annotation in the corpus was dropped. These are the
+shapes that actually occur.
+"""
+
+
+def test_a_rectangle_is_two_points_and_becomes_a_corner_and_a_size():
+    """Read as a corner and a size, 36 of the sample's rectangles leave the picture."""
+    mapped, problems = parse_markup(";rectangle,828x1164,586x430,red;", 4032, 3024, "image 12628")
+
     assert problems == []
-
-
-def test_percentage_coordinates_become_fractions():
-    """Stored as 0..100 on one side and 0..1 on ours; a raw copy would be off-screen."""
-    mapped, problems = map_annotations(
-        [{"shape": "rect", "color": "red", "x": 10, "y": 20, "width": 30, "height": 40}], "s1"
-    )
-    assert problems == []
-    assert (mapped[0].x, mapped[0].y, mapped[0].width, mapped[0].height) == (0.1, 0.2, 0.3, 0.4)
-
-
-def test_two_corner_geometry_becomes_a_corner_and_a_size():
-    mapped, problems = map_annotations(
-        [{"shape": "rectangle", "color": "red", "x1": 0.1, "y1": 0.1, "x2": 0.6, "y2": 0.5}], "s1"
-    )
-    assert problems == []
-    assert mapped[0].width == pytest.approx(0.5)
-    assert mapped[0].height == pytest.approx(0.4)
-
-
-def test_annotations_nested_under_a_shapes_key_are_found():
-    mapped, _ = map_annotations(
-        {"shapes": [{"shape": "arrow", "color": "red", "x": 0, "y": 0, "width": 1, "height": 1}]},
-        "s1",
-    )
     assert len(mapped) == 1
+    shape = mapped[0]
+    assert shape.shape == "rectangle"
+    assert shape.color == "red"
+    # Normalised to the top-left corner, so the drag direction stops mattering.
+    assert shape.x == pytest.approx(586 / 4032)
+    assert shape.y == pytest.approx(430 / 3024)
+    assert shape.width == pytest.approx(242 / 4032)
+    assert shape.height == pytest.approx(734 / 3024)
+
+
+def test_an_arrow_keeps_the_direction_it_was_drawn_in():
+    """A signed vector, because which end has the head is the whole point.
+
+    This one is drawn right to left, which is the case that a rule demanding
+    positive extents once made permanently unsaveable.
+    """
+    mapped, problems = parse_markup(
+        ";arrow,2544.9731115392738x2220.324324324324,932.2163895943447x2208.5092567642882,red;",
+        4032,
+        3024,
+        "image 507",
+    )
+
+    assert problems == []
+    assert mapped[0].shape == "arrow"
+    assert mapped[0].width < 0
+    assert mapped[0].x == pytest.approx(2544.9731115392738 / 4032)
+
+
+def test_a_circle_is_a_centre_and_a_radius():
+    """The one entry whose second field is a single number rather than a pair."""
+    mapped, problems = parse_markup(";circle,368x263,251,red;", 4032, 3024, "image 1")
+
+    assert problems == []
+    assert mapped[0].shape == "ellipse"
+    assert mapped[0].x == pytest.approx((368 - 251) / 4032)
+    assert mapped[0].width == pytest.approx(502 / 4032)
+
+
+def test_several_shapes_in_one_string_all_arrive():
+    mapped, problems = parse_markup(
+        ";rectangle,828x1164,586x430,red;arrow,2272.5x1096.5,2558.6x1552.9,red;",
+        4032,
+        3024,
+        "image 12628",
+    )
+
+    assert problems == []
+    assert [shape.shape for shape in mapped] == ["rectangle", "arrow"]
+
+
+def test_the_crop_window_is_not_an_annotation():
+    """It is the frame the photograph was cropped to, which the stored image
+    already reflects — drawn, it would ring the whole picture."""
+    mapped, problems = parse_markup(";crop,-1176x0,5376x4032;", 4032, 3024, "image 1")
+
+    assert (mapped, problems) == ([], [])
+
+
+def test_a_deleted_set_of_shapes_leaves_null_behind_and_is_not_a_problem():
+    assert parse_markup(";null;", 4032, 3024, "image 1") == ([], [])
+    assert parse_markup(None, 4032, 3024, "image 1") == ([], [])
+
+
+def test_the_camel_case_colour_the_site_writes_is_recognised():
+    """The site writes `lightBlue`; Reticle calls it `light_blue`."""
+    mapped, problems = parse_markup(";circle,764x1200,220,lightBlue;", 4032, 3024, "image 1")
+
+    assert problems == []
+    assert mapped[0].color == "light_blue"
+
+
+def test_a_shape_off_the_picture_is_reported_rather_than_clamped():
+    """About a fifth of the sample's shapes land outside their image.
+
+    Why is not yet known, and neither answer is safe to assume: clamping moves
+    the shape off whatever it points at, and passing it through unchanged puts a
+    value outside the range the schema accepts, which refuses every later save
+    of the guide holding it. So it is reported and the run does not reconcile.
+    """
+    mapped, problems = parse_markup(";arrow,100x100,99999x99999,red;", 4032, 3024, "image 1")
+
+    assert mapped == []
+    assert problems and problems[0].kind == "markup_off_the_image"
 
 
 def test_an_unknown_shape_is_reported_rather_than_approximated():
-    mapped, problems = map_annotations([{"shape": "freehand", "color": "red"}], "s1")
+    mapped, problems = parse_markup(";freehand,1x1,2x2,red;", 4032, 3024, "image 1")
+
     assert mapped == []
     assert problems and problems[0].kind == "markup_shape"
 
 
-def test_a_shape_with_no_usable_geometry_is_reported():
-    mapped, problems = map_annotations([{"shape": "rectangle", "color": "red"}], "s1")
+def test_an_unknown_colour_is_reported():
+    mapped, problems = parse_markup(";rectangle,10x10,20x20,chartreuse;", 4032, 3024, "image 1")
+
     assert mapped == []
-    assert problems and problems[0].kind == "markup_geometry"
+    assert problems and problems[0].kind == "markup_colour"
 
 
-def test_no_markup_is_not_a_problem():
-    assert map_annotations(None, "s1") == ([], [])
-    assert map_annotations([], "s1") == ([], [])
+def test_an_image_with_no_usable_size_cannot_be_normalised_and_says_so():
+    """Fractions need a denominator; a shape divided by nothing is not a shape."""
+    mapped, problems = parse_markup(";rectangle,10x10,20x20,red;", 0, 3024, "image 1")
+
+    assert mapped == []
+    assert problems and problems[0].kind == "markup_image_size"
 
 
 # --- media ----------------------------------------------------------------
@@ -401,8 +470,9 @@ def test_a_whole_guide_maps_with_nothing_left_unrecognised():
     assert [bullet.icon for bullet in step.bullets] == [None, "caution", None]
     assert [bullet.level for bullet in step.bullets] == [0, 0, 1]
     assert len(step.images) == 1
-    assert len(step.images[0].annotations) == 1
-    assert step.images[0].annotations[0].color == "red"
+    # Annotations are not among them: they live on the image document, not on
+    # the guide payload, and the run attaches them once it has fetched it.
+    assert step.images[0].annotations == []
 
 
 def test_a_private_guide_is_marked_private_so_it_does_not_arrive_published():
