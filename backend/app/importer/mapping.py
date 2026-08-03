@@ -738,19 +738,32 @@ def parse_markup(
     return mapped, problems
 
 
-def attach_annotations(
+def attach_image_details(
     mapped: MappedGuide, fetch: Callable[[str], dict[str, Any]]
 ) -> list[Unmapped]:
-    """Fill in the shapes drawn on each of a guide's images.
+    """Point each image at the unflattened photograph and read the shapes on it.
 
     Takes a way to fetch an image record rather than a client, because nothing
-    else in this module talks to anything and that is worth keeping.
+    else in this module talks to anything and that is worth keeping. Both the
+    import and the verification pass come through here: a second copy would
+    drift, and the two would then disagree about how many shapes the source
+    holds, which is the number that decides whether a migration is faithful.
 
-    Both the import and the verification pass come through here. A second copy
-    would drift from this one, and the two would then disagree about how many
-    shapes the source holds — which is the number that decides whether a
-    migration is called faithful, so the disagreement would read as data loss
-    that never happened, or hide some that did.
+    **The picture to keep is the source, not the one the listing offers.** The
+    vendor stores two renditions of every annotated photograph: the original,
+    and a flattened copy with the shapes painted into the pixels. A guide
+    payload links the flattened one. Importing that and then drawing Reticle's
+    own vectors over it shows each arrow twice — but the real cost is not the
+    double image, it is that a shape burned into a photograph can never be
+    moved, recoloured or removed again. ZMB has to be able to edit these guides
+    after the migration, so what has to arrive is the clean picture plus the
+    shapes as data.
+
+    **The shapes are measured against the source, too.** Coordinates are in the
+    original's pixel space, not the rendition's: across the sample 217 of 218
+    land inside the source's dimensions and only 169 inside the rendition's, so
+    normalising against the wrong one puts a fifth of every guide's annotations
+    off the edge of its own picture.
     """
     problems: list[Unmapped] = []
     for step in mapped.steps:
@@ -758,10 +771,17 @@ def attach_annotations(
             if not image.source_id.isdigit():
                 continue
             record = fetch(image.source_id)
+            source = record.get("srcImageInfo")
+            source = source if isinstance(source, dict) else {}
+
+            original = best_image_url(source.get("image") or {})
+            if original is not None:
+                image.url = original
+
             shapes, trouble = parse_markup(
                 record.get("markup"),
-                record.get("width"),
-                record.get("height"),
+                source.get("width") or record.get("width"),
+                source.get("height") or record.get("height"),
                 f"image {image.source_id}",
             )
             image.annotations = shapes

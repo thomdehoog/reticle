@@ -73,7 +73,7 @@ from .mapping import (
     MappedImage,
     MappedPage,
     MappedVideo,
-    attach_annotations,
+    attach_image_details,
     map_guide,
     map_page,
     resolve_guide_embeds,
@@ -395,7 +395,7 @@ class Importer:
                 continue
             self._import_one_guide(payload)
 
-    def _attach_annotations(self, mapped: MappedGuide, tally: GuideTally) -> None:
+    def _attach_image_details(self, mapped: MappedGuide, tally: GuideTally) -> None:
         """Fetch each image's own record and read the shapes drawn on it.
 
         One request per image, because the vendor offers no other way: the guide
@@ -423,7 +423,7 @@ class Importer:
                 tally.failures.append(f"image {image_id}: {error}")
                 return {}
 
-        problems = attach_annotations(mapped, fetch)
+        problems = attach_image_details(mapped, fetch)
         self.report.unmapped.extend(problems)
         tally.source_annotations = sum(
             len(image.annotations) for step in mapped.steps for image in step.images
@@ -436,7 +436,7 @@ class Importer:
         tally = GuideTally(source_id=mapped.source_id, title=mapped.title)
         count_source(payload, tally)
         if not self.options.skip_media:
-            self._attach_annotations(mapped, tally)
+            self._attach_image_details(mapped, tally)
         self.report.guides.append(tally)
 
         if self.options.dry_run:

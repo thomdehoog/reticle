@@ -46,7 +46,18 @@ class FakeDozuki:
         # arithmetic legible: 100/1000 and 300-100 over 1000 are the 0.1 and 0.2
         # the assertions read.
         self.images: dict[str, dict] = {
-            "9001": {"width": 1000, "height": 1000, "markup": ";rectangle,100x100,300x300,red;"}
+            "9001": {
+                "width": 1000,
+                "height": 1000,
+                "markup": ";rectangle,100x100,300x300,red;",
+                # The vendor keeps two renditions: the one a guide links, with
+                # the shapes painted in, and the untouched original beside it.
+                "srcImageInfo": {
+                    "width": 1000,
+                    "height": 1000,
+                    "image": {"original": "https://example.test/one-original.png"},
+                },
+            }
         }
 
     def iter_guides(self, include_private: bool = False):
@@ -202,6 +213,55 @@ def test_pictures_are_fetched_and_stored_through_the_upload_validation(
     assert stored.exists()
 
 
+def test_the_picture_kept_is_the_one_without_the_shapes_painted_into_it(
+    db_session, author_account, media_root
+):
+    """ZMB has to be able to edit these guides after the migration.
+
+    The vendor stores an annotated photograph twice: the original, and a
+    flattened copy with the shapes burned into the pixels. A guide payload links
+    the flattened one, and importing that shows every arrow twice — once in the
+    pixels and once from Reticle's own overlay. The doubling is the visible
+    symptom; the real loss is that a shape painted into a photograph can never
+    be moved, recoloured or taken off again.
+    """
+    client = FakeDozuki([_guide()])
+
+    _run(db_session, client)
+
+    assert "https://example.test/one-original.png" in client.downloads
+    assert "https://example.test/one.png" not in client.downloads
+
+
+def test_shapes_are_measured_against_the_original_not_the_rendition(
+    db_session, author_account, media_root
+):
+    """Coordinates are in the original's pixel space.
+
+    Read against a rendition of a different size they land somewhere else on the
+    picture, or off it altogether — which is a shape that no longer points at
+    the control the sentence beside it is naming.
+    """
+    client = FakeDozuki([_guide()])
+    client.images["9001"] = {
+        # The rendition is half the size of the photograph the author drew on.
+        "width": 500,
+        "height": 500,
+        "markup": ";rectangle,100x100,300x300,red;",
+        "srcImageInfo": {
+            "width": 1000,
+            "height": 1000,
+            "image": {"original": "https://example.test/one-original.png"},
+        },
+    }
+
+    _run(db_session, client)
+
+    annotation = db_session.scalars(select(Annotation)).one()
+    assert (annotation.x, annotation.y) == (0.1, 0.1)
+    assert (annotation.width, annotation.height) == (0.2, 0.2)
+
+
 def test_annotations_land_on_the_image_they_belong_to(db_session, author_account, media_root):
     """The shape on the picture is half of the instruction the bullet gives."""
     _run(db_session, FakeDozuki([_guide()]))
@@ -280,7 +340,8 @@ def test_an_unrecognised_value_is_reported_and_leaves_the_run_unbalanced(
 
 def test_a_failing_download_fails_its_guide_and_not_the_run(db_session, author_account, media_root):
     client = FakeDozuki([_guide(1), _guide(2, title="Second guide")])
-    client.failing_urls.add("https://example.test/one.png")
+    # The original, which is what actually gets downloaded now.
+    client.failing_urls.add("https://example.test/one-original.png")
 
     importer = _run(db_session, client)
 
