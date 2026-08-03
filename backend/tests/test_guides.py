@@ -476,9 +476,25 @@ def test_an_archived_guide_is_invisible_to_viewers(author, admin, viewer, catego
     assert viewer.get(f"/api/guides/{created['slug']}").status_code == 404
 
 
-def test_guide_endpoints_require_a_session(anon, category):
-    assert anon.get("/api/guides").status_code == 401
-    assert anon.get("/api/guides/anything").status_code == 401
+def test_the_catalogue_reads_without_a_session_and_still_hides_the_unfinished(
+    anon, author, category
+):
+    """The public half of the rule and the private half, in one place.
+
+    A reader at an instrument gets the published guide without an account. A
+    draft is 404 to them for the same reason it is 404 to a viewer — not
+    because they are anonymous, but because it is not finished.
+    """
+    published = create_guide(author, category.id, title="Aligning the Confocal")
+    author.post(f"/api/guides/{published['id']}/publish")
+    draft = create_guide(author, category.id, title="Half written")
+
+    assert anon.get("/api/guides").status_code == 200
+    assert anon.get(f"/api/guides/{published['slug']}").status_code == 200
+    assert anon.get(f"/api/guides/{draft['id']}").status_code == 404
+    assert [guide["id"] for guide in anon.get("/api/guides").json()] == [published["id"]]
+
+    assert anon.get("/api/guides/anything").status_code == 404
 
 
 # --------------------------------------------------------------- block kinds

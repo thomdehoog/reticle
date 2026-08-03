@@ -24,8 +24,10 @@ def test_any_authenticated_role_can_list_categories(viewer, category):
     ]
 
 
-def test_listing_categories_requires_a_session(anon):
-    assert anon.get("/api/categories").status_code == 401
+def test_the_sections_are_listed_to_anybody(anon):
+    """Browsing is public. The login decides who may change a section, not who
+    may see that one exists."""
+    assert anon.get("/api/categories").status_code == 200
 
 
 def test_admin_creates_a_category_and_the_slug_is_derived(admin):

@@ -276,5 +276,21 @@ def test_the_summary_projection_carries_the_tags_a_card_shows(author, category):
     assert author.get("/api/guides").json()[0]["tags"] == ["confocal", "startup"]
 
 
-def test_the_tag_list_requires_a_session(anon):
-    assert anon.get("/api/tags").status_code == 401
+def test_the_tag_list_is_public_and_counts_only_published_guides(anon, author, category):
+    """Tags are how ZMB navigates, so the list is as public as the guides it
+    reaches — and a count that included drafts would advertise them."""
+    published = create_guide(author, category.id, title="Published")
+    author.put(
+        f"/api/guides/{published['id']}",
+        json=document_from(published, tags=["confocal"]),
+    )
+    author.post(f"/api/guides/{published['id']}/publish")
+
+    draft = create_guide(author, category.id, title="Draft")
+    author.put(f"/api/guides/{draft['id']}", json=document_from(draft, tags=["confocal"]))
+
+    response = anon.get("/api/tags")
+
+    assert response.status_code == 200
+    counts = {tag["slug"]: tag["guideCount"] for tag in response.json()}
+    assert counts.get("confocal") == 1

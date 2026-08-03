@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from .. import audit, errors, images, videos
-from ..auth import AnyUser, AuthorUser, DbDep, client_address
+from ..auth import AuthorUser, DbDep, MaybeUser, client_address
 from ..models import (
     EVERYONE,
     PUBLISHED,
@@ -37,6 +37,7 @@ from ..models import (
 from ..schemas import MediaOut, media_out
 from ..settings import Settings, get_settings
 from ..storage import build_storage
+from ..visibility import sees_unpublished
 
 router = APIRouter(prefix="/api/media", tags=["media"])
 
@@ -294,7 +295,7 @@ def _displayed_by_something_a_viewer_can_open(db: DbSession, media_id: str) -> b
 
 
 @router.get("/{media_id}")
-def read_media(media_id: str, db: DbDep, user: AnyUser) -> Response:
+def read_media(media_id: str, db: DbDep, user: MaybeUser) -> Response:
     """Serve a file, once the caller has been shown to be allowed to see it.
 
     The visibility check above the storage call is the important line in this
@@ -306,7 +307,7 @@ def read_media(media_id: str, db: DbDep, user: AnyUser) -> Response:
     media = db.get(Media, media_id)
     if media is None:
         raise errors.not_found("That file does not exist.")
-    if user.role == "viewer" and not _displayed_by_something_a_viewer_can_open(db, media_id):
+    if not sees_unpublished(user) and not _displayed_by_something_a_viewer_can_open(db, media_id):
         raise errors.not_found("That file does not exist.")
 
     store = build_storage(get_settings())

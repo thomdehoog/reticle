@@ -284,12 +284,25 @@ def test_the_served_bytes_are_the_stored_bytes(author, db_session, media_root):
     )
 
 
-def test_media_bytes_are_behind_the_login(anon, author):
-    created = author.post(
-        "/api/media", files={"file": ("x.png", image_bytes(), "image/png")}
-    ).json()
+def test_a_reader_with_no_account_is_held_to_exactly_what_a_viewer_is(anon, author, category):
+    """The line that makes the public site safe to open.
 
-    assert anon.get(f"/api/media/{created['id']}").status_code == 401
+    Anonymous is not a fourth rule; it is the same rule with nobody signed in.
+    Both halves are asserted here because opening the corpus is precisely the
+    change that could have widened this: a picture on a published guide is
+    served, and one that no published guide shows is not — the same answers a
+    viewer gets, for the same reason.
+    """
+    orphan = author.post("/api/media", files={"file": ("x.png", image_bytes(), "image/png")}).json()
+    assert anon.get(f"/api/media/{orphan['id']}").status_code == 404
+
+    draft_image = upload_media(author)
+    _attach_to_guide(author, category, draft_image, publish=False)
+    assert anon.get(f"/api/media/{draft_image['id']}").status_code == 404
+
+    shown = upload_media(author)
+    _attach_to_guide(author, category, shown, publish=True)
+    assert anon.get(f"/api/media/{shown['id']}").status_code == 200
 
 
 def test_viewers_may_read_an_image_on_a_published_guide_but_not_upload(viewer, author, category):

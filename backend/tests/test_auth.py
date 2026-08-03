@@ -322,7 +322,7 @@ def test_unknown_path_under_api_returns_the_error_envelope(author):
     assert response.json()["error"]["code"] == "not_found"
 
 
-def test_every_route_is_behind_authentication():
+def test_every_endpoint_is_guarded_or_deliberately_public():
     """A route added without an auth dependency is a silent hole; assert it can
     never happen rather than trusting review to catch it.
 
@@ -330,7 +330,24 @@ def test_every_route_is_behind_authentication():
     own allow-list. The earlier version did neither, and so could not see that
     ``/docs``, ``/redoc`` and ``/openapi.json`` were publishing the whole route
     inventory to anyone who asked.
-    """
-    from app.main import unauthenticated_routes
 
-    assert unauthenticated_routes() == []
+    It admits an endpoint two ways now that the corpus is public: it requires a
+    session, or it is named in ``PUBLIC_ENDPOINTS``. Naming is by method as well
+    as path, so opening ``GET /api/guides`` to a reader cannot open ``POST`` on
+    the same path beside it.
+    """
+    from app.main import unguarded_endpoints
+
+    assert unguarded_endpoints() == []
+
+
+def test_nothing_that_changes_data_is_public():
+    """The public list is reviewed by hand, so this is what stops a slip in it.
+
+    Every entry is a GET. A write appearing there would be an endpoint anybody
+    on the internet could call, and it would look exactly like the read beside
+    it in the diff.
+    """
+    from app.main import PUBLIC_ENDPOINTS
+
+    assert {method for method, _ in PUBLIC_ENDPOINTS} == {"GET"}

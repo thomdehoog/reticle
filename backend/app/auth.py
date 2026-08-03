@@ -16,11 +16,16 @@ read, which the frontend copies into the ``X-CSRF-Token`` header; another site
 can make the browser send cookies but cannot read them, so it cannot produce the
 header. Anything that changes data must present both.
 
-At the bottom are the three names a route declares to say who may call it —
-``AnyUser``, ``AuthorUser``, ``AdminUser``. Declaring one is not optional:
-``main.unauthenticated_routes`` walks the whole routing table and a test fails if
-any route is missing one, so adding an endpoint means choosing a role rather
-than remembering to.
+At the bottom are the names a route declares to say who may call it —
+``MaybeUser``, ``AnyUser``, ``AuthorUser``, ``AdminUser``. Declaring one is not
+optional: ``main.unguarded_endpoints`` walks the whole routing table and a test
+fails on anything that neither requires a role nor appears in the list of
+endpoints deliberately left open, so adding one means choosing rather than
+remembering to.
+
+``MaybeUser`` is the reading public. The corpus is published material and a
+login decides who may *change* it, not who may see it, so a route serving
+finished public content takes a caller who may be nobody at all.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
@@ -159,7 +164,47 @@ def get_current_user(session_row: Annotated[SessionRow, Depends(get_session_row)
     return session_row.user
 
 
+def get_reader(
+    request: Request,
+    db: DbDep,
+    session_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+) -> User | None:
+    """Whoever is reading, signed in or not.
+
+    ZMB's guides are how somebody standing at an instrument finds out how to use
+    it, and asking them for an account first is a barrier with nothing behind
+    it: the corpus is public and the login exists to decide who may *change* a
+    guide.
+
+    So a caller with no session gets ``None`` rather than a refusal. That does
+    not weaken anything for a caller who has one — a cookie that is present is
+    resolved exactly as ``get_session_row`` resolves it, and a signed-in author
+    reading a draft is still the author. What ``None`` must never do is widen
+    what is visible, and it cannot: every route taking this asks
+    ``visibility.sees_unpublished``, which an anonymous reader fails the same
+    way a viewer does, through the same test rather than a second one.
+
+    An expired or forged cookie reads as anonymous instead of as an error, which
+    is what a reader wants — a tab left open overnight shows the public site
+    again rather than a wall.
+    """
+    row = resolve_session(db, session_token)
+    if row is None or not row.user.is_active:
+        return None
+
+    # Every route that takes a reader is a GET, so the CSRF check that guards a
+    # write has nothing to do here. Refused rather than assumed: a write that
+    # quietly accepted this dependency would accept a session cookie without the
+    # header proving this page and not another site sent it.
+    if request.method not in SAFE_METHODS:
+        raise errors.forbidden("This endpoint does not accept writes.")
+
+    request.state.session_id = row.id
+    return row.user
+
+
 AnyUser = Annotated[User, Depends(get_current_user)]
+MaybeUser = Annotated[User | None, Depends(get_reader)]
 CurrentSession = Annotated[SessionRow, Depends(get_session_row)]
 
 

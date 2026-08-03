@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
 from .. import audit, errors
-from ..auth import AdminUser, AnyUser, DbDep, client_address
+from ..auth import AdminUser, DbDep, MaybeUser, client_address
 from ..models import PUBLISHED, Category, Guide, Media, Page
 from ..schemas import (
     CategoryCreateIn,
@@ -26,6 +26,7 @@ from ..schemas import (
     page_out,
 )
 from ..slugs import unique_slug
+from ..visibility import sees_unpublished
 
 router = APIRouter(prefix="/api/categories", tags=["categories"])
 
@@ -80,13 +81,13 @@ def _assert_no_cycle(db: DbSession, category: Category, parent_id: str) -> None:
 
 
 @router.get("", response_model=list[CategoryOut])
-def list_categories(db: DbDep, user: AnyUser) -> list[CategoryOut]:
+def list_categories(db: DbDep, user: MaybeUser) -> list[CategoryOut]:
     categories = db.scalars(select(Category).order_by(Category.order_index, Category.name)).all()
     return [category_out(category) for category in categories]
 
 
 @router.get("/{category_id}/page", response_model=PageOut | None)
-def read_landing_page(category_id: str, db: DbDep, user: AnyUser) -> PageOut | None:
+def read_landing_page(category_id: str, db: DbDep, user: MaybeUser) -> PageOut | None:
     """The category's landing content, or ``null`` when nobody has written it.
 
     Null rather than 404: a category with no landing page yet is the ordinary
@@ -95,7 +96,7 @@ def read_landing_page(category_id: str, db: DbDep, user: AnyUser) -> PageOut | N
     """
     _load(db, category_id)
     statement = select(Page).where(Page.category_id == category_id, Page.is_landing.is_(True))
-    if user.role == "viewer":
+    if not sees_unpublished(user):
         statement = statement.where(Page.status == PUBLISHED)
     else:
         statement = statement.where(Page.status != "archived")

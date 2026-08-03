@@ -19,7 +19,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 from sqlalchemy import case, func, or_, select
 
-from ..auth import AnyUser, DbDep
+from ..auth import DbDep, MaybeUser
 from ..db import escape_like
 from ..models import PUBLISHED, Bullet, Guide, GuideTag, Page, Step, Tag
 from ..schemas import (
@@ -31,7 +31,7 @@ from ..schemas import (
     page_summary_out,
     tag_out,
 )
-from ..visibility import readable_guides
+from ..visibility import readable_guides, sees_unpublished
 from .guides import thumbnail_subquery
 
 router = APIRouter(prefix="/api", tags=["discovery"])
@@ -47,7 +47,7 @@ institute's documentation on demand.
 
 
 @router.get("/tags", response_model=list[TagOut])
-def list_tags(db: DbDep, user: AnyUser) -> list[TagOut]:
+def list_tags(db: DbDep, user: MaybeUser) -> list[TagOut]:
     """Every tag that is actually on something the caller may see.
 
     The count is computed against the same visibility rules as the guide list,
@@ -62,7 +62,7 @@ def list_tags(db: DbDep, user: AnyUser) -> list[TagOut]:
         .join(Guide, Guide.id == GuideTag.guide_id)
     )
     countable = readable_guides(countable, user)
-    if user.role == "viewer":
+    if not sees_unpublished(user):
         countable = countable.where(Guide.status == PUBLISHED)
     else:
         countable = countable.where(Guide.status != "archived")
@@ -76,7 +76,7 @@ def list_tags(db: DbDep, user: AnyUser) -> list[TagOut]:
 @router.get("/search", response_model=list[SearchHitOut])
 def search(
     db: DbDep,
-    user: AnyUser,
+    user: MaybeUser,
     q: str = Query(default="", max_length=200),
 ) -> list[SearchHitOut]:
     term = q.strip()
@@ -128,7 +128,7 @@ def search(
         )
     )
 
-    if user.role == "viewer":
+    if not sees_unpublished(user):
         guides = guides.where(Guide.status == PUBLISHED)
         pages = pages.where(Page.status == PUBLISHED)
     else:

@@ -147,24 +147,34 @@ the thing under test agrees with it however wrong it is.
 
 
 def test_the_wiki_and_discovery_routes_are_inside_the_authentication_sweep():
-    """``unauthenticated_routes() == []`` is only a guarantee about the routes
-    the sweep can see.
+    """``unguarded_endpoints() == []`` is only a guarantee about the routes the
+    sweep can see.
 
     A router mounted outside the ``APIRoute`` tree, or one whose paths the sweep
     never reaches, would satisfy that assertion by being absent from it — so the
     endpoints added with pages, tags and search are named here and required to be
-    both present and guarded.
+    present, and to be either guarded or on the public list.
     """
     from fastapi.routing import APIRoute
 
-    from app.main import _all_routes, _dependant_requires_auth, unauthenticated_routes
+    from app.main import (
+        PUBLIC_ENDPOINTS,
+        _all_routes,
+        _dependant_requires_auth,
+        unguarded_endpoints,
+    )
 
     api_routes = [route for route in _all_routes() if isinstance(route, APIRoute)]
-    guarded = {route.path for route in api_routes if _dependant_requires_auth(route.dependant)}
+    accounted_for = {
+        route.path
+        for route in api_routes
+        if _dependant_requires_auth(route.dependant)
+        or any(path == route.path for _method, path in PUBLIC_ENDPOINTS)
+    }
 
     assert {route.path for route in api_routes} >= NEW_SURFACE
-    assert guarded >= NEW_SURFACE
-    assert unauthenticated_routes() == []
+    assert accounted_for >= NEW_SURFACE
+    assert unguarded_endpoints() == []
 
 
 def test_the_authentication_sweep_can_actually_see_an_unguarded_route():
@@ -180,7 +190,7 @@ def test_the_authentication_sweep_can_actually_see_an_unguarded_route():
     """
     from fastapi import APIRouter
 
-    from app.main import unauthenticated_routes
+    from app.main import unguarded_endpoints
 
     hole = APIRouter(prefix="/api/deliberate-hole")
 
@@ -191,7 +201,33 @@ def test_the_authentication_sweep_can_actually_see_an_unguarded_route():
     original = list(app.routes)
     try:
         app.include_router(hole)
-        assert unauthenticated_routes() == ["/api/deliberate-hole"]
+        assert unguarded_endpoints() == ["GET /api/deliberate-hole"]
+    finally:
+        app.router.routes[:] = original
+
+
+def test_a_write_planted_on_a_public_path_is_still_named_by_the_sweep():
+    """The reason the list is keyed by method.
+
+    ``GET /api/guides`` is public, so a path-keyed exemption would have passed a
+    ``POST`` mounted on that same path without an auth dependency — an endpoint
+    anybody could call to write, exempted by a line that was only ever meant to
+    open the catalogue for reading.
+    """
+    from fastapi import APIRouter
+
+    from app.main import unguarded_endpoints
+
+    hole = APIRouter()
+
+    @hole.post("/api/guides")
+    def wide_open() -> dict[str, str]:  # pragma: no cover - never called
+        return {}
+
+    original = list(app.routes)
+    try:
+        app.include_router(hole)
+        assert unguarded_endpoints() == ["POST /api/guides"]
     finally:
         app.router.routes[:] = original
 
@@ -301,21 +337,41 @@ def test_the_public_config_endpoint_carries_nothing_but_the_name(anon):
     }
 
 
-def test_every_readable_endpoint_on_the_new_surface_refuses_an_anonymous_caller(anon):
+def test_what_stayed_private_still_refuses_an_anonymous_caller(anon):
     """The structural sweep proves a dependency is declared; this proves the
-    dependency actually fires."""
+    dependency actually fires.
+
+    Revision history is on this list rather than the public one: it holds every
+    earlier version of a guide, including what it said before somebody corrected
+    it, which is not what publishing a guide puts into the world.
+    """
     for path in (
-        "/api/pages",
-        "/api/pages/anything",
         "/api/pages/01JQNOTAREALULID00000000/revisions",
         "/api/pages/01JQNOTAREALULID00000000/revisions/1",
-        "/api/categories/01JQNOTAREALULID00000000/page",
-        "/api/tags",
-        "/api/search?q=anything",
+        "/api/guides/01JQNOTAREALULID00000000/revisions",
+        "/api/users",
+        "/api/export",
     ):
         response = anon.get(path)
         assert response.status_code == 401, path
         assert response.json()["error"]["code"] == "not_authenticated", path
+
+
+def test_the_reading_public_is_served_without_an_account(anon):
+    """A reader at an instrument should not have to sign in to follow a procedure.
+
+    Asserted per endpoint rather than through one of them, because the way this
+    regresses is a single route quietly keeping the dependency that refuses.
+    """
+    for path in (
+        "/api/categories",
+        "/api/guides",
+        "/api/pages",
+        "/api/tags",
+        "/api/search?q=anything",
+    ):
+        response = anon.get(path)
+        assert response.status_code == 200, f"{path} -> {response.status_code}"
 
 
 def test_an_unmapped_http_error_still_uses_the_error_envelope(author):

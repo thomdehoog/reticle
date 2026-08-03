@@ -579,9 +579,14 @@ def test_deleting_a_category_that_still_holds_a_wiki_page_conflicts(admin, autho
     assert "page" in response.json()["error"]["message"].lower()
 
 
-def test_page_endpoints_require_a_session(anon):
-    assert anon.get("/api/pages").status_code == 401
-    assert anon.get("/api/pages/anything").status_code == 401
+def test_pages_read_without_a_session_and_are_not_writable_without_one(anon):
+    """Wiki pages are the section front pages, so they are as public as a guide.
+
+    Writing one is not: the POST is refused before it reaches the route, by the
+    CSRF middleware, which is why this is 403 rather than 401.
+    """
+    assert anon.get("/api/pages").status_code == 200
+    assert anon.get("/api/pages/anything").status_code == 404
     assert anon.post("/api/pages", json={"title": "Nope"}).status_code == 403
 
 

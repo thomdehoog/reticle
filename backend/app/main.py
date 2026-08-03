@@ -17,9 +17,10 @@ The other half of the file turns failures into the documented response shape.
 FastAPI, Starlette and any unhandled exception each fail in their own way, and
 the handlers below rewrite all of them into the one envelope ``errors`` defines.
 
-The whole application sits behind the login. ``PUBLIC_PATHS`` is the list of
-exceptions and :func:`unauthenticated_routes` walks the real routing table, so
-"only those" is something a test asserts rather than something anybody hopes.
+Reading is public and the login decides who may change things. ``PUBLIC_PATHS``
+and ``PUBLIC_ENDPOINTS`` are what may be reached without an account, and
+:func:`unguarded_endpoints` walks the real routing table, so "only those" is
+something a test asserts rather than something anybody hopes.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 Licence: MIT
@@ -69,6 +70,35 @@ from .settings import get_settings
 CSRF_EXEMPT_PATHS = frozenset({"/api/auth/login"})
 
 PUBLIC_PATHS = frozenset({"/api/health", "/api/ready", "/api/auth/login", "/api/config"})
+
+PUBLIC_ENDPOINTS = frozenset(
+    {
+        ("GET", "/api/categories"),
+        ("GET", "/api/categories/{category_id}/page"),
+        ("GET", "/api/guides"),
+        ("GET", "/api/guides/{key}"),
+        ("GET", "/api/media/{media_id}"),
+        ("GET", "/api/pages"),
+        ("GET", "/api/pages/{key}"),
+        ("GET", "/api/search"),
+        ("GET", "/api/tags"),
+    }
+)
+"""The reading public: every endpoint a caller with no account may reach.
+
+Kept as **(method, path)** rather than as paths, which is the whole reason this
+list can be trusted. ``GET /api/guides`` is the public catalogue and
+``POST /api/guides`` writes a new guide, and they are the same path — a
+path-keyed exemption cannot tell them apart, so opening the read would have
+quietly opened the write beside it.
+
+Being on this list is not what makes an endpoint safe; it is what makes it
+*reviewed*. Each one still narrows what it returns through
+``visibility.sees_unpublished``, which an anonymous caller fails exactly as a
+viewer does, so a draft and a staff guide stay invisible here. What the list
+buys is that widening the public surface is a visible line in a diff rather
+than a dependency somebody forgot to declare.
+"""
 
 STATUS_TO_CODE = {401: "not_authenticated", 403: "forbidden", 404: "not_found", 405: "not_found"}
 
@@ -489,28 +519,42 @@ def _all_routes() -> list[object]:
     return flattened
 
 
-def unauthenticated_routes() -> list[str]:
-    """Every route of any kind that no authentication dependency protects.
+def unguarded_endpoints() -> list[str]:
+    """Every endpoint that neither requires a session nor was declared public.
 
     Route-level authorisation is easy to forget and impossible to notice: the
     endpoint simply works for everybody. Enumerating the holes turns that into
     something a test can fail on.
 
     The sweep covers every route the application serves and measures them
-    against one fixed allow-list, rather than filtering to the ``/api`` prefix
-    and taking the exempt set from the caller. Both of those details mattered:
-    the holes that actually appeared here were ``/docs``, ``/redoc`` and
+    against fixed allow-lists, rather than filtering to the ``/api`` prefix and
+    taking the exempt set from the caller. Both of those details mattered: the
+    holes that actually appeared here were ``/docs``, ``/redoc`` and
     ``/openapi.json``, which carry no ``/api`` prefix and so could not have been
     caught by a filter that assumed one, and an allow-list a caller passes in is
     an allow-list the caller can widen to make the assertion pass.
+
+    It is keyed by method as well as path now that the corpus is public. A
+    reader needs ``GET /api/guides`` without an account and nobody may
+    ``POST`` there without one, and those are one path — so an exemption that
+    knew only the path would have opened the write along with the read. Each
+    method of each route is judged on its own.
     """
     unguarded = []
     for route in _all_routes():
         path = getattr(route, "path", None)
         if path is None or path in PUBLIC_PATHS:
             continue
-        if not isinstance(route, APIRoute) or not _dependant_requires_auth(route.dependant):
+        if not isinstance(route, APIRoute):
             unguarded.append(path)
+            continue
+        if _dependant_requires_auth(route.dependant):
+            continue
+        for method in sorted(route.methods or set()):
+            if method in {"HEAD", "OPTIONS"}:
+                continue
+            if (method, path) not in PUBLIC_ENDPOINTS:
+                unguarded.append(f"{method} {path}")
     return sorted(unguarded)
 
 

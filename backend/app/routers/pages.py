@@ -22,7 +22,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session as DbSession
 
 from .. import audit, errors
-from ..auth import AdminUser, AnyUser, AuthorUser, DbDep, client_address
+from ..auth import AdminUser, AuthorUser, DbDep, MaybeUser, client_address
 from ..db import escape_like, utcnow
 from ..documents import apply_page_document, next_updated_at, record_contribution
 from ..models import PUBLISHED, Category, Page, PageRevision, User
@@ -39,6 +39,7 @@ from ..schemas import (
     user_ref_out,
 )
 from ..slugs import unique_slug
+from ..visibility import sees_unpublished
 
 router = APIRouter(prefix="/api/pages", tags=["pages"])
 
@@ -51,7 +52,7 @@ def _load_for(db: DbSession, user: User, key: str) -> Page:
     page = db.scalars(select(Page).where(or_(Page.id == key, Page.slug == key))).one_or_none()
     if page is None:
         raise errors.not_found("That page does not exist.")
-    if user.role == "viewer" and page.status != PUBLISHED:
+    if not sees_unpublished(user) and page.status != PUBLISHED:
         raise errors.not_found("That page does not exist.")
     return page
 
@@ -90,7 +91,7 @@ def count_reading(db: DbSession, page: Page) -> None:
 @router.get("", response_model=list[PageSummaryOut])
 def list_pages(
     db: DbDep,
-    user: AnyUser,
+    user: MaybeUser,
     category_id: str | None = Query(default=None, alias="categoryId"),
     # Typed for the same reason as the guide listing: an unrecognised status
     # must say so rather than answer "no pages".
@@ -99,11 +100,11 @@ def list_pages(
 ) -> list[PageSummaryOut]:
     statement = select(Page)
 
-    if user.role == "viewer":
+    if not sees_unpublished(user):
         statement = statement.where(Page.status == PUBLISHED)
     if status_filter is not None:
         statement = statement.where(Page.status == status_filter)
-    elif user.role != "viewer":
+    elif sees_unpublished(user):
         statement = statement.where(Page.status != "archived")
 
     if category_id is not None:
@@ -168,7 +169,7 @@ def create_page(payload: PageCreateIn, request: Request, db: DbDep, user: Author
 
 
 @router.get("/{key}", response_model=PageOut)
-def read_page(key: str, db: DbDep, user: AnyUser) -> PageOut:
+def read_page(key: str, db: DbDep, user: MaybeUser) -> PageOut:
     page = _load_for(db, user, key)
     count_reading(db, page)
     return page_out(page)

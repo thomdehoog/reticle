@@ -17,7 +17,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session as DbSession
 
 from .. import audit, errors
-from ..auth import AdminUser, AnyUser, AuthorUser, DbDep, client_address
+from ..auth import AdminUser, AuthorUser, DbDep, MaybeUser, client_address
 from ..db import escape_like, utcnow
 from ..documents import apply_document, next_updated_at, record_contribution
 from ..models import (
@@ -46,7 +46,7 @@ from ..schemas import (
     user_ref_out,
 )
 from ..slugs import unique_slug
-from ..visibility import readable_guides
+from ..visibility import readable_guides, sees_unpublished
 
 router = APIRouter(prefix="/api/guides", tags=["guides"])
 
@@ -129,7 +129,7 @@ def _load_for(db: DbSession, user: User, key: str) -> Guide:
     that the facility has a procedure for whatever was guessed at.
     """
     statement = select(Guide).where(or_(Guide.id == key, Guide.slug == key))
-    if user.role == "viewer":
+    if not sees_unpublished(user):
         statement = statement.where(Guide.status == PUBLISHED)
     guide = db.scalars(readable_guides(statement, user)).one_or_none()
     if guide is None:
@@ -162,7 +162,7 @@ def _load_editable(db: DbSession, guide_id: str) -> Guide:
 @router.get("", response_model=list[GuideSummaryOut])
 def list_guides(
     db: DbDep,
-    user: AnyUser,
+    user: MaybeUser,
     category_id: str | None = Query(default=None, alias="categoryId"),
     # Typed, not a bare string. `?status=` and `?status=publshed` used to filter
     # on a value nothing could equal and return an empty array — a caller with a
@@ -187,12 +187,12 @@ def list_guides(
     # choosing among the guides this clause already allowed.
     statement = readable_guides(statement, user)
 
-    if user.role == "viewer":
+    if not sees_unpublished(user):
         statement = statement.where(Guide.status == PUBLISHED)
 
     if status_filter is not None:
         statement = statement.where(Guide.status == status_filter)
-    elif user.role != "viewer":
+    elif sees_unpublished(user):
         statement = statement.where(Guide.status != "archived")
 
     if category_id is not None:
@@ -258,7 +258,7 @@ def create_guide(payload: GuideCreateIn, request: Request, db: DbDep, user: Auth
 
 
 @router.get("/{key}", response_model=GuideOut)
-def read_guide(key: str, db: DbDep, user: AnyUser) -> GuideOut:
+def read_guide(key: str, db: DbDep, user: MaybeUser) -> GuideOut:
     guide = _load_for(db, user, key)
     count_reading(db, guide)
     return guide_out(guide)

@@ -303,8 +303,19 @@ def test_each_content_type_is_capped_so_one_query_cannot_dump_the_corpus(
     assert sum(1 for hit in hits if hit["kind"] == "page") == 100
 
 
-def test_search_requires_a_session(anon):
-    assert anon.get("/api/search", params={"q": "anything"}).status_code == 401
+def test_search_answers_without_a_session_and_finds_only_what_is_published(anon, author, category):
+    """Searching is how most people reach a guide, so it cannot need an account.
+
+    The second assertion is the one that matters: an unfinished guide must not
+    become findable just because the searcher is not signed in.
+    """
+    publish_guide_with(author, category.id, "Aligning the Confocal")
+    create_guide(author, category.id, "Aligning the unfinished thing")
+
+    hits = anon.get("/api/search", params={"q": "Aligning"})
+
+    assert hits.status_code == 200
+    assert titles(hits.json()) == ["Aligning the Confocal"]
 
 
 def test_a_term_written_only_in_a_bullet_is_found(author, category):
