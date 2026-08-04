@@ -245,6 +245,17 @@ class Block:
 @dataclass
 class GuideSpec:
     slug_hint: str
+    """A *prefix* of the slug, used to find the guide again on a re-run.
+
+    Not the slug. The server derives that from the title, so
+    ``Starting a session on the Stellaris 5`` becomes
+    ``starting-a-session-on-the-stellaris-5`` and this hint is one character
+    short of it. Anything that names a guide for real — a ``guide`` embed in a
+    wiki page — has to use the slug the server made, not this. Writing the hint
+    there instead produced a page whose one link 404'd, and nothing noticed
+    until the browser tests began running against this corpus.
+    """
+
     title: str
     category: str
     summary: str
@@ -269,6 +280,15 @@ TEAL = (86, 190, 196)
 # reads like a facility's own guides is worth more than a hundred of "Step 3".
 
 CATEGORIES = [
+    # The sections themselves, which used to come from the first-run seed. They
+    # belong here instead: seeding creates the administrator and stops, because
+    # a facility's sections are the facility's and anything this repository
+    # invented would arrive on every installation wearing that facility's name.
+    # Here it is demonstration content in a file that says so, run on purpose.
+    ("Basics, Access and IT", None, "Accounts, building access, booking and storage.", AMBER),
+    ("Light Microscopy", None, "Widefield, confocal, superresolution and live-cell systems.", BLUE),
+    ("Sample Preparation", None, "Fixation, labelling and mounting.", GREEN),
+    # And the level below, which is what makes the tree worth looking at.
     ("Confocal", "Light Microscopy", "Point-scanning systems: Stellaris, SP8.", BLUE),
     ("Widefield", "Light Microscopy", "Camera-based systems for fixed and live samples.", GREEN),
     ("Superresolution", "Light Microscopy", "STED and single-molecule methods.", VIOLET),
@@ -710,36 +730,34 @@ def find_category(categories: list[dict[str, Any]], name: str) -> dict[str, Any]
 
 
 def ensure_categories(api: Reticle) -> dict[str, dict[str, Any]]:
-    """Create the sub-categories, and give every section a picture."""
+    """Create the sections and their sub-categories, and give each a picture.
+
+    ``CATEGORIES`` is in order, parents before children, so one pass is enough:
+    a sub-category's parent has always been made by the time it is reached.
+    """
     existing = api.categories()
     by_name = {c["name"]: c for c in existing}
 
-    for name, parent_name, description, tint in CATEGORIES:
-        parent = by_name.get(parent_name)
-        if parent is None:
-            raise SystemExit(f"No category named {parent_name!r} to hang {name!r} under.")
+    for name, parent_name, description, _tint in CATEGORIES:
         if name in by_name:
             continue
+        parent = None
+        if parent_name is not None:
+            parent = by_name.get(parent_name)
+            if parent is None:
+                raise SystemExit(f"No category named {parent_name!r} to hang {name!r} under.")
         created = api.create_category(
             name=name,
             description=description,
-            parentId=parent["id"],
+            parentId=parent["id"] if parent is not None else None,
         )
         by_name[name] = created
         print(f"  category  {name}")
 
-    # A picture for every top-level section and every sub-category made here,
-    # because browsing is meant to be visual and a wall of drawn placeholders
-    # demonstrates the fallback rather than the design.
-    wanted = {name: tint for name, _parent, _desc, tint in CATEGORIES}
-    for top, tint in (
-        ("Basics, Access and IT", AMBER),
-        ("Light Microscopy", BLUE),
-        ("Sample Preparation", GREEN),
-    ):
-        wanted.setdefault(top, tint)
-
-    for name, tint in wanted.items():
+    # A picture for every section made here, because browsing is meant to be
+    # visual and a wall of drawn placeholders demonstrates the fallback rather
+    # than the design.
+    for name, _parent, _description, tint in CATEGORIES:
         category = by_name.get(name)
         if category is None or category.get("heroMediaId"):
             continue
@@ -890,7 +908,7 @@ takes to cover a corner of one.
 Use a confocal. Start with the Stellaris.
 
 ```guide
-starting-a-session-on-the-stellaris
+starting-a-session-on-the-stellaris-5
 ```
 
 ## Living cells over hours

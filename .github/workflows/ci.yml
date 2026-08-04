@@ -394,6 +394,19 @@ jobs:
           done
           curl -sf http://127.0.0.1:8000/api/health
 
+      # The browser tests need a library to browse, and seeding no longer makes
+      # one: a facility's sections are the facility's, so the seeder creates the
+      # administrator and stops. The demonstration corpus is where content that
+      # nobody's facility wrote belongs, and it arrives through the HTTP API the
+      # way a person would — which makes this a better exercise than the rows
+      # the seeder used to insert, because the endpoints are under test too.
+      - name: Fill the instance with the demonstration corpus
+        run: |
+          python tools/demo_corpus.py \
+            --base-url http://127.0.0.1:8000 \
+            --email "$RETICLE_ADMIN_EMAIL" \
+            --password "$RETICLE_ADMIN_PASSWORD"
+
       # A single origin serving the built files and proxying /api, which is what
       # a facility has. Against the Vite dev server instead, nothing ever loads
       # the minified bundle and nothing is subject to the

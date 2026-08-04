@@ -75,12 +75,24 @@ $env:RETICLE_ADMIN_PASSWORD = "<a long passphrase>"
 C:\ProgramData\MinicondaZMB\envs\reticle\python.exe -m app.seed
 ```
 
-Seeding creates the schema, the ZMB categories — including one hidden holding
-category, because that is how the real corpus is arranged — an admin account,
-one worked example guide with tags, and a published category landing page whose
-body embeds tag-filtered guide lists. It is idempotent, so it is safe on every deploy, and it
-never resets a password an operator has already changed. It **refuses** to run
-without `RETICLE_ADMIN_PASSWORD` rather than falling back to a known default.
+Seeding creates the schema and the first administrator, and nothing else. No
+sections, no guides, no landing pages: a facility's sections are the facility's,
+and content this repository invented would arrive on every installation wearing
+that facility's name. The migration brings the real ones across; an installation
+with no site to import from gets them from whoever runs it.
+
+It is idempotent, so it is safe on every deploy, and it never resets a password
+an operator has already changed. It **refuses** to run without
+`RETICLE_ADMIN_PASSWORD` rather than falling back to a known default.
+
+To see the software working before there is any content, fill an instance with
+the demonstration corpus — a dozen documents that between them use every feature
+built, written for the purpose and not claiming to be anyone's:
+
+```powershell
+C:\ProgramData\MinicondaZMB\envs\reticle\python.exe ..\tools\demo_corpus.py `
+    --base-url http://localhost:8000 --email <admin> --password <password>
+```
 
 ## Running
 
@@ -128,7 +140,7 @@ set at the top of `tests/conftest.py`; no `.env` is required to run them.
 | `app/images.py` | Image upload decoding, EXIF stripping, safe storage paths. |
 | `app/videos.py` | Video identification from header bytes, and why it is not re-encoded. |
 | `app/audit.py` | The who-changed-what trail. |
-| `app/seed.py` | First-run data, including one worked guide and a category landing page. |
+| `app/seed.py` | First run: the schema and the bootstrap administrator, and deliberately no content. |
 | `app/routers/` | One module per resource in the contract. |
 | `app/importer/` | The migration tool. Nothing in `app` imports it; see `../docs/MIGRATION.md`. |
 
