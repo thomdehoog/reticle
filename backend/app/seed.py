@@ -29,96 +29,50 @@ from .models import (
     GuideRevision,
     GuideTag,
     Media,
-    Page,
-    PageContributor,
-    PageRevision,
     Step,
     StepMedia,
     Tag,
     User,
     new_id,
 )
-from .schemas import guide_document, page_document
+from .schemas import guide_document
 from .security import hash_password
 from .settings import Settings, get_settings
 from .slugs import slugify
 from .storage import build_storage
 
-ZMB_CATEGORIES: list[tuple[str, str, bool]] = [
-    (
-        "Basics, Access and IT",
-        "Accounts, building access, booking, storage and the ZMB network.",
-        False,
-    ),
-    (
-        "Sample Preparation",
-        "Preparing samples for light microscopy: fixation, labelling and mounting.",
-        False,
-    ),
-    ("Light Microscopy", "Widefield, confocal, superresolution and live-cell systems.", False),
-    (
-        "Electron Microscopy",
-        "Transmission and scanning electron microscopy, from resin to image.",
-        False,
-    ),
-    (
-        "Image Analysis",
-        "Segmentation, quantification, batch processing and reproducible pipelines.",
-        False,
-    ),
-    (
-        "Internal Guides",
-        "Procedures for ZMB staff: maintenance, handover and instrument checks.",
-        False,
-    ),
-    ("CryoEM", "Vitrification, screening and single-particle data collection.", False),
-    ("Spatial Biology", "Spatial transcriptomics and multiplexed imaging workflows.", False),
-    (
-        "Confocal - hidden guides",
-        "A holding category. Its guides are reached through tags and through the wiki "
-        "pages that embed them, never by browsing to it.",
-        True,
-    ),
+ZMB_CATEGORIES: list[tuple[str, bool]] = [
+    ("Basics, Access and IT", False),
+    ("Sample Preparation", False),
+    ("Light Microscopy", False),
+    ("Electron Microscopy", False),
+    ("Image Analysis", False),
+    ("Internal Guides", False),
+    ("CryoEM", False),
+    ("Spatial Biology", False),
+    ("Confocal - hidden guides", True),
 ]
-"""The sections, plus one holding category.
+"""The sections, plus one holding category. Names and nesting, and nothing else.
 
-The hidden one is not decoration: on ZMB's live site the largest single category
-is a hidden holding pen of 86 confocal guides that readers only ever reach
-through tags. Seeding one means a fresh install demonstrates the arrangement the
-real corpus uses rather than a tree that the imported content will immediately
-contradict.
+Each of these used to arrive with a sentence describing it — "Vitrification,
+screening and single-particle data collection" and so on. Nobody at ZMB wrote
+those. They were written here, they read as though the facility had written
+them, and `python -m app.seed` planted them on every installation; the banner
+across the top of each section then showed them to every reader. A description
+that a facility did not write is the same defect as a procedure it did not
+write, only quieter, and the migration brings the real ones across anyway.
+
+So the seed states structure and leaves the words to whoever owns them: an
+imported section arrives with ZMB's own paragraph, and one created by hand
+arrives blank until somebody types it.
+
+The hidden category is not decoration: on ZMB's live site the largest single
+category is a hidden holding pen of 86 confocal guides that readers only ever
+reach through tags. Seeding one means a fresh install has the arrangement the
+real corpus uses rather than a tree the imported content will contradict.
 """
 
 EXAMPLE_TAGS = ["confocal", "stellaris", "startup"]
-
-LANDING_PAGE_TITLE = "Light Microscopy"
-
-LANDING_PAGE_BODY = """\
-The light microscopy suite runs widefield, confocal, superresolution and
-live-cell systems. Everything below is written by the people who maintain the
-instruments; if a procedure looks wrong, it probably is — tell us rather than
-working around it.
-
-## Before your first session
-
-You need an introduction on the system before you can book it. Bring your sample
-to the introduction: a session spent on a test slide teaches you less than one
-spent on the thing you actually want to image.
-
-## Starting up
-
-```guidelist
-tags: confocal, startup
-heading: Confocal start-up
-```
-
-## Everything confocal
-
-```guidelist
-tags: confocal
-heading: All confocal guides
-```
-"""
 
 EXAMPLE_GUIDE_TITLE = "Starting a Session on the Confocal"
 
@@ -257,7 +211,6 @@ def seed(db: DbSession, settings: Settings) -> None:
     admin = _seed_admin(db, settings)
     categories = _seed_categories(db)
     _seed_example_guide(db, admin, categories["Light Microscopy"])
-    _seed_landing_page(db, admin, categories["Light Microscopy"])
     db.commit()
 
 
@@ -290,13 +243,13 @@ def _seed_admin(db: DbSession, settings: Settings) -> User:
 
 def _seed_categories(db: DbSession) -> dict[str, Category]:
     seeded: dict[str, Category] = {}
-    for order_index, (name, description, is_hidden) in enumerate(ZMB_CATEGORIES):
+    for order_index, (name, is_hidden) in enumerate(ZMB_CATEGORIES):
         existing = db.scalars(select(Category).where(Category.name == name)).one_or_none()
         if existing is None:
             existing = Category(
                 slug=slugify(name),
                 name=name,
-                description=description,
+                description="",
                 parent_id=None,
                 order_index=order_index,
                 is_hidden=is_hidden,
@@ -463,49 +416,6 @@ def _seed_example_guide(db: DbSession, author: User, category: Category) -> None
             published_at=now,
             published_by_id=author.id,
             document=guide_document(guide),
-        )
-    )
-
-
-def _seed_landing_page(db: DbSession, author: User, category: Category) -> None:
-    """The category landing, as a wiki page with guide lists embedded in it.
-
-    This is the arrangement the live site uses and the one thing a fresh install
-    could not otherwise demonstrate: the page is the navigation, the guide lists
-    inside it are filled by tag, and the guides they surface need not live in
-    this category at all.
-    """
-    if db.scalar(select(func.count()).select_from(Page)):
-        return
-
-    now = utcnow()
-    page = Page(
-        slug=slugify(LANDING_PAGE_TITLE),
-        title=LANDING_PAGE_TITLE,
-        summary="Instruments, access and the procedures for running them.",
-        category_id=category.id,
-        is_landing=True,
-        body=LANDING_PAGE_BODY,
-        status="published",
-        version=1,
-        author_id=author.id,
-        last_edited_by_id=author.id,
-        published_at=now,
-    )
-    db.add(page)
-    db.flush()
-    db.add(
-        PageContributor(page_id=page.id, user_id=author.id, first_edited_at=now, last_edited_at=now)
-    )
-    db.flush()
-    db.refresh(page)
-    db.add(
-        PageRevision(
-            page_id=page.id,
-            version=page.version,
-            published_at=now,
-            published_by_id=author.id,
-            document=page_document(page),
         )
     )
 

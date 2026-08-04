@@ -50,10 +50,17 @@ def test_only_the_holding_category_is_hidden(seeded):
     assert sum(1 for c in categories if not c.is_hidden) == 8
 
 
-def test_sample_preparation_carries_its_scope_note(seeded):
-    entry = seeded.scalars(select(Category).where(Category.name == "Sample Preparation")).one()
+def test_a_seeded_section_describes_itself_in_nobodys_words(seeded):
+    """The seeder states structure. It does not write about the facility.
 
-    assert "light microscopy" in entry.description.lower()
+    Each section used to arrive with a sentence describing it, written here and
+    planted by `python -m app.seed` on every installation, where the banner
+    showed it to every reader as though ZMB had written it. The migration
+    brings the real ones across; a section made by hand stays blank until
+    somebody who works there types one.
+    """
+    for entry in seeded.scalars(select(Category)).all():
+        assert entry.description == ""
 
 
 def test_category_slugs_are_url_safe(seeded):
@@ -67,9 +74,7 @@ def test_category_slugs_are_url_safe(seeded):
 def test_the_declared_category_set_is_the_one_seeded(seeded):
     seeded_rows = seeded.scalars(select(Category).order_by(Category.order_index)).all()
 
-    assert [(name, hidden) for name, _, hidden in ZMB_CATEGORIES] == [
-        (c.name, c.is_hidden) for c in seeded_rows
-    ]
+    assert list(ZMB_CATEGORIES) == [(c.name, c.is_hidden) for c in seeded_rows]
 
 
 def test_the_admin_password_comes_from_the_environment(seeded):
@@ -210,34 +215,26 @@ def test_the_seeded_guide_is_immediately_readable_by_a_viewer(seeded, as_role):
     assert client.get(f"/api/guides/{listing[0]['slug']}").status_code == 200
 
 
-def test_light_microscopy_gets_a_published_landing_page(seeded):
-    page = seeded.scalars(select(Page)).one()
+def test_seeding_writes_no_page_at_all(seeded):
+    """A section's page is not something a fresh install should come with.
 
-    assert page.is_landing is True
-    assert page.status == "published"
-    assert page.version == 1
-    assert page.category.name == "Light Microscopy"
-    assert [person.display_name for person in page.contributors] == ["ZMB Administrator"]
-    assert seeded.scalars(select(PageRevision)).one().version == 1
-
-
-def test_the_landing_page_navigates_by_embedded_guide_lists(seeded):
-    """The page *is* the navigation on the live site: the lists inside it are
-    filled by tag, and the guides they surface need not sit in this category at
-    all. A landing that was merely prose would not demonstrate that."""
-    page = seeded.scalars(select(Page)).one()
-
-    assert page.body.count("```guidelist") == 2
-    assert "tags: confocal, startup" in page.body
-    assert "tags: confocal" in page.body
+    The seeder used to write one: four paragraphs about the light microscopy
+    suite and how to book an introduction, invented here, published under ZMB's
+    name on every installation. It was also the last thing that needed writing —
+    a section now lists its guides under the tags that group them, so there is
+    no page for an author to keep in step with the corpus and none for a seeder
+    to fabricate.
+    """
+    assert seeded.scalars(select(Page)).all() == []
+    assert seeded.scalars(select(PageRevision)).all() == []
 
 
-def test_the_seeded_landing_page_is_what_the_category_endpoint_returns(seeded, as_role):
+def test_a_section_with_no_page_still_answers_the_endpoint_that_asks_for_one(seeded, as_role):
+    """Nothing there is an answer, not a failure — every section starts here."""
     client = as_role("viewer", "landing.reader@zmb.uzh.ch")
     category = seeded.scalars(select(Category).where(Category.name == "Light Microscopy")).one()
 
-    body = client.get(f"/api/categories/{category.id}/page").json()
+    response = client.get(f"/api/categories/{category.id}/page")
 
-    assert body["isLanding"] is True
-    assert body["slug"] == "light-microscopy"
-    assert "```guidelist" in body["body"]
+    assert response.status_code == 200
+    assert response.json() is None
