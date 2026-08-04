@@ -69,9 +69,21 @@ class FakeDozuki:
         }
 
     def iter_guides(self, include_private: bool = False):
+        """A listing entry, which is thinner than a guide and not empty.
+
+        ``category`` is on it because it is on the real one — the live
+        ``/guides`` listing carries it beside the id and the title — and
+        because a run that imports one section decides from here, so a fake
+        that left it out would let that filter match nothing while every test
+        of it passed for the wrong reason.
+        """
         for guide in self._guides.values():
             if include_private or guide.get("public", True):
-                yield {"guideid": guide["guideid"], "title": guide.get("title", "")}
+                yield {
+                    "guideid": guide["guideid"],
+                    "title": guide.get("title", ""),
+                    "category": guide.get("category", ""),
+                }
 
     def get_guide(self, guide_id):
         return self._guides[str(guide_id)]
@@ -545,6 +557,73 @@ def test_an_import_never_hides_a_section_somebody_chose_to_show(
     assert not db_session.scalars(
         select(Category).where(Category.name == "Cell Culture")
     ).one().is_hidden
+
+
+def test_naming_a_section_imports_that_section_and_no_other(
+    db_session, author_account, media_root
+):
+    """A migration is done in stages, and this is what stages it.
+
+    `--limit` takes whatever the catalogue lists first, which is no use for
+    looking at one section before committing to the rest.
+    """
+    client = FakeDozuki(
+        [
+            _guide(1, category="Electron Microscopy", title="Preparing grids"),
+            _guide(2, category="Light Microscopy", title="Confocal start-up"),
+            _guide(3, category="Electron Microscopy", title="Loading the holder"),
+        ]
+    )
+    _run(db_session, client, _options(category="Electron Microscopy"))
+
+    titles = {guide.title for guide in db_session.scalars(select(Guide)).all()}
+    assert titles == {"Preparing grids", "Loading the holder"}
+
+
+def test_a_section_nobody_wants_costs_one_listing_entry(db_session, author_account, media_root):
+    """Filtered on the listing, not on the mapped guide.
+
+    Deciding after the fetch would spend a request, an image pass and a tag
+    request on every guide in the corpus to import one section of it.
+    """
+    client = FakeDozuki(
+        [
+            _guide(1, category="Electron Microscopy", title="Preparing grids"),
+            _guide(2, category="Light Microscopy", title="Confocal start-up"),
+        ]
+    )
+    fetched: list[str] = []
+    original = client.get_guide
+    client.get_guide = lambda guide_id: (fetched.append(str(guide_id)), original(guide_id))[1]
+
+    _run(db_session, client, _options(category="Electron Microscopy"))
+
+    assert fetched == ["1"]
+
+
+def test_a_section_name_is_matched_past_case_and_stray_space(
+    db_session, author_account, media_root
+):
+    """Typed on a command line, against a site that spells one of its own
+    sections `Light Micrscopy`. Forgiving about case and space, and about
+    nothing else: a near-match importing the wrong section is worse than a run
+    that imports nothing and says so."""
+    client = FakeDozuki([_guide(1, category="Light Micrscopy", title="Confocal start-up")])
+
+    _run(db_session, client, _options(category="  light micrscopy  "))
+
+    assert [g.title for g in db_session.scalars(select(Guide)).all()] == ["Confocal start-up"]
+
+
+def test_a_section_that_matches_nothing_imports_nothing_rather_than_everything(
+    db_session, author_account, media_root
+):
+    """The failure that would hurt: a typo quietly importing the whole corpus."""
+    client = FakeDozuki([_guide(1, category="Electron Microscopy")])
+
+    _run(db_session, client, _options(category="Electorn Microscopy"))
+
+    assert db_session.scalars(select(Guide)).all() == []
 
 
 def _category_wiki(**overrides) -> dict:

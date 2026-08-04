@@ -103,6 +103,8 @@ class Options:
     report_path: Path | None
     json_report_path: Path | None
     author_email: str
+    category: str | None = None
+    """Bring across one section only. ``None`` means the whole catalogue."""
 
 
 def count_source(payload: dict[str, Any], tally: GuideTally) -> None:
@@ -448,8 +450,22 @@ class Importer:
     # -- guides -----------------------------------------------------------
 
     def import_guides(self) -> None:
+        """Walk the catalogue, and bring across what the options ask for.
+
+        ``--category`` narrows the run to one section, which is what makes a
+        staged migration possible: `MIGRATION.md` asks for the corpus to arrive
+        in stages so that each one can be looked at before the next, and until
+        now the only knob was ``--limit``, which takes whatever the catalogue
+        happens to list first.
+
+        It is matched against the listing rather than the mapped guide so that
+        a section nobody wants costs one listing entry instead of a fetch, an
+        image pass and a tag request.
+        """
         seen = 0
         for summary in self.client.iter_guides(include_private=self.options.include_private):
+            if not self._wanted_section(summary):
+                continue
             if self.options.limit is not None and seen >= self.options.limit:
                 break
             seen += 1
@@ -469,6 +485,22 @@ class Importer:
                 )
                 continue
             self._import_one_guide(payload)
+
+    def _wanted_section(self, summary: dict[str, Any]) -> bool:
+        """Whether a listing entry belongs to the section this run is for.
+
+        Compared case-insensitively and with surrounding space removed, because
+        the name is typed on a command line against a site that spells one of
+        its own sections `Light Micrscopy`. Nothing more forgiving than that: a
+        near-match silently importing the wrong section is worse than a run that
+        imports nothing and says so.
+        """
+        if self.options.category is None:
+            return True
+        category = summary.get("category") or summary.get("namespace") or ""
+        if isinstance(category, dict):
+            category = category.get("title") or category.get("name") or ""
+        return str(category).strip().casefold() == self.options.category.strip().casefold()
 
     def _attach_image_details(self, mapped: MappedGuide, tally: GuideTally) -> None:
         """Fetch each image's own record and read the shapes drawn on it.
@@ -920,6 +952,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--limit", type=int, default=None, help="Stop after this many guides.")
     parser.add_argument(
+        "--category",
+        default=None,
+        help="Import only the guides in this section, by its name on the source site. "
+        "Combines with --limit. This is how a migration is done in stages: bring one "
+        "section across, look at it, then the next.",
+    )
+    parser.add_argument(
         "--author-email",
         default="admin@zmb.uzh.ch",
         help="The existing Reticle account the imported content is attributed to.",
@@ -971,6 +1010,7 @@ def main(argv: list[str] | None = None) -> int:
         report_path=args.report,
         json_report_path=args.json_report,
         author_email=args.author_email,
+        category=args.category,
     )
 
     init_db()
