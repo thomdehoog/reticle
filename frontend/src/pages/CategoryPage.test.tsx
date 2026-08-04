@@ -209,7 +209,42 @@ describe('CategoryPage', () => {
     expect(within(section).queryByText(/guides?$/)).toBeNull()
   })
 
-  it('renders the landing page above the guide list, embeds and all', async () => {
+  /**
+   * The bottom of the tree lists its guides under the tags that group them.
+   *
+   * The tag is the heading and it is a link, because the group a reader has
+   * just found useful is a page of its own — the same guides gathered from
+   * every section rather than only this one.
+   */
+  it('lists a section’s guides under their tags', async () => {
+    const server = createFakeServer({
+      guides: [
+        guideFixture({
+          id: 'g-startup',
+          slug: 'confocal-startup',
+          status: 'published',
+          title: 'Confocal startup',
+          tags: ['stellaris'],
+        }),
+      ],
+    })
+    renderCategory(server)
+
+    expect(await screen.findByRole('heading', { name: 'stellaris' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'stellaris' })).toHaveAttribute('href', '/t/stellaris')
+    expect(screen.getByRole('link', { name: /Confocal startup/ })).toBeInTheDocument()
+  })
+
+  /**
+   * The landing page is no longer this screen.
+   *
+   * Its words are what the banner reads and the page keeps its address, but the
+   * section body is the guides and nothing else — no prose, no embedded lists,
+   * no second arrangement of the same procedures for a reader to reconcile with
+   * the first. This is the rule that lets a section page be learnable and lets
+   * an author never have to write one.
+   */
+  it('does not render the landing page’s body on the section', async () => {
     const server = createFakeServer({
       guides: [
         guideFixture({ status: 'published', title: 'Confocal startup', tags: ['stellaris'] }),
@@ -227,24 +262,19 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    expect(await screen.findByText('Book the instrument first.')).toBeInTheDocument()
-    /* The embedded list is the real navigation, so it has to have resolved. */
-    expect(await screen.findByRole('heading', { name: 'Stellaris' })).toBeInTheDocument()
-    /* The landing page's own lists are the navigation. A second, flat run of
-       every guide underneath it repeats what the reader has just been given. */
-    expect(
-      screen.queryByRole('heading', { name: /Everything in/ }),
-    ).not.toBeInTheDocument()
+    await screen.findByRole('link', { name: /Confocal startup/ })
+    expect(screen.queryByText('Book the instrument first.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Stellaris' })).not.toBeInTheDocument()
   })
 
   /**
-   * The prose on a parent's landing page is not a duplicate of anything — it is
-   * where ZMB says you need an introduction on a system before you can book it,
-   * and it exists nowhere else. Only the lists are repeated at the level below,
-   * so only the lists come out, together with the headings that introduced
-   * them.
+   * A section with sub-sections shows those and stops.
+   *
+   * Not the guides underneath them, and not the landing page's prose either:
+   * one kind of thing per section, decided by where it sits in the tree rather
+   * than by whether anybody got round to writing a page for it.
    */
-  it('shows a parent category’s prose without the guide lists inside it', async () => {
+  it('shows a parent’s sub-sections and nothing else', async () => {
     const server = createFakeServer({
       categories: [
         categoryFixture(),
@@ -273,18 +303,44 @@ describe('CategoryPage', () => {
           isLanding: true,
           status: 'published',
           title: 'Light Microscopy',
-          body: 'Bring your sample to the introduction.\n\n## Starting up\n\n```guidelist\ntags: stellaris\nheading: Stellaris\n```',
+          body: 'Bring your sample to the introduction.\n\n## Starting up',
         }),
       ],
     })
     renderCategory(server)
 
-    expect(await screen.findByText('Bring your sample to the introduction.')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Confocal$/ })).toHaveAttribute('href', '/c/confocal')
-
-    expect(screen.queryByRole('heading', { name: 'Stellaris' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /Confocal$/ })).toHaveAttribute(
+      'href',
+      '/c/confocal',
+    )
+    expect(screen.queryByText('Bring your sample to the introduction.')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Starting up' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'stellaris' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Stellaris startup/ })).not.toBeInTheDocument()
+  })
+
+  /* Kept and reachable: the page still exists and still holds what the
+     migration brought, and this is the only route left to it. */
+  it('keeps an author’s route to the landing page it no longer shows', async () => {
+    const server = createFakeServer({
+      guides: [guideFixture({ status: 'published' })],
+      pages: [
+        pageFixture({
+          id: 'w-light-landing',
+          categoryId: 'c-light',
+          isLanding: true,
+          status: 'published',
+          body: 'Prose the migration brought.',
+        }),
+      ],
+    })
+    renderCategory(server)
+
+    expect(await screen.findByRole('link', { name: /Edit landing page/ })).toHaveAttribute(
+      'href',
+      '/w/w-light-landing/edit',
+    )
+    expect(screen.queryByText('Prose the migration brought.')).not.toBeInTheDocument()
   })
 
   it('sends an author to the editor for the landing page that already exists', async () => {

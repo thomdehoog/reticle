@@ -154,6 +154,33 @@ export function categoryFixture(overrides: Partial<Category> = {}): Category {
   }
 }
 
+/** A guide as a listing carries it, which is what a browse card or a row is
+ * given — and what the rules about arranging guides are written against. */
+export function guideSummaryFixture(overrides: Partial<GuideSummary> = {}): GuideSummary {
+  const guide = guideFixture()
+  return {
+    id: guide.id,
+    slug: guide.slug,
+    title: guide.title,
+    summary: guide.summary,
+    categoryId: guide.categoryId,
+    tags: guide.tags,
+    isQuickLink: guide.isQuickLink,
+    visibility: guide.visibility,
+    difficulty: guide.difficulty,
+    timeRequiredMinMinutes: guide.timeRequiredMinMinutes,
+    timeRequiredMaxMinutes: guide.timeRequiredMaxMinutes,
+    status: guide.status,
+    stepCount: guide.steps.length,
+    author: guide.author,
+    viewCount: guide.viewCount,
+    thumbnailUrl: null,
+    updatedAt: guide.updatedAt,
+    publishedAt: guide.publishedAt,
+    ...overrides,
+  }
+}
+
 /** A page as a listing carries it, which is what a browse card is given. */
 export function pageSummaryFixture(overrides: Partial<PageSummary> = {}): PageSummary {
   const page = pageFixture()

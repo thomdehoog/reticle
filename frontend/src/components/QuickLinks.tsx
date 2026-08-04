@@ -4,8 +4,13 @@
  * Booking an instrument, getting into the building, finding where the data
  * went: procedures nobody would think to look for under a microscope's name,
  * and the ones a facility is asked about most. An author marks a guide as a
- * quick link and it appears here, under the sections on the front page and on
- * every category that has sub-categories.
+ * quick link and it appears here, under the sections on the front page.
+ *
+ * The front page only. It used to appear on every section with sub-sections as
+ * well, which put the same four procedures under a third of the site: a section
+ * shows one kind of thing, and a shortcut to somewhere else is not that kind.
+ * Arriving is the moment for a shortcut past the tree; being three levels into
+ * the tree is not.
  *
  * The block is laid out wide — a badge-sized picture with the title and one
  * line beside it — so that a row of them cannot be mistaken for more

@@ -3701,6 +3701,21 @@ a:hover {
   color: var(--ink-700);
 }
 
+/* Naming a group is also the way to the rest of it, so the heading is a target
+   rather than a word: a tag's page gathers the same guides from every section
+   instead of only this one. Inline it is as tall as the type and no taller —
+   22px, under the 24px a thumb needs — which is the same trap `.rail__section a`
+   already carries this rule for.
+
+   Written to sit inside the heading rather than fill it, so the target is the
+   words and the empty half of the line beside them is not. */
+.section__title a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  color: inherit;
+}
+
 /* A caption over a run of blocks rather than a heading of its own. It survives
    where the other captions went because without it a row of wide blocks reads
    as more sections; it says what they are and then gets out of the way. */

@@ -1,22 +1,29 @@
 /**
- * One category, opened up.
+ * One section, opened up.
  *
- * Which guides a category shows depends on where it sits in the tree. With
- * sub-categories under it, it shows those and the quick links and no guides at
- * all: the guides belong to the level below, and listing them here as well is
- * the same procedures twice, once under a heading nobody has chosen yet. With
- * nothing under it — a leaf, whether that is a sub-category or a top-level
- * category that never needed dividing — it is the bottom of the tree, so it
- * shows the guides.
+ * A section shows exactly one kind of thing, and which kind is decided by where
+ * it sits in the tree rather than by what somebody wrote on it:
  *
- * The landing page is shown at both levels, because what is duplicated is the
- * lists and not the writing around them. At ZMB a category page is prose with
- * tag-gathered guide lists embedded in it — "Confocal systems", then the guides
- * carrying that tag — and a bare alphabetical list of every guide in the
- * category is exactly what that arrangement exists to avoid. On a parent the
- * lists come out and the prose stays; on a leaf the page is the whole screen.
- * The plain list stays as the fallback, because a category nobody has written a
- * page for yet must still show its contents.
+ * - with sub-sections under it, the sub-sections, as pictures;
+ * - with none, its guides, under the tags that group them.
+ *
+ * That is the whole page. It used to be five things at once — a banner, the
+ * landing page's prose, tiles, quick links, a plain list of guides as a
+ * fallback, and a separate row of wiki cards — and no two sections showed the
+ * same combination, because which of them appeared depended on whether anyone
+ * had got round to writing a page for that section. A reader could not learn
+ * the shape of a section page because there wasn't one.
+ *
+ * What this buys, beyond a page a reader can learn, is a content management
+ * system with nothing in it to manage. **Nobody writes a section page.** An
+ * author tags a guide and it appears under that tag, in the section it belongs
+ * to. There is no page to draft, publish, version or forget to update, and no
+ * embedded-list syntax to learn — the arrangement is a consequence of the
+ * guides rather than a second thing to keep in step with them.
+ *
+ * The landing pages are still there, and still hold what the migration brought:
+ * their words are what the banner reads, and the page itself keeps its address.
+ * It is simply not this screen any more.
  */
 
 import { useState } from 'react'
@@ -24,11 +31,10 @@ import { Link, useNavigate, useParams } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { Banner } from '../components/Banner'
-import { CategoryTile, GuideRow, GuideRows, TileGrid, WikiCard } from '../components/BrowseCards'
+import { CategoryTile, GuideRow, GuideRows, TileGrid } from '../components/BrowseCards'
 import { IconEdit, IconPlus } from '../components/icons'
-import { MarkdownBody } from '../components/MarkdownBody'
-import { QuickLinks } from '../components/QuickLinks'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
+import { groupGuides } from '../domain/groups'
 import { mediaUrl } from '../domain/types'
 import { browsableCategories } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
@@ -73,12 +79,12 @@ export function CategoryPage() {
   if (error) return <ErrorAlert error={error} />
   if (!data?.category) return <EmptyState>That category does not exist.</EmptyState>
 
-  const { category, categories, guides, landing, pages } = data
-  const articles = pages.filter((page) => !page.isLanding)
+  const { category, categories, guides, landing } = data
   const children = browsableCategories(categories, data.publishedGuides, data.publishedPages)
     .filter((candidate) => candidate.parentId === category.id)
     .sort((a, b) => a.orderIndex - b.orderIndex)
   const isLeaf = children.length === 0
+  const grouped = groupGuides(guides)
 
   async function startLandingPage() {
     if (!data?.category) return
@@ -120,63 +126,55 @@ export function CategoryPage() {
 
       <ErrorAlert error={createError} />
 
-      {/* The page's own words come first, above the sections, because they are
-          what the reader has to know before opening one of them: at ZMB, that
-          you need an introduction on a system before you can book it. Below a
-          wall of tiles, on a phone, that sentence is under the fold.
-
-          On a section with sub-sections the guide lists inside the page are
-          suppressed, headings and all — the guides belong to the level below,
-          and listing them here as well is the same procedures twice. The prose
-          around them is not duplicated anywhere, which is why the page is
-          rendered rather than skipped. */}
-      {landing && <MarkdownBody body={landing.body} wide hideGuideLists={!isLeaf} />}
-
       {/* No heading over them: a row of pictures under a section's own name is
           not something a reader needs told is a list of sections. */}
       {!isLeaf && (
+        <TileGrid>
+          {children.map((child) => (
+            <CategoryTile key={child.id} category={child} />
+          ))}
+        </TileGrid>
+      )}
+
+      {/* The bottom of the tree: the procedures, under the tags that group
+          them. A guide with several tags appears under each — that is what lets
+          one LAS X guide sit under every instrument it applies to, and it is
+          the arrangement the corpus was written for rather than an accident of
+          the grouping. */}
+      {isLeaf && (
         <>
-          <TileGrid>
-            {children.map((child) => (
-              <CategoryTile key={child.id} category={child} />
-            ))}
-          </TileGrid>
-          <QuickLinks />
+          {grouped.loose.length > 0 && (
+            <section className="section">
+              <GuideRows>
+                {grouped.loose.map((guide) => (
+                  <GuideRow key={guide.id} guide={guide} />
+                ))}
+              </GuideRows>
+            </section>
+          )}
+
+          {grouped.groups.map((group) => (
+            <section className="section" key={group.tag}>
+              <h2 className="section__title">
+                <Link to={`/t/${encodeURIComponent(group.tag)}`}>{group.tag}</Link>
+              </h2>
+              <GuideRows>
+                {group.guides.map((guide) => (
+                  <GuideRow key={`${group.tag}-${guide.id}`} guide={guide} />
+                ))}
+              </GuideRows>
+            </section>
+          ))}
+
+          {guides.length === 0 && <EmptyState>No guides in this section yet.</EmptyState>}
         </>
       )}
 
-      {isLeaf && !landing && guides.length > 0 && (
-        <section className="section">
-          <GuideRows>
-            {guides.map((guide) => (
-              <GuideRow key={guide.id} guide={guide} />
-            ))}
-          </GuideRows>
-        </section>
-      )}
-
-      {isLeaf && !landing && guides.length === 0 && (
-        <EmptyState>No guides in this section yet.</EmptyState>
-      )}
-
-      {/* Wiki pages other than the landing one: at ZMB these are the written
-          material a section carries beside its procedures, and they are reached
-          from here rather than only from search. The heading stays because the
-          cards no longer carry the words "wiki page" themselves. */}
-      {articles.length > 0 && (
-        <section className="section">
-          <h2 className="section__title">Wiki pages</h2>
-          <TileGrid>
-            {articles.map((page) => (
-              <WikiCard key={page.id} page={page} />
-            ))}
-          </TileGrid>
-        </section>
-      )}
-
-      {/* Writing the section's front page is an authoring job, and it sat at the
-          top of a screen whose readers are almost never authors. It belongs
-          after the thing it would change. */}
+      {/* The landing page is no longer this screen, but it still exists and
+          still holds what the migration brought. This is the only route to it,
+          so it stays: content that is kept and unreachable is worse than
+          content that is deleted on purpose. Author-only, so no reader meets
+          it. */}
       {can('author') && (
         <div className="page-actions page-actions--footer">
           {landing && landing.status !== 'published' && <StatusBadge status={landing.status} />}
