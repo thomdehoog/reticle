@@ -218,21 +218,46 @@ class Importer:
             for name, children in node.items():
                 if not isinstance(name, str) or not name.strip():
                     continue
-                category = self._category(name, parent=parent)
+                category = self._category(name, parent=parent, published=True)
                 if isinstance(children, dict) and children:
                     adopt(children, category)
 
         adopt(tree, None)
         self.db.flush()
 
-    def _category(self, name: str, parent: Category | None = None) -> Category:
+    def _category(
+        self, name: str, parent: Category | None = None, published: bool = False
+    ) -> Category:
+        """Find or make a section, and decide whether a reader may browse to it.
+
+        ``published`` says the section was found in ``/api/2.0/categories`` —
+        the tree the site itself offers a reader. That is the whole test for
+        whether it is somewhere to send one.
+
+        A guide can name a section the tree does not mention, and several do:
+        ZMB's `Confocal - hidden guides` holds 86 of them, and `Root` is the
+        site's own root rather than a place. Those must still be created, or
+        the guide has no shelf and is lost to fix the shelf — but created
+        hidden, because a category the site does not offer is not one Reticle
+        should start offering. Listing them turns a front page of subjects into
+        a front page of filing-cabinet drawers, which was the first thing a
+        real import produced.
+
+        Hidden is not secret and not a permission: the URL works, the guides
+        stay published, tags and search still find them, and an administrator
+        can un-hide any of them in one click if this guessed wrong. The
+        judgement it encodes is the site's own, not a rule about names.
+        """
         wanted = (name or "").strip() or UNCATEGORISED
         if wanted in self._categories:
             existing = self._categories[wanted]
             # A section met first as a guide's bare name and only afterwards in
-            # the tree: the tree is the one that knows where it belongs.
+            # the tree: the tree is the one that knows where it belongs, and
+            # the one that says it is a place at all.
             if parent is not None and existing.parent_id is None:
                 existing.parent_id = parent.id
+            if published:
+                existing.is_hidden = False
             return existing
 
         category = self.db.scalars(select(Category).where(Category.name == wanted)).one_or_none()
@@ -243,16 +268,18 @@ class Importer:
                 description="",
                 parent_id=parent.id if parent is not None else None,
                 order_index=self._next_order_under(parent),
-                # Imported sections start visible; the ones that are really
-                # holding pens are marked hidden afterwards, from the report,
-                # rather than guessed at from a name.
-                is_hidden=False,
+                is_hidden=not published,
             )
             self.db.add(category)
             self.db.flush()
             self.report.categories_created += 1
-        elif parent is not None and category.parent_id is None:
-            category.parent_id = parent.id
+        else:
+            if parent is not None and category.parent_id is None:
+                category.parent_id = parent.id
+            # An existing row is never hidden by an import — it may be one an
+            # administrator already chose to show, and this runs on every re-run.
+            if published:
+                category.is_hidden = False
         self._categories[wanted] = category
         return category
 

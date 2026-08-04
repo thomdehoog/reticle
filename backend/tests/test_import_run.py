@@ -478,6 +478,75 @@ def test_a_category_wiki_becomes_the_categorys_landing_page(db_session, author_a
     assert page.category_id == category.id
 
 
+def test_a_section_the_site_publishes_is_one_a_reader_may_browse_to(
+    db_session, author_account, media_root
+):
+    client = FakeDozuki([_guide()])
+    client.category_tree = {"Light Microscopy": {"Confocal": {}}}
+    _run(db_session, client)
+
+    for name in ("Light Microscopy", "Confocal"):
+        category = db_session.scalars(select(Category).where(Category.name == name)).one()
+        assert category.is_hidden is False
+
+
+def test_a_section_only_a_guide_names_is_created_hidden(db_session, author_account, media_root):
+    """ZMB's holding pens, and the site's own root, are not places.
+
+    `Confocal - hidden guides` holds 86 guides nobody browses to, and `Root` is
+    the root rather than a section. Neither appears in `/api/2.0/categories`,
+    which is the tree the site offers a reader — so neither is somewhere
+    Reticle should start sending one. They are still created, because a guide
+    without a shelf is a guide lost to fix the shelf.
+    """
+    client = FakeDozuki([_guide(category="Confocal - hidden guides")])
+    client.category_tree = {"Light Microscopy": {}}
+    _run(db_session, client)
+
+    holding = db_session.scalars(
+        select(Category).where(Category.name == "Confocal - hidden guides")
+    ).one()
+    assert holding.is_hidden is True
+    # And the guide is on it, rather than refused for having nowhere to go.
+    assert db_session.scalars(select(Guide)).one().category_id == holding.id
+
+
+def test_the_tree_shows_a_section_a_guide_had_already_hidden(
+    db_session, author_account, media_root
+):
+    """Order of arrival must not decide it: guides are read before the tree in
+    a re-run, and the tree is the authority on what is a place."""
+    client = FakeDozuki([_guide(category="Widefield")])
+    client.category_tree = {"Widefield": {}}
+    importer = Importer(db_session, client, _options(), get_settings())
+    importer.import_guides()
+    assert db_session.scalars(select(Category).where(Category.name == "Widefield")).one().is_hidden
+
+    importer.adopt_category_tree()
+
+    assert not db_session.scalars(select(Category).where(Category.name == "Widefield")).one().is_hidden
+
+
+def test_an_import_never_hides_a_section_somebody_chose_to_show(
+    db_session, author_account, media_root
+):
+    """This runs on every re-run. An administrator's decision outlives it."""
+    from app.models import Category as CategoryModel
+
+    db_session.add(
+        CategoryModel(slug="cell-culture", name="Cell Culture", order_index=0, is_hidden=False)
+    )
+    db_session.flush()
+
+    client = FakeDozuki([_guide(category="Cell Culture")])
+    client.category_tree = {"Light Microscopy": {}}
+    _run(db_session, client)
+
+    assert not db_session.scalars(
+        select(Category).where(Category.name == "Cell Culture")
+    ).one().is_hidden
+
+
 def _category_wiki(**overrides) -> dict:
     payload = {
         "wikiid": 77,
