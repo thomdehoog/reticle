@@ -17,6 +17,102 @@ function renderCategory(server: ReturnType<typeof createFakeServer>, slug = 'lig
   )
 }
 
+/**
+ * Where the banner's paragraph comes from.
+ *
+ * Two fields can hold a section's words and only one of them is ever filled at
+ * ZMB: the migration reads the vendor's category description onto the landing
+ * page's `summary`, and nothing sets `Category.description` at all. The banner
+ * read only the second, so every imported section showed a title on a picture
+ * and no text — while the sentence ZMB had written sat one field away.
+ */
+describe('CategoryPage banner', () => {
+  it('uses the landing page’s summary when the category has no description', async () => {
+    const server = createFakeServer({
+      categories: [categoryFixture({ description: '' })],
+      guides: [guideFixture({ status: 'published' })],
+      pages: [
+        pageFixture({
+          id: 'w-landing',
+          slug: 'light-microscopy',
+          title: 'Light Microscopy',
+          categoryId: 'c-light',
+          isLanding: true,
+          status: 'published',
+          summary: 'Widefield, confocal and live-cell systems.',
+        }),
+      ],
+    })
+    renderCategory(server)
+
+    expect(
+      await screen.findByText('Widefield, confocal and live-cell systems.'),
+    ).toBeInTheDocument()
+  })
+
+  /* Otherwise editing the description in the admin screen would do nothing on
+     any section that has a landing page, which is all of them. */
+  it('prefers the description an administrator typed', async () => {
+    const server = createFakeServer({
+      categories: [categoryFixture({ description: 'What an administrator typed.' })],
+      guides: [guideFixture({ status: 'published' })],
+      pages: [
+        pageFixture({
+          id: 'w-landing',
+          slug: 'light-microscopy',
+          title: 'Light Microscopy',
+          categoryId: 'c-light',
+          isLanding: true,
+          status: 'published',
+          summary: 'What the migration brought.',
+        }),
+      ],
+    })
+    renderCategory(server)
+
+    expect(await screen.findByText('What an administrator typed.')).toBeInTheDocument()
+    expect(screen.queryByText('What the migration brought.')).not.toBeInTheDocument()
+  })
+
+  /* The picture follows the same fallback as the words, and deliberately so:
+     taking one from the category and the other from its landing page is how a
+     section ends up showing one instrument over a sentence about another. */
+  it('uses the landing page’s hero when the category has no picture of its own', async () => {
+    const server = createFakeServer({
+      categories: [categoryFixture({ description: '', heroMediaId: null, imageUrl: null })],
+      guides: [guideFixture({ status: 'published' })],
+      pages: [
+        pageFixture({
+          id: 'w-landing',
+          slug: 'light-microscopy',
+          title: 'Light Microscopy',
+          categoryId: 'c-light',
+          isLanding: true,
+          status: 'published',
+          summary: 'Widefield, confocal and live-cell systems.',
+          heroMediaId: 'm-section',
+        }),
+      ],
+    })
+    renderCategory(server)
+
+    await screen.findByText('Widefield, confocal and live-cell systems.')
+    const plate = document.querySelector('.banner__plate img')
+    expect(plate).toHaveAttribute('src', '/api/media/m-section')
+  })
+
+  it('shows the title alone when neither holds anything', async () => {
+    const server = createFakeServer({
+      categories: [categoryFixture({ description: '' })],
+      guides: [guideFixture({ status: 'published' })],
+    })
+    renderCategory(server)
+
+    await screen.findByRole('heading', { level: 1, name: 'Light Microscopy' })
+    expect(document.querySelector('.banner__intro')).toBeNull()
+  })
+})
+
 describe('CategoryPage', () => {
   it('falls back to a plain list when nobody has written a landing page', async () => {
     const server = createFakeServer({

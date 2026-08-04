@@ -29,6 +29,7 @@ import { IconEdit, IconPlus } from '../components/icons'
 import { MarkdownBody } from '../components/MarkdownBody'
 import { QuickLinks } from '../components/QuickLinks'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
+import { mediaUrl } from '../domain/types'
 import { browsableCategories } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
@@ -98,7 +99,24 @@ export function CategoryPage() {
 
   return (
     <>
-      <Banner title={category.name} line={category.description} src={category.imageUrl} />
+      {/* The section's own words and picture, from whichever of the two places
+          holds them. A category carries a `description` and a picture an
+          administrator sets, and its landing page carries a `summary` and a
+          hero — and at ZMB the second is where both actually are, because the
+          migration reads the vendor's category wiki into the landing page.
+          Preferring the administrator's means setting either in the admin
+          screen does something; falling through to the page's means every
+          imported section arrives with the paragraph and the photograph ZMB
+          already had, rather than a title floating on drawn artwork.
+
+          Both fall through the same way on purpose: splitting them — words from
+          one place, picture from the other — is how a section ends up with a
+          photograph of one instrument over a sentence about another. */}
+      <Banner
+        title={category.name}
+        intro={category.description || landing?.summary}
+        src={category.imageUrl ?? (landing?.heroMediaId ? mediaUrl(landing.heroMediaId) : null)}
+      />
 
       <ErrorAlert error={createError} />
 

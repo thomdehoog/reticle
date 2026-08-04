@@ -55,11 +55,22 @@ function pretendPhone() {
 }
 
 describe('AppShell', () => {
-  it('reaches the wiki and the tag index from anywhere', async () => {
+  it('reaches the front page from anywhere', async () => {
     renderShell(VIEWER)
 
-    expect(await screen.findByRole('link', { name: 'Wiki' })).toHaveAttribute('href', '/w')
-    expect(screen.getByRole('link', { name: 'Tags' })).toHaveAttribute('href', '/t')
+    expect(await screen.findByRole('link', { name: 'Home' })).toHaveAttribute('href', '/')
+  })
+
+  /* The two institute-wide indexes were dropped from the rail: both answer
+     "everything, everywhere", which is the one question the rail is not for.
+     Asserted rather than assumed, because the drawer below is built from the
+     same list and a link put back in one place belongs in both. */
+  it('keeps the institute-wide indexes out of the rail', async () => {
+    renderShell(VIEWER)
+
+    await screen.findByRole('link', { name: 'Home' })
+    expect(screen.queryByRole('link', { name: 'Wiki' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Tags' })).not.toBeInTheDocument()
   })
 
   /* The two administrator screens are not primary navigation — every viewer was
@@ -92,7 +103,7 @@ describe('AppShell', () => {
   it('offers a viewer no way to create anything', async () => {
     renderShell(VIEWER)
 
-    await screen.findByRole('link', { name: 'Wiki' })
+    await screen.findByRole('link', { name: 'Home' })
     expect(screen.queryByRole('button', { name: 'New' })).not.toBeInTheDocument()
   })
 
@@ -107,13 +118,21 @@ describe('AppShell', () => {
     expect(screen.queryByRole('dialog', { name: 'New guide' })).not.toBeInTheDocument()
   })
 
-  it('marks the section being read, for a reader who cannot see the styling', async () => {
+  it('marks the front page when that is what is open', async () => {
+    renderShell(VIEWER)
+
+    /* Marked the way every other step of the path is, rather than by a router
+       class of its own: the stylesheet turns it into weight and a bar. */
+    expect(await screen.findByRole('link', { name: 'Home' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+  })
+
+  it('leaves it unmarked while something else is being read', async () => {
     renderShell(VIEWER, '/w/immersion-oil')
 
-    /* react-router adds `active` for the matching NavLink; the stylesheet turns
-       that into weight and a rule rather than a shade of the header blue. */
-    expect(await screen.findByRole('link', { name: 'Wiki' })).toHaveClass('active')
-    expect(screen.getByRole('link', { name: 'Tags' })).not.toHaveClass('active')
+    expect(await screen.findByRole('link', { name: 'Home' })).not.toHaveAttribute('aria-current')
   })
 })
 
@@ -181,7 +200,7 @@ describe('AppShell on a phone', () => {
     renderShell({ ...AUTHOR, role: 'admin' })
 
     /* The bar itself is the brand, the search box and this. */
-    expect(screen.queryByRole('link', { name: 'Wiki' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
 
     const toggle = await screen.findByRole('button', { name: 'Menu' })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
@@ -191,8 +210,13 @@ describe('AppShell on a phone', () => {
 
     const sheet = screen.getByRole('dialog', { name: 'Menu' })
     expect(sheet).toHaveAttribute('id', toggle.getAttribute('aria-controls'))
-    for (const name of ['Wiki', 'Tags', 'Categories', 'People', 'Your account']) {
+    for (const name of ['Home', 'Categories', 'People', 'Your account']) {
       expect(within(sheet).getByRole('link', { name })).toBeInTheDocument()
+    }
+    /* Dropped from the rail, so dropped here: the drawer is the rail on a
+       narrow screen, and the two are not allowed to offer different places. */
+    for (const name of ['Wiki', 'Tags']) {
+      expect(within(sheet).queryByRole('link', { name })).not.toBeInTheDocument()
     }
     expect(within(sheet).getByRole('button', { name: 'New guide' })).toBeInTheDocument()
     expect(within(sheet).getByRole('button', { name: 'Sign out' })).toBeInTheDocument()

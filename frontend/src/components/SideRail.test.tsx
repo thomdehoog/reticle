@@ -1,12 +1,15 @@
 /**
  * What the rail offers, and what it must not.
  *
- * The rail and the phone drawer draw the same list from the same component, so
- * these cover both. Two rules are being held down. The first: the rail lists the
- * places the tiles list and no others — a category the front page has left out,
- * offered here, is the dead end back again under a shorter name. The second: the
- * rail descends with the reader, one level at a time, all the way to the guides,
- * which is the whole reason there is no second list of them beside the guide.
+ * The rail and the phone drawer draw the same two areas from the same
+ * component, so these cover both. Three rules are being held down. The first:
+ * the content area lists the places the tiles list and no others — a category
+ * the front page has left out, offered here, is the dead end back again under a
+ * shorter name. The second: that area descends with the reader, one level at a
+ * time, all the way to the guides, which is the whole reason there is no second
+ * list of them beside the guide. The third: the navigation area is the path
+ * taken to get there, so it always begins at Home and always ends where the
+ * reader is standing.
  *
  * Both shapes a category can have are tested apart from each other, and so are
  * both routes to the bottom of the tree. A suite that only ever built
@@ -15,11 +18,11 @@
  * or nothing at all, and nobody would find out until a real corpus landed.
  */
 
-import { fireEvent, screen, within } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 import { Link } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
-import { RailPlaces } from './SideRail'
+import { RailGroups } from './SideRail'
 import {
   categoryFixture,
   createFakeServer,
@@ -29,15 +32,37 @@ import {
 import { renderWithApp } from '../test/harness'
 
 function renderRail(server: ReturnType<typeof createFakeServer>, route = '/') {
-  return renderWithApp(<RailPlaces />, { route, fetchImpl: server.fetchImpl })
+  return renderWithApp(<RailGroups />, { route, fetchImpl: server.fetchImpl })
 }
 
-/** The rail's own list, so a heading link is not mistaken for a place in it. */
-function places(): string[] {
-  const list = document.querySelector('.rail__places')
+function rowsOf(area: 'content' | 'trail'): string[] {
+  const list = document.querySelector(`.rail__places--${area}`)
   return [...(list?.querySelectorAll('.rail__item') ?? [])].map((item) =>
     (item.textContent ?? '').trim(),
   )
+}
+
+/** What the content area lists, kept apart from the path above it. */
+function places(): string[] {
+  return rowsOf('content')
+}
+
+/** The path, from Home down to where the reader is standing. */
+function trail(): string[] {
+  return rowsOf('trail')
+}
+
+/**
+ * The marked row of one area, or null.
+ *
+ * Asked of an area rather than of the document, because the two areas mark
+ * different things and always did: the path marks the address in the bar, the
+ * content marks the document being read, and on a guide only the second of
+ * those exists. A search of the whole column cannot tell them apart.
+ */
+function marked(area: 'content' | 'trail'): string | null {
+  const row = document.querySelector(`.rail__places--${area} .rail__item--on`)
+  return row === null ? null : (row.textContent ?? '').trim()
 }
 
 /**
@@ -141,7 +166,7 @@ function flat() {
   })
 }
 
-describe('RailPlaces', () => {
+describe('RailGroups', () => {
   it('leaves out a category with nothing published under it', async () => {
     const server = createFakeServer({
       categories: [
@@ -189,8 +214,8 @@ describe('RailPlaces', () => {
     })
     renderRail(server, '/c/light-microscopy')
 
-    expect(await screen.findByRole('heading', { name: 'Light Microscopy' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Confocal' })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Confocal' })).toBeInTheDocument()
+    expect(trail()).toEqual(['Home', 'Light Microscopy'])
     expect(screen.queryByRole('link', { name: 'Superresolution' })).not.toBeInTheDocument()
   })
 
@@ -221,24 +246,25 @@ describe('RailPlaces', () => {
   })
 
   /* Home, and everywhere else with no category behind it. */
-  it('lists the browsable root categories at the front', async () => {
+  it('lists the browsable root categories at the front, under a path of one', async () => {
     renderRail(nested())
 
-    expect(await screen.findByRole('heading', { name: 'Categories' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Content' })).toBeInTheDocument()
     expect(places()).toEqual(['Light Microscopy'])
+    expect(trail()).toEqual(['Home'])
   })
 
   it('lists the sub-categories of a category that has them, and none of its own guides', async () => {
     renderRail(nested(), '/c/light-microscopy')
 
-    expect(await screen.findByRole('heading', { name: 'Light Microscopy' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Navigation' })).toBeInTheDocument()
     expect(places()).toEqual(['Confocal', 'Widefield'])
     /* Light Microscopy holds "Booking a system" itself. A category with children
        shows the children, and that guide is reached from its own page. */
     expect(screen.queryByRole('link', { name: 'Booking a system' })).not.toBeInTheDocument()
   })
 
-  it('lists what a sub-category holds, with nothing marked', async () => {
+  it('lists what a sub-category holds, under the path down to it', async () => {
     renderRail(nested(), '/c/confocal')
 
     expect(await screen.findByRole('link', { name: 'Stellaris start-up' })).toHaveAttribute(
@@ -246,7 +272,63 @@ describe('RailPlaces', () => {
       '/g/stellaris-startup',
     )
     expect(places()).toEqual(['Stellaris start-up', 'Stellaris shutdown'])
-    expect(document.querySelector('.rail__item--on')).toBeNull()
+    /* Two levels, and the reader is standing on the second: the path is the
+       only thing that says so, now that the heading is a fixed label. */
+    expect(trail()).toEqual(['Home', 'Light Microscopy', 'Confocal'])
+    expect(marked('trail')).toBe('Confocal')
+    expect(marked('content')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Light Microscopy' })).toHaveAttribute(
+      'href',
+      '/c/light-microscopy',
+    )
+  })
+
+  /* The path is a path, not a list of siblings, and on a phone the padding it
+     reads by is set in a second place. Both are asserted through the variable
+     the two rules share rather than through a computed width, which jsdom does
+     not have. */
+  it('gives each step of the path its depth', async () => {
+    renderRail(nested(), '/c/confocal')
+    await screen.findByRole('link', { name: 'Stellaris start-up' })
+
+    const steps = [...document.querySelectorAll<HTMLElement>('.rail__item--step')]
+    expect(steps.map((step) => step.style.getPropertyValue('--depth'))).toEqual(['0', '1', '2'])
+  })
+
+  /**
+   * A category with nothing to list has no content area at all, rather than one
+   * filled with the level above it.
+   *
+   * The shape is ZMB's, not a contrivance: a section whose guides all sit in a
+   * holding category under it is browsable — the guides really are reachable
+   * from it, by tag, through its own landing page — while having nothing of its
+   * own and no child a reader may be sent to. The rail used to answer that by
+   * listing the level above with the category marked, because the heading was
+   * the only thing saying where the reader was and a blank column said nothing.
+   * The path says it now, so listing a set of *siblings* under a heading
+   * reading "Content" would be a second meaning for the word, appearing exactly
+   * when there is nothing to show.
+   */
+  it('draws no content area for a category whose guides are all in a holding pen', async () => {
+    const server = createFakeServer({
+      categories: [
+        categoryFixture(),
+        categoryFixture({
+          id: 'c-held',
+          slug: 'confocal-hidden-guides',
+          name: 'Confocal — hidden guides',
+          parentId: 'c-light',
+          isHidden: true,
+        }),
+      ],
+      guides: [guideFixture({ id: 'g-held', categoryId: 'c-held', status: 'published' })],
+    })
+    renderRail(server, '/c/light-microscopy')
+
+    expect(await screen.findByRole('heading', { name: 'Navigation' })).toBeInTheDocument()
+    expect(trail()).toEqual(['Home', 'Light Microscopy'])
+    expect(screen.queryByRole('heading', { name: 'Content' })).not.toBeInTheDocument()
+    expect(places()).toEqual([])
   })
 
   it('lists what a childless top-level category holds, with nothing marked', async () => {
@@ -256,7 +338,10 @@ describe('RailPlaces', () => {
     /* The guides, then the wiki pages, in the order the category's page puts
        them — and not the landing page, which is that page. */
     expect(places()).toEqual(['Preparing grids', 'Loading the holder', 'Fixation protocols'])
-    expect(document.querySelector('.rail__item--on')).toBeNull()
+    /* The reader is on the category's own page, so the category is the marked
+       step of the path and nothing in the list below it is open yet. */
+    expect(marked('content')).toBeNull()
+    expect(marked('trail')).toBe('Electron Microscopy')
   })
 
   it('marks a guide read inside a sub-category, beside its neighbours', async () => {
@@ -268,11 +353,14 @@ describe('RailPlaces', () => {
     expect(screen.getByRole('link', { name: 'Stellaris start-up' })).not.toHaveAttribute(
       'aria-current',
     )
-    /* The heading names the section and leads back to it: from a guide it is the
+    /* The path names the section and leads back to it: from a guide it is the
        only way to the section's own page that does not go through the front. */
-    expect(
-      within(screen.getByRole('heading', { name: 'Confocal' })).getByRole('link'),
-    ).toHaveAttribute('href', '/c/confocal')
+    expect(trail()).toEqual(['Home', 'Light Microscopy', 'Confocal'])
+    expect(screen.getByRole('link', { name: 'Confocal' })).toHaveAttribute('href', '/c/confocal')
+    /* The guide is what is open, so the section it sits in is not marked too —
+       one column may say the reader is in one place. */
+    expect(marked('trail')).toBeNull()
+    expect(marked('content')).toBe('Stellaris shutdown')
   })
 
   it('marks a guide read inside a childless top-level category', async () => {
@@ -300,8 +388,9 @@ describe('RailPlaces', () => {
     )
     renderRail(server, '/w/data-storage')
 
-    expect(await screen.findByRole('heading', { name: 'Categories' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Content' })).toBeInTheDocument()
     expect(places()).toEqual(['Electron Microscopy'])
+    expect(trail()).toEqual(['Home'])
   })
 
   /**
@@ -329,7 +418,7 @@ describe('RailPlaces', () => {
     renderWithApp(
       <>
         <Link to="/g/stellaris-shutdown">Open</Link>
-        <RailPlaces />
+        <RailGroups />
       </>,
       { route: '/c/confocal', fetchImpl: server.fetchImpl },
     )

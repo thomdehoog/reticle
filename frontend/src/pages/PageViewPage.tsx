@@ -18,6 +18,7 @@ import { Link, useParams } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { IconEdit, IconPrint } from '../components/icons'
+import { mediaUrl } from '../domain/types'
 import { MarkdownBody } from '../components/MarkdownBody'
 import { Revision } from '../components/Revision'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
@@ -102,7 +103,7 @@ export function PageViewPage() {
       {/* Decorative: the title and the body already say what the page is, and a
           hero that repeats the heading aloud is noise in a screen reader. */}
       {page.heroMediaId && (
-        <img className="page-hero" src={`/api/media/${page.heroMediaId}`} alt="" />
+        <img className="page-hero" src={mediaUrl(page.heroMediaId)} alt="" />
       )}
 
       <MarkdownBody body={page.body} />

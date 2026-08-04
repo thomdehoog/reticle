@@ -94,6 +94,19 @@ export interface Annotation {
  * differ, and they are null on an image rather than absent, so no consumer has
  * to narrow the type before it can read them.
  */
+/**
+ * Where a stored file is served from, given its identifier.
+ *
+ * A listing hands the caller a ready-made URL; the full record of a page or a
+ * category hands it the identifier, because that is what its editor saves. So
+ * every screen that shows a hero picture builds the same path, and it was being
+ * written out by hand in each of them — the shape of duplication that survives
+ * until the route moves and one screen is left pointing at the old one.
+ */
+export function mediaUrl(id: string): string {
+  return `/api/media/${id}`
+}
+
 export interface Media {
   id: string
   /** Server-relative path, e.g. /api/media/<id>. Never a data URI once saved. */

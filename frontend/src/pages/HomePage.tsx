@@ -61,7 +61,7 @@ export function HomePage() {
       <Banner
         variant="facility"
         title={organisation?.name ?? 'Guides'}
-        line={organisation?.tagline}
+        intro={organisation?.tagline}
         src={organisation?.heroImageUrl}
       />
 

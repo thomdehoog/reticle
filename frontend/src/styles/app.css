@@ -829,43 +829,10 @@ a:hover {
   color: #9db4d8;
 }
 
-.rail__nav {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 0 0.6rem;
-}
-
-.rail__link {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  padding: 0.55rem 0.65rem;
-  font-size: 0.9rem;
-  font-weight: 550;
-  color: #c7d6ee;
-  border-radius: var(--radius);
-}
-
-.rail__link:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-  text-decoration: none;
-}
-
 /* A flex child with an intrinsic size is still allowed to shrink, and a
    squashed icon beside a long section name reads as a rendering fault. */
-.rail__link svg,
 .menu-sheet .menu-item svg {
   flex: 0 0 auto;
-}
-
-/* Marked by weight and a filled ground, not by colour alone — a slightly
-   lighter blue on dark blue is not a distinction anybody can act on. */
-.rail__link.active {
-  color: #fff;
-  font-weight: 650;
-  background: rgba(255, 255, 255, 0.13);
 }
 
 .rail__rule {
@@ -884,28 +851,22 @@ a:hover {
   color: #8aa4c8;
 }
 
-/* Naming the level is also the way back up to it, so the heading is a target
-   rather than a word: at 12px and uppercase it would otherwise be a 15px-tall
-   thing to hit with a thumb. */
-.rail__section a {
-  display: flex;
-  align-items: center;
-  min-height: 24px;
-  color: inherit;
-}
-
-.rail__section a:hover {
-  color: #fff;
-  text-decoration: none;
-}
-
-/* The list scrolls on its own, so a facility with twenty sections cannot push
-   the person signed in off the bottom of the window. */
 .rail__places {
   display: flex;
   flex-direction: column;
+}
+
+/* The content list scrolls on its own, so a facility with twenty sections
+   cannot push the person signed in off the bottom of the window. */
+.rail__places--content {
   min-height: 0;
   overflow-y: auto;
+}
+
+/* The path does neither: it is a handful of rows and it is the way back out, and
+   a way out that has been scrolled or squashed away is not one. */
+.rail__places--trail {
+  flex: 0 0 auto;
 }
 
 .rail__item {
@@ -922,6 +883,18 @@ a:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.06);
   text-decoration: none;
+}
+
+/* Each step of the path sits a little further in than the one it hangs off, so
+   a column of section names reads as a descent rather than as a set of
+   alternatives. `--depth` is set per row, so a third level costs nothing.
+ *
+ * It has to come after `.rail__item`, whose `padding` shorthand carries the
+ * same specificity and would otherwise win on order alone and flatten the path
+ * — which it silently did, and which no unit test can see: jsdom computes no
+ * layout, so the assertion that catches this is a screenshot or an eye. */
+.rail__item--step {
+  padding-left: calc(1.25rem + var(--depth) * 0.75rem);
 }
 
 /* An inset bar rather than a border, so marking the current place does not
@@ -3085,6 +3058,13 @@ a:hover {
   padding-right: 0.7rem;
 }
 
+/* Restated rather than inherited, because the rule above is the more specific
+   of the two and would otherwise flatten the path into a list of alternatives
+   on exactly the screen with the least room to explain itself. */
+.menu-sheet .rail__item--step {
+  padding-left: calc(0.7rem + var(--depth) * 0.75rem);
+}
+
 .menu-sheet .rail__item {
   min-height: 44px;
   font-size: 0.95rem;
@@ -3452,11 +3432,12 @@ a:hover {
  */
 
 .banner {
+  /* The plate's own size decides the height, so `--plate` is the one number the
+     rest of the banner is written against. */
+  --plate: 210px;
+
   position: relative;
-  display: flex;
-  align-items: flex-end;
   overflow: hidden;
-  min-height: 176px;
   margin-bottom: 1.6rem;
   background: var(--brand-900);
   border-radius: var(--radius-lg);
@@ -3465,38 +3446,82 @@ a:hover {
 /* Taller at the front, because arriving at the facility is the one moment worth
    a whole screen; two levels down the reader wants the guides. */
 .banner--facility {
-  min-height: 210px;
+  --plate: 250px;
 }
 
-.banner__art {
+/* The picture again, enlarged past its own frame and set back — but still the
+   picture, and still legible as one. Blurring it to a wash was the first
+   attempt and it threw away what the backdrop is for: the room, the instrument,
+   the specimen carry on past the edges of the plate, so the band belongs to
+   this section rather than being tinted furniture. It is darkened, not hidden.
+
+   The scale crops to the middle of the frame rather than showing the whole
+   picture twice at two sizes. */
+.banner__backdrop {
   position: absolute;
   inset: 0;
+  transform: scale(1.35);
+  filter: saturate(0.85) brightness(0.62);
 }
 
 .banner__image,
-.banner__art .thumb__figure {
+.banner__backdrop .thumb__figure,
+.banner__plate .thumb__figure {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-/* A gradient rather than a flat tint. The words have to stay legible wherever
-   the photograph happens to be bright, and these are the facility's own
-   micrographs — dimming all of them evenly to protect one line of text throws
-   away the reason for showing them. */
+/* Darkest under the words and lightest away from them, rather than an even
+   tint. The words have to stay legible wherever the photograph happens to be
+   bright, and these are the facility's own micrographs — dimming all of them
+   evenly to protect two sentences throws away the reason for showing them. So
+   the scrim is heaviest across the left, where the plate and the text sit, and
+   thins out to the right, where there is nothing to protect and the picture is
+   the only thing there. */
 .banner::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(4, 12, 22, 0.2) 0%, rgba(4, 12, 22, 0.78) 100%);
+  background: linear-gradient(
+    92deg,
+    rgba(4, 12, 22, 0.9) 0%,
+    rgba(4, 12, 22, 0.82) 45%,
+    rgba(4, 12, 22, 0.3) 100%
+  );
+}
+
+/* Top-aligned, not centred: the title is the first thing to read and the
+   picture is what it names, so they start on the same line. Centring set the
+   heading adrift somewhere down the side of the plate, at a height that moved
+   with however much text a section happened to carry. */
+.banner__inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 1.7rem;
+  padding: 1.5rem 1.9rem;
+  min-height: calc(var(--plate) * 3 / 4 + 3rem);
+}
+
+/* The picture, whole, on white. Composed images — a line drawing of a
+   microscope, a field of labelled cells — are the point of the banner, and the
+   plate is what lets one be looked at instead of used as a texture. */
+.banner__plate {
+  flex: 0 0 auto;
+  width: var(--plate);
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: #fff;
+  border-radius: var(--radius);
+  box-shadow: 0 8px 26px rgba(4, 12, 22, 0.5);
 }
 
 .banner__text {
-  position: relative;
-  z-index: 1;
+  min-width: 0;
   max-width: 46rem;
-  padding: 1.6rem 1.9rem 1.5rem;
   color: #fff;
 }
 
@@ -3512,29 +3537,44 @@ a:hover {
   font-size: 1.95rem;
 }
 
-.banner__line {
-  margin: 0.55rem 0 0;
+/* Capped by measure rather than by the column, because the text column is as
+   wide as the banner is and a line of 140 characters is one the eye loses its
+   place in on the way back. */
+.banner__intro {
+  max-width: 62ch;
+  margin: 0.7rem 0 0;
   font-size: 0.95rem;
+  line-height: 1.5;
   color: #dbe6f4;
 }
 
-@media (max-width: 640px) {
+/* Two abreast needs about 560px before the text column is narrower than the
+   words in it. Below that the plate goes above the title, still whole and still
+   on its plate, because the picture is what a reader arriving at an instrument
+   recognises and a phone is where they are most likely standing at one. */
+@media (max-width: 720px) {
   .banner,
   .banner--facility {
-    min-height: 168px;
+    --plate: 152px;
+
     margin-bottom: 1.25rem;
   }
 
-  .banner__text {
-    padding: 1.1rem 1rem 1rem;
+  .banner__inner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1.1rem 1rem 1.2rem;
   }
+}
 
+@media (max-width: 640px) {
   .banner__title,
   .banner--facility .banner__title {
     font-size: 1.4rem;
   }
 
-  .banner__line {
+  .banner__intro {
     margin-top: 0.45rem;
     font-size: 0.87rem;
   }

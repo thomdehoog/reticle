@@ -80,6 +80,24 @@ describe('app.css', () => {
     expect(correction).toBeGreaterThan(thumbHeight)
     expect(stylesheet.slice(correction)).toMatch(/height:\s*auto/)
   })
+
+  /**
+   * The same trap one floor down, and it was walked into: `.rail__item` sets
+   * `padding` as a shorthand and `.rail__item--step` sets `padding-left` from
+   * the row's depth. They weigh the same, so the shorthand wins on order alone
+   * and flattens the path into a list of alternatives.
+   *
+   * Worth a test rather than a comment because nothing else can see it. jsdom
+   * computes no layout, so every unit test passed with the indent gone, and the
+   * only thing that caught it was looking at a screenshot.
+   */
+  it('lets the path indent survive the padding it is written against', () => {
+    const base = stylesheet.indexOf('.rail__item {')
+    const step = stylesheet.indexOf('.rail__item--step {')
+
+    expect(base).toBeGreaterThan(-1)
+    expect(step).toBeGreaterThan(base)
+  })
 })
 
 /** The body of the last rule whose selector list mentions `selector`. */

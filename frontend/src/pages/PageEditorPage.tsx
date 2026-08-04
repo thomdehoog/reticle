@@ -25,7 +25,7 @@ import { IconHistory } from '../components/icons'
 import { MarkdownBody } from '../components/MarkdownBody'
 import { Thumbnail } from '../components/Thumbnail'
 import { AutoTextarea, ErrorAlert, Modal, Spinner, StatusBadge } from '../components/ui'
-import type { Page } from '../domain/types'
+import { mediaUrl, type Page } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 import {
   forgetFailedSave,
@@ -422,7 +422,7 @@ export function PageEditorPage() {
             <div className="hero-picker">
               <Thumbnail
                 seed={page.title}
-                src={`/api/media/${page.heroMediaId}`}
+                src={mediaUrl(page.heroMediaId)}
                 className="hero-picker__preview"
               />
               <div className="hero-picker__controls">

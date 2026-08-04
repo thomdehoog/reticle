@@ -14,8 +14,8 @@
  * side gives it as many rows as a facility has sections, room for the current
  * one to be marked, and room for the level below it — and it empties the top
  * bar down to search and the one button that makes something. Everything that
- * used to be up there is in the rail: the brand, the facility, the wiki, the
- * tags, and the person signed in.
+ * used to be up there is in the rail: the brand, the facility, and the person
+ * signed in.
  *
  * On a phone even one strip is too much furniture. Laid out in a row the old
  * header wrapped to four rows and took 233px of a 568px screen before the page
@@ -36,10 +36,10 @@ import {
 import { Link, useLocation, useNavigate } from 'react-router'
 
 import { useAuth } from '../auth/AuthContext'
-import { IconBook, IconHome, IconMenu, IconPlus, IconTag, ReticleMark } from './icons'
+import { IconMenu, IconPlus, ReticleMark } from './icons'
 import { NewGuideDialog } from './NewGuideDialog'
 import { NewPageDialog } from './NewPageDialog'
-import { RailPlaces, SideRail } from './SideRail'
+import { RailGroups, SideRail } from './SideRail'
 import { Modal } from './ui'
 
 /** The width below which the header is a brand, a search box and a button. */
@@ -337,23 +337,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       {phone && openMenu === 'sheet' && (
         <Modal id="app-menu" title="Menu" onClose={close}>
           <nav className="menu-sheet" aria-label="Everywhere else">
-            <Link className="menu-item" to="/">
-              <IconHome size={17} />
-              Home
-            </Link>
-            <Link className="menu-item" to="/w">
-              <IconBook size={17} />
-              Wiki
-            </Link>
-            <Link className="menu-item" to="/t">
-              <IconTag size={17} />
-              Tags
-            </Link>
-
-            {/* The same list the rail carries. A drawer that only offered the
-                wiki and the tags left the categories reachable on a phone only
-                by going back to the front page and starting again. */}
-            <RailPlaces />
+            {/* The same two areas the rail carries, Home among them. The drawer
+                is the rail on a screen too narrow to hold one, so what one
+                offers the other offers — a phone that kept an entry the desktop
+                had dropped would be a second navigation model nobody decided
+                on. */}
+            <RailGroups />
 
             {can('author') && (
               <>

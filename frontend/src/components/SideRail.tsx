@@ -1,11 +1,32 @@
 /**
  * The dark column down the left of every wide screen.
  *
- * It carries the two things a reader needs at all times and nowhere else to put
- * them: where they can go — Home, the wiki, the tags — and where they are, as a
- * list of the places at their own level of the tree. Standing at an instrument
- * with a procedure open, "which of the other confocal systems has a guide for
- * this" is one glance rather than two page loads.
+ * It answers two questions, and it answers them in two labelled areas rather
+ * than in one list, because they are not the same question and a reader
+ * scanning for one should not have to read past the other.
+ *
+ * **Navigation** is the way in: the front page, and under it the sections
+ * passed through to arrive where the reader is standing. It is a path, so it
+ * grows a row at a time as they descend and each row is the way back to that
+ * level.
+ *
+ * **Content** is what is here: the sections inside this one, or — at the bottom
+ * of the tree — the guides and pages themselves. Standing at an instrument with
+ * a procedure open, "which of the other confocal systems has a guide for this"
+ * is one glance rather than two page loads.
+ *
+ * Splitting them is what let the heading become a label. It used to name the
+ * level *and* be the only route back up to it, which meant the one word above
+ * the list changed on every navigation and a reader could not learn it. Now the
+ * route back up is the path, where a route back up belongs, and the two
+ * headings are fixed.
+ *
+ * The wiki and tag indexes are in neither. Both list every page and every tag
+ * in the institute regardless of where the reader is standing, which is the one
+ * question the rail is not for — and neither is how ZMB navigates: a wiki page
+ * is reached as part of the section that holds it, and a tag from the guide
+ * wearing it. They keep their addresses, reached from the breadcrumb of the
+ * page or tag a reader is already looking at.
  *
  * It is its own file rather than part of `AppShell` because it is the piece
  * with a rule in it. The shell arranges boxes; this decides which places to
@@ -19,14 +40,14 @@
  * drawer the header's one button opens.
  */
 
-import { useState, type ReactNode } from 'react'
-import { Link, NavLink, useLocation } from 'react-router'
+import { useState, type CSSProperties, type ReactNode } from 'react'
+import { Link, useLocation } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import type { Category, GuideSummary, PageSummary } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 import { useBrowsableCategories } from '../hooks/useCategories'
-import { IconBook, IconHome, IconTag, ReticleMark } from './icons'
+import { ReticleMark } from './icons'
 
 /**
  * One row of the rail: a category, a guide or a wiki page.
@@ -47,11 +68,8 @@ export interface CategoryContents {
   pages: PageSummary[]
 }
 
-/** The places listed under the heading, and what the heading calls them. */
+/** What the content area lists, and which of it is open. */
 export interface Places {
-  heading: string
-  /** Where the heading leads, or null at the front, which is not a place. */
-  headingTo: string | null
   places: RailPlace[]
   /** The one being read, marked by weight and a bar rather than by colour. */
   currentId: string | null
@@ -99,7 +117,31 @@ function contentsPlaces(contents: CategoryContents): RailPlace[] {
 }
 
 /**
- * Which places belong in the rail, given where the reader is.
+ * The path from the front page down to where the reader is standing.
+ *
+ * Home is always its first row, because the front page is always somewhere to
+ * go back to; the sections follow, outermost first, ending with the one the
+ * reader is in. Reading a guide is standing in the category that holds it, so
+ * a guide's path is its section's — the guide itself is marked in the content
+ * area below and does not repeat here.
+ *
+ * A category outside `browsable` ends the walk rather than appearing in it: a
+ * hidden holding category is not a place the reader can be sent, and a path
+ * with a dead end in the middle of it is worse than a short one.
+ */
+export function railTrail(browsable: Category[], slug: string | null): RailPlace[] {
+  const trail: RailPlace[] = []
+  let at = slug === null ? undefined : browsable.find((c) => c.slug === slug)
+  while (at) {
+    trail.unshift(categoryPlace(at))
+    const parentId: string | null = at.parentId
+    at = parentId === null ? undefined : browsable.find((c) => c.id === parentId)
+  }
+  return [{ id: 'home', slug: '', name: 'Home', to: '/' }, ...trail]
+}
+
+/**
+ * What the content area lists, given where the reader is.
  *
  * One level at a time, because a tree with every branch open is a filing
  * cabinet. The rule is stated in terms of where somebody is standing rather
@@ -113,10 +155,13 @@ function contentsPlaces(contents: CategoryContents): RailPlace[] {
  * rail shows that same list with the one being read marked. Which is what makes
  * the second navigation column beside a guide unnecessary: this is that list.
  *
- * `contents` is null while the category's documents are still on their way, and
- * an empty category has nothing of its own to show either. Both fall back to
- * the level above with the category marked, so the column always answers "where
- * am I" with something true rather than going blank and filling in later.
+ * An empty category, and a category whose documents are still on their way,
+ * list nothing at all — the area is simply not drawn. This used to fall back to
+ * the level above so that the column would not go blank, which was the right
+ * answer when the column was the only thing saying where the reader was; the
+ * path above says so now, and always. Listing the *siblings* of an empty
+ * category under a heading reading "Content" would have been a third meaning
+ * for one word, and a list that appears at the moment there is nothing to show.
  *
  * It is given the browsable categories rather than all of them, and the rule
  * that makes them browsable is `browsableCategories`. The rail has to offer the
@@ -131,49 +176,24 @@ export function railPlaces(
   reading: string | null,
 ): Places {
   const current = slug === null ? undefined : browsable.find((c) => c.slug === slug)
-  const childrenOf = (id: string) => byOrder(browsable.filter((c) => c.parentId === id))
 
   if (current) {
-    const children = childrenOf(current.id)
+    const children = byOrder(browsable.filter((c) => c.parentId === current.id))
     if (children.length > 0) {
-      return {
-        heading: current.name,
-        headingTo: `/c/${current.slug}`,
-        places: children.map(categoryPlace),
-        currentId: null,
-      }
+      return { places: children.map(categoryPlace), currentId: null }
     }
 
     const inside = contents === null ? [] : contentsPlaces(contents)
-    if (inside.length > 0) {
-      const open =
-        reading === null
-          ? undefined
-          : inside.find((place) => place.id === reading || place.slug === reading)
-      return {
-        heading: current.name,
-        headingTo: `/c/${current.slug}`,
-        places: inside,
-        currentId: open?.id ?? null,
-      }
-    }
-
-    const parent = browsable.find((c) => c.id === current.parentId)
-    if (parent) {
-      return {
-        heading: parent.name,
-        headingTo: `/c/${parent.slug}`,
-        places: childrenOf(parent.id).map(categoryPlace),
-        currentId: current.id,
-      }
-    }
+    const open =
+      reading === null
+        ? undefined
+        : inside.find((place) => place.id === reading || place.slug === reading)
+    return { places: inside, currentId: open?.id ?? null }
   }
 
   return {
-    heading: 'Categories',
-    headingTo: null,
     places: byOrder(browsable.filter((c) => c.parentId === null)).map(categoryPlace),
-    currentId: current?.id ?? null,
+    currentId: null,
   }
 }
 
@@ -193,15 +213,46 @@ function documentPath(pathname: string): { kind: 'guide' | 'page'; key: string }
 }
 
 /**
- * The heading and the list under it, drawn the same in the rail and in the
- * phone drawer — they are the same list, and a reader who learns it on a
- * desktop should find it in the same words in their hand.
+ * One labelled area: a rule, a heading, and the places under it.
  *
- * Nothing is shown while the categories are still coming: the rail is
- * furniture, and a column that flickers on every navigation is worse than one
- * that fills in a moment later. Whatever went wrong is reported by the page.
+ * Both areas are built from this so that neither can drift into looking like
+ * the more important one. `scrolls` is the single difference, and it is on the
+ * content area alone: that list is as long as a section is, while the path is
+ * as long as the tree is deep. A path that had scrolled out of reach would be a
+ * way back out that the reader cannot get to.
  */
-export function RailPlaces() {
+function RailGroup({
+  heading,
+  scrolls = false,
+  children,
+}: {
+  heading: string
+  scrolls?: boolean
+  children: ReactNode
+}) {
+  return (
+    <>
+      <hr className="rail__rule" />
+      <h2 className="rail__section">{heading}</h2>
+      <div className={`rail__places rail__places--${scrolls ? 'content' : 'trail'}`}>
+        {children}
+      </div>
+    </>
+  )
+}
+
+/**
+ * The two areas, drawn the same in the rail and in the phone drawer — they are
+ * the same navigation, and a reader who learns it on a desktop should find it
+ * in the same words in their hand.
+ *
+ * The content area is not shown while the categories are still coming: the rail
+ * is furniture, and a column that flickers on every navigation is worse than
+ * one that fills in a moment later. Whatever went wrong is reported by the
+ * page. The path is drawn from the first render, because Home is in it whatever
+ * the answer turns out to be.
+ */
+export function RailGroups() {
   const { pathname } = useLocation()
   const api = useApi()
   const { data: browsable } = useBrowsableCategories()
@@ -284,36 +335,49 @@ export function RailPlaces() {
     return { guides, pages }
   }, [api, bottom])
 
-  const { heading, headingTo, places, currentId } = railPlaces(
-    browsable ?? [],
-    slug,
-    contents,
-    here?.key ?? null,
-  )
+  const { places, currentId } = railPlaces(browsable ?? [], slug, contents, here?.key ?? null)
+  const trail = railTrail(browsable ?? [], slug)
 
-  if (places.length === 0) return null
+  /* The path marks a step only when that step is the address in the bar. On a
+     guide nothing in it is marked: the reader is *in* Confocal but they are
+     *looking at* the guide, which is the row marked below, and two marks would
+     make the column say the reader is in two places. */
+  const openCategory = categorySlug(pathname)
+  const isOpen = (place: RailPlace) =>
+    place.to === '/' ? pathname === '/' : place.slug === openCategory
 
   return (
     <>
-      <hr className="rail__rule" />
-      {/* The heading is the way back up out of the level below it: from a guide
-          it is the only route to the section's own page that does not go
-          through the front. */}
-      <h2 className="rail__section">
-        {headingTo === null ? heading : <Link to={headingTo}>{heading}</Link>}
-      </h2>
-      <div className="rail__places">
-        {places.map((place) => (
+      <RailGroup heading="Navigation">
+        {trail.map((place, depth) => (
           <Link
             key={place.id}
-            className={`rail__item${place.id === currentId ? ' rail__item--on' : ''}`}
+            className={`rail__item rail__item--step${isOpen(place) ? ' rail__item--on' : ''}`}
+            /* The step's own depth, so the stylesheet owns how far in each one
+               sits and a third level needs no code here. */
+            style={{ '--depth': depth } as CSSProperties}
             to={place.to}
-            aria-current={place.id === currentId ? 'page' : undefined}
+            aria-current={isOpen(place) ? 'page' : undefined}
           >
             {place.name}
           </Link>
         ))}
-      </div>
+      </RailGroup>
+
+      {places.length > 0 && (
+        <RailGroup heading="Content" scrolls>
+          {places.map((place) => (
+            <Link
+              key={place.id}
+              className={`rail__item${place.id === currentId ? ' rail__item--on' : ''}`}
+              to={place.to}
+              aria-current={place.id === currentId ? 'page' : undefined}
+            >
+              {place.name}
+            </Link>
+          ))}
+        </RailGroup>
+      )}
     </>
   )
 }
@@ -334,22 +398,7 @@ export function SideRail({ account }: { account: ReactNode }) {
       </Link>
       {organisation && <span className="rail__facility">{organisation.name}</span>}
 
-      <div className="rail__nav">
-        <NavLink className="rail__link" to="/" end>
-          <IconHome size={17} />
-          Home
-        </NavLink>
-        <NavLink className="rail__link" to="/w">
-          <IconBook size={17} />
-          Wiki
-        </NavLink>
-        <NavLink className="rail__link" to="/t">
-          <IconTag size={17} />
-          Tags
-        </NavLink>
-      </div>
-
-      <RailPlaces />
+      <RailGroups />
 
       <div className="rail__spacer" />
       {account}
