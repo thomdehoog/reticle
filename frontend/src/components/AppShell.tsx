@@ -326,7 +326,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {phone && (
             <Link to="/" className="app__brand">
               <ReticleMark />
-              Reticle
+              Reticle Guides
               {organisation && <span className="app__brand-sub">{organisation.shortName}</span>}
             </Link>
           )}

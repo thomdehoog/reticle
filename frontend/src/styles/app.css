@@ -835,10 +835,19 @@ a:hover {
   text-decoration: none;
 }
 
+/* Set apart from the product name above it rather than tucked under it: one is
+   what this software is, the other is whose installation you are looking at,
+   and read as one block they looked like a two-line title.
+
+   `text-wrap: balance` is what stops "Analysis" being left alone on a line of
+   its own. A facility's name is the one string here that no amount of column
+   width makes safe — this one runs to six words — so the fix is to let the
+   browser even the lines out rather than to guess a width that fits it. */
 .rail__facility {
-  padding: 0 1.1rem 1rem;
+  padding: 0.45rem 1.1rem 1rem;
   font-size: 0.75rem;
   line-height: 1.35;
+  text-wrap: balance;
   color: #9db4d8;
 }
 
@@ -919,7 +928,7 @@ a:hover {
      descender space the word mostly does not use — so the elbow is nudged onto
      the optical middle of the text instead. One number again: the drop's height
      and the run's offset are the same edge and must not be set apart. */
-  --step-elbow: calc(50% + 2px);
+  --step-elbow: calc(50% + 1px);
 
   position: relative;
   padding-left: calc(1.25rem + var(--depth) * var(--step-indent));

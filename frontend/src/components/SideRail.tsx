@@ -417,7 +417,7 @@ export function SideRail() {
     <nav className="rail" aria-label="Sections">
       <Link className="rail__brand" to="/">
         <ReticleMark />
-        Reticle
+        Reticle Guides
       </Link>
       {organisation && <span className="rail__facility">{organisation.name}</span>}
 
