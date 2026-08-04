@@ -303,6 +303,14 @@ class MappedPage:
     body: str
     category_name: str | None
     is_landing: bool
+    image: MappedImage | None = None
+    """The page's own picture, which for a category landing is the section's.
+
+    It is what the banner across the top of a section is built from, and it
+    arrives in the same payload as the words — so an import that read the
+    description and not this one produced a site where every section had ZMB's
+    own sentence under a drawn placeholder.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -1062,8 +1070,29 @@ def map_page(payload: dict[str, Any]) -> tuple[MappedPage, list[Unmapped]]:
             body=body,
             category_name=category_name,
             is_landing=namespace == "CATEGORY",
+            image=_page_image(payload.get("image"), where=f"page {source_id}"),
         ),
         problems,
+    )
+
+
+def _page_image(data: Any, where: str) -> MappedImage | None:
+    """The picture a wiki page carries, at the largest size on offer.
+
+    A page with no picture is ordinary and silent — most articles have none. A
+    picture the mapping cannot find a URL in is *not* silent, but it is not
+    fatal either: the words are the page and losing the photograph at the top of
+    it should not cost the reader the procedure underneath.
+    """
+    if not isinstance(data, dict) or not data:
+        return None
+    url = best_image_url(data)
+    if url is None:
+        return None
+    return MappedImage(
+        source_id=str(data.get("id") or data.get("guid") or url),
+        url=url,
+        alt="",
     )
 
 

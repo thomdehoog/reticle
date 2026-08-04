@@ -611,6 +611,75 @@ def test_an_ordinary_wiki_is_not_a_landing_page():
     assert mapped.category_name is None
 
 
+def test_a_category_carries_its_own_description_across():
+    """The words in the banner across the top of a section.
+
+    Every one of ZMB's fifteen sections publishes this, and it is the only
+    sentence about a section anybody wrote.
+    """
+    mapped, _ = map_page(
+        {
+            "wikiid": 77,
+            "namespace": "CATEGORY",
+            "title": "Widefield Microscopy",
+            "description": "Fluorescence widefield systems are well suited for imaging.",
+        }
+    )
+    assert mapped.summary == "Fluorescence widefield systems are well suited for imaging."
+
+
+def test_a_page_takes_the_largest_rendition_of_its_own_picture():
+    """The same rule a step image follows, for the same reason.
+
+    The vendor offers the picture at eight sizes and names the display-sized
+    one first; importing that would carry the photograph across at the size it
+    happened to be shown at rather than the size it was taken at.
+    """
+    mapped, _ = map_page(
+        {
+            "wikiid": 77,
+            "namespace": "CATEGORY",
+            "title": "Widefield Microscopy",
+            "image": {
+                "id": 4165,
+                "thumbnail": "https://example.test/small.jpg",
+                "standard": "https://example.test/standard.jpg",
+                "original": "https://example.test/original.jpg",
+            },
+        }
+    )
+    assert mapped.image is not None
+    assert mapped.image.url == "https://example.test/original.jpg"
+    assert mapped.image.source_id == "4165"
+
+
+def test_a_page_with_no_picture_is_ordinary_and_silent():
+    """Most articles have none, and that is not a defect to report."""
+    mapped, problems = map_page({"wikiid": 78, "namespace": "WIKI", "title": "Immersion oil"})
+    assert mapped.image is None
+    assert problems == []
+
+
+def test_a_picture_the_mapping_cannot_read_costs_the_page_nothing():
+    """An image object with no usable URL in it leaves the page importable.
+
+    The words are the page; losing the photograph at the top should not take
+    the procedure underneath with it.
+    """
+    mapped, problems = map_page(
+        {
+            "wikiid": 79,
+            "namespace": "CATEGORY",
+            "title": "CryoEM",
+            "description": "Vitrification and screening.",
+            "image": {"id": 12, "thumbnail": "/relative/not/absolute.jpg"},
+        }
+    )
+    assert mapped.image is None
+    assert mapped.summary == "Vitrification and screening."
+    assert problems == []
+
+
 # --- wiki syntax ----------------------------------------------------------
 
 

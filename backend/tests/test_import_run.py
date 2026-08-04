@@ -478,6 +478,83 @@ def test_a_category_wiki_becomes_the_categorys_landing_page(db_session, author_a
     assert page.category_id == category.id
 
 
+def _category_wiki(**overrides) -> dict:
+    payload = {
+        "wikiid": 77,
+        "namespace": "CATEGORY",
+        "title": "Light Microscopy",
+        "description": "Widefield, confocal and live-cell systems.",
+        "image": {
+            "id": 4165,
+            "thumbnail": "https://example.test/section-small.jpg",
+            "original": "https://example.test/section.jpg",
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_a_section_arrives_with_the_words_and_the_picture_its_banner_needs(
+    db_session, author_account, media_root
+):
+    """Both halves of a section's front matter, from the payload that has them.
+
+    The description was already read; the picture was not, so every imported
+    section came out with ZMB's own sentence under a drawn placeholder. Both
+    are in the same response, and the run already fetches it.
+    """
+    client = FakeDozuki([_guide()], {"CATEGORY": [_category_wiki()]})
+    _run(db_session, client)
+
+    page = db_session.scalars(select(Page).where(Page.is_landing.is_(True))).one()
+    assert page.summary == "Widefield, confocal and live-cell systems."
+    assert page.hero_media_id is not None
+
+    media = db_session.get(Media, page.hero_media_id)
+    assert media is not None and media.kind == "image"
+    # The size it was taken at, not the size it was shown at.
+    assert "https://example.test/section.jpg" in client.downloads
+    assert "https://example.test/section-small.jpg" not in client.downloads
+
+
+def test_a_second_run_does_not_fetch_a_sections_picture_again(
+    db_session, author_account, media_root
+):
+    client = FakeDozuki([_guide()], {"CATEGORY": [_category_wiki()]})
+    _run(db_session, client)
+    before = client.downloads.count("https://example.test/section.jpg")
+
+    _run(db_session, client)
+
+    assert before == 1
+    assert client.downloads.count("https://example.test/section.jpg") == 1
+    assert db_session.scalars(select(Page).where(Page.is_landing.is_(True))).one().hero_media_id
+
+
+def test_a_section_whose_picture_will_not_download_still_brings_its_page(
+    db_session, author_account, media_root
+):
+    """The words are the page. The photograph at the top of it is not."""
+    client = FakeDozuki([_guide()], {"CATEGORY": [_category_wiki()]})
+    client.failing_urls.add("https://example.test/section.jpg")
+
+    report = _run(db_session, client).report
+
+    page = db_session.scalars(select(Page).where(Page.is_landing.is_(True))).one()
+    assert page.hero_media_id is None
+    assert page.summary == "Widefield, confocal and live-cell systems."
+    assert any("did not download" in note for note in report.skipped)
+
+
+def test_skipping_media_skips_a_sections_picture_too(db_session, author_account, media_root):
+    client = FakeDozuki([_guide()], {"CATEGORY": [_category_wiki()]})
+    _run(db_session, client, _options(skip_media=True))
+
+    page = db_session.scalars(select(Page).where(Page.is_landing.is_(True))).one()
+    assert page.hero_media_id is None
+    assert client.downloads == []
+
+
 def test_a_landing_page_that_would_displace_an_existing_one_is_kept_as_an_article(
     db_session, author_account, media_root
 ):

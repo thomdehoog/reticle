@@ -715,6 +715,24 @@ class Importer:
             return
         self.report.pages_imported += 1
 
+    def _attach_page_hero(self, page: Page, mapped: MappedPage) -> None:
+        """Give the page its picture, and let the page survive without one.
+
+        A failed download is reported and stepped over rather than raised. The
+        picture is the top of a section's banner; the page under it is the
+        procedures, and refusing the second to punish the first is the wrong way
+        round. ``_import_image`` already refuses to fetch a file this run
+        already holds, so a re-run costs nothing.
+        """
+        if mapped.image is None or self.options.skip_media:
+            return
+        try:
+            media, _ = self._import_image(mapped.image)
+        except MigrationError as error:
+            self.report.skipped.append(f"{mapped.title}: its picture did not download: {error}")
+            return
+        page.hero_media_id = media.id
+
     def _write_page(self, mapped: MappedPage) -> Page:
         existing = self._existing("page", mapped.source_id)
         page = self.db.get(Page, existing.local_id) if existing is not None else None
@@ -749,6 +767,7 @@ class Importer:
         page.title = mapped.title
         page.summary = mapped.summary
         page.body = mapped.body
+        self._attach_page_hero(page, mapped)
         page.category_id = category.id if category is not None else None
         page.is_landing = is_landing
         page.last_edited_by_id = self._author.id
