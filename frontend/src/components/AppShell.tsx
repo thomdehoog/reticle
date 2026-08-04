@@ -301,13 +301,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       id="account-menu"
       triggerClassName="app__me"
       label={`Account: ${displayName}`}
+      /* The initials alone. In the right corner of a bar this is the one place
+         people already look for their account, it is the only control there so
+         there is nothing to mistake it for, and it does not grow with the
+         length of somebody's name. The name itself is not lost — it is the
+         button's accessible label, and the panel it opens is full of things
+         that are plainly about you. */
       trigger={
-        <>
-          <span className="avatar" aria-hidden="true">
-            {initials(displayName)}
-          </span>
-          <span className="app__me-name">{displayName}</span>
-        </>
+        <span className="avatar" aria-hidden="true">
+          {initials(displayName)}
+        </span>
       }
       open={openMenu === 'account'}
       onOpen={() => open('account')}

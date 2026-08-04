@@ -987,20 +987,16 @@ a:hover {
 /* Who is signed in, top right of the bar. The whole row is the control: an
    avatar on its own is a 26px target and a puzzle. */
 .app__me {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  max-width: 15rem;
-  min-height: 40px;
-  padding: 0.3rem 0.5rem;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
   font: inherit;
-  font-size: 0.88rem;
-  font-weight: 550;
-  text-align: left;
   color: var(--ink-700);
   background: none;
   border: none;
-  border-radius: var(--radius);
+  border-radius: 50%;
   cursor: pointer;
 }
 
@@ -1013,12 +1009,6 @@ a:hover {
   width: 28px;
   height: 28px;
   font-size: 0.75rem;
-}
-
-.app__me-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ------------------------------------------------------------------- bars */
