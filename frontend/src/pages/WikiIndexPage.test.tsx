@@ -17,11 +17,12 @@ function renderIndex(server: ReturnType<typeof createFakeServer>) {
   )
 }
 
-/* Creating a guide and creating a page are one control in the header now, so
-   every one of these starts by opening it. */
+/* Creating lives behind the account now — the bar is on every screen and
+   almost nobody who opens Reticle is about to write a guide — so every one of
+   these starts by opening that panel. */
 async function openNewPageDialog(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByRole('button', { name: 'New' }))
-  await user.click(await screen.findByRole('button', { name: 'Page' }))
+  await user.click(await screen.findByRole('button', { name: /^Account:/ }))
+  await user.click(await screen.findByRole('button', { name: 'New page' }))
 }
 
 describe('WikiIndexPage', () => {

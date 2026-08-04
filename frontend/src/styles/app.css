@@ -767,23 +767,32 @@ a:hover {
   min-width: 0;
 }
 
+/**
+ * Two columns, each scrolling on its own.
+ *
+ * The window holds the frame and neither column spills out of it: the rail
+ * scrolls its own navigation, the middle scrolls its own content, and one does
+ * not move when the other does. A section with a dozen groups makes a rail
+ * longer than the window, and the alternative — one page scroll carrying both —
+ * means scrolling to the end of a guide takes the navigation off the top of the
+ * screen with it, so getting anywhere else starts with scrolling back.
+ */
 @media (min-width: 861px) {
   .app {
     display: grid;
     grid-template-columns: var(--rail-width) minmax(0, 1fr);
+    height: 100vh;
+    overflow: hidden;
   }
 
-  /* The rail itself is one window tall and stays put while the page scrolls,
-     so on a long guide its cell runs out and the page background shows through
-     underneath it. Painting the column rather than the element keeps the dark
-     band running the whole height without making the rail a scrolling element
-     the reader has to get past. */
-  .app--rail {
-    background: linear-gradient(
-      to right,
-      var(--brand-900) 0 var(--rail-width),
-      transparent var(--rail-width)
-    );
+  /* The rail paints itself and is exactly one window tall, so there is no cell
+     left over for the page background to show through — which is what the
+     gradient across this grid used to cover, back when the rail was sticky
+     inside a page that scrolled. Painting it here now would tint the content
+     column as well, and the group headings would be dark on dark. */
+  .app__column {
+    min-height: 0;
+    overflow: hidden;
   }
 }
 
@@ -792,16 +801,20 @@ a:hover {
 /**
  * Where you can go, and where you are, in one column.
  *
- * It is the full height of the window and stays there while the page scrolls,
- * because its second half answers "what else is at this level" — a question a
- * reader has in the middle of a procedure, not at the top of one.
+ * It sticks to the top while the page scrolls, because its second half answers
+ * "what else is at this level" — a question a reader has in the middle of a
+ * procedure, not at the top of one.
+ *
+ * It is one window tall and scrolls its own contents. A section with a dozen
+ * groups makes a list longer than the screen, and this is the column that holds
+ * it — so the navigation stays where it is while a reader works down a guide,
+ * which is the whole point of a rail.
  */
 .rail {
-  position: sticky;
-  top: 0;
   display: flex;
   flex-direction: column;
   height: 100vh;
+  overflow-y: auto;
   padding: 1rem 0;
   background: var(--brand-900);
   color: #fff;
@@ -835,15 +848,17 @@ a:hover {
   flex: 0 0 auto;
 }
 
+/* Under its heading rather than over it, so the space above belongs to the gap
+   between one area and the next and the space below is the label's own. */
 .rail__rule {
   height: 1px;
-  margin: 1rem 1.1rem 0.8rem;
+  margin: 0 1.1rem 0.55rem;
   background: rgba(255, 255, 255, 0.13);
   border: none;
 }
 
 .rail__section {
-  padding: 0 1.25rem 0.5rem;
+  padding: 1.4rem 1.25rem 0.45rem;
   font-size: 0.75rem;
   font-weight: 650;
   letter-spacing: 0.07em;
@@ -856,11 +871,11 @@ a:hover {
   flex-direction: column;
 }
 
-/* The content list scrolls on its own, so a facility with twenty sections
-   cannot push the person signed in off the bottom of the window. */
+/* The list runs as long as it needs; the rail around it is what scrolls. Giving
+   this its own scrollbar as well would put one inside another, each with its own
+   idea of where the reader is. */
 .rail__places--content {
-  min-height: 0;
-  overflow-y: auto;
+  flex: 0 0 auto;
 }
 
 /* The path does neither: it is a handful of rows and it is the way back out, and
@@ -894,7 +909,62 @@ a:hover {
  * — which it silently did, and which no unit test can see: jsdom computes no
  * layout, so the assertion that catches this is a screenshot or an eye. */
 .rail__item--step {
-  padding-left: calc(1.25rem + var(--depth) * 0.75rem);
+  /* One number for how far a step sits in, read by the text below and by the
+     connector drawn to it. They have to agree to the pixel or the elbow lands
+     somewhere other than where the name starts. */
+  --step-indent: 1.15rem;
+
+  /* Where the drop turns into the run. Half the row is the arithmetic centre
+     and reads slightly high against the name, because the row's box includes
+     descender space the word mostly does not use — so the elbow is nudged onto
+     the optical middle of the text instead. One number again: the drop's height
+     and the run's offset are the same edge and must not be set apart. */
+  --step-elbow: calc(50% + 2px);
+
+  position: relative;
+  padding-left: calc(1.25rem + var(--depth) * var(--step-indent));
+}
+
+/**
+ * The path drawn as a stair: a drop from the step above, an elbow, and a run
+ * into the name.
+ *
+ * The indent alone said "further in" and left the reader to infer from what.
+ * Two rules make it explicit — the vertical falls from the row above and the
+ * horizontal arrives at this row's text — and because the trail is a chain with
+ * exactly one entry per level, the drop always lands under its own parent and
+ * the whole thing reads as one connected line.
+ *
+ * `:not(:first-child)` is the depth test. Home is always the first step and has
+ * nothing above it to hang from; every other row does, so the connector is
+ * exactly "not the first" rather than arithmetic on `--depth` that CSS cannot
+ * branch on anyway.
+ */
+.rail__places--trail .rail__item--step:not(:first-child)::before,
+.rail__places--trail .rail__item--step:not(:first-child)::after {
+  content: '';
+  position: absolute;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* The drop: from the top of the row to the elbow at its middle. It starts a
+   quarter of a step right of the parent's first letter, which is what makes it
+   read as hanging from that word rather than from the column edge. The room
+   between the elbow and the child's name comes from the indent above being
+   wider than the connector needs, not from moving the connector. */
+.rail__places--trail .rail__item--step:not(:first-child)::before {
+  top: 0;
+  left: calc(1.25rem + (var(--depth) - 1) * var(--step-indent) + 0.25rem);
+  width: 1px;
+  height: var(--step-elbow);
+}
+
+/* The run: from the elbow to just short of the text. */
+.rail__places--trail .rail__item--step:not(:first-child)::after {
+  top: var(--step-elbow);
+  left: calc(1.25rem + (var(--depth) - 1) * var(--step-indent) + 0.25rem);
+  width: 0.4rem;
+  height: 1px;
 }
 
 /* An inset bar rather than a border, so marking the current place does not
@@ -905,41 +975,38 @@ a:hover {
   box-shadow: inset 2px 0 0 #8fb6f5;
 }
 
-.rail__spacer {
-  flex: 1 1 auto;
-}
-
-/* Who is signed in, at the foot. The whole row is the control: an avatar on
-   its own is a 26px target and a puzzle. */
-.rail__me {
+/* Who is signed in, top right of the bar. The whole row is the control: an
+   avatar on its own is a 26px target and a puzzle. */
+.app__me {
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  width: 100%;
-  min-height: 44px;
-  padding: 0.7rem 1.1rem 0.2rem;
-  margin-top: 0.6rem;
+  max-width: 15rem;
+  min-height: 40px;
+  padding: 0.3rem 0.5rem;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.88rem;
+  font-weight: 550;
   text-align: left;
-  color: #dce6f5;
+  color: var(--ink-700);
   background: none;
   border: none;
-  border-top: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: var(--radius);
   cursor: pointer;
 }
 
-.rail__me:hover {
-  color: #fff;
+.app__me:hover {
+  color: var(--ink-900);
+  background: var(--brand-050);
 }
 
-.rail__me .avatar {
+.app__me .avatar {
   width: 28px;
   height: 28px;
   font-size: 0.75rem;
 }
 
-.rail__me-name {
+.app__me-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1046,19 +1113,6 @@ a:hover {
   text-decoration: none;
 }
 
-/* The account panel hangs off the foot of the rail, so it opens upwards and
-   sits over the content rather than off the bottom of the window. */
-.header-menu--rail {
-  width: 100%;
-}
-
-.header-menu--rail .header-menu__panel {
-  top: auto;
-  bottom: calc(100% + 0.4rem);
-  left: 0.6rem;
-  right: 0.6rem;
-}
-
 .app__menu-toggle {
   display: inline-flex;
   align-items: center;
@@ -1099,8 +1153,14 @@ a:hover {
   border-color: #1a5fc4;
 }
 
+/* The middle scrolls, and it is the element that scrolls rather than the page,
+   so the rail beside it stays put. `min-height: 0` is what lets it: a flex item
+   defaults to refusing to shrink below its content, and without it the column
+   grows to fit a long guide and pushes the whole frame past the window. */
 .app__main {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   width: 100%;
   max-width: var(--content-max);
   margin: 0 auto;
@@ -1119,7 +1179,7 @@ a:hover {
   font-weight: 650;
 }
 
-.rail__me:hover .avatar {
+.app__me:hover .avatar {
   background: #1a5fc4;
 }
 
@@ -1547,7 +1607,15 @@ a:hover {
   color: var(--ink-500);
 }
 
+/* The same measure a wiki page's prose already keeps.
+   A guide's introduction is the one run of continuous text on the page, and it
+   was the only prose in the application not held to a measure: full width on a
+   1440px screen put it at about 150 characters a line, roughly twice what an
+   eye tracks back from reliably. The steps below stay wide — they are a picture
+   beside a list, not paragraphs — so this is a cap on the prose and not on the
+   page. */
 .guide__intro {
+  max-width: 46rem;
   font-size: 1.02rem;
   color: var(--ink-700);
 }
@@ -3719,12 +3787,22 @@ a:hover {
   border-radius: 999px;
 }
 
+/* The gap between one group and the next is what makes them groups.
+   The cards inside a group sit 0.7rem apart, so the space around the group has
+   to be several times that or the eye reads one long grid with headings
+   scattered through it rather than five instruments with their procedures.
+
+   `scroll-margin-top` clears the sticky header. Following a group from the rail
+   scrolls the section to the top of the window, and the top of the window is
+   behind the search bar — without this the heading you asked for is the one
+   thing hidden when you arrive. */
 .section {
-  margin-top: 2.25rem;
+  margin-top: 3.5rem;
+  scroll-margin-top: calc(var(--header-height) + 1rem);
 }
 
 .section__title {
-  margin-bottom: 0.9rem;
+  margin-bottom: 1rem;
   font-size: 1.05rem;
   color: var(--ink-700);
 }

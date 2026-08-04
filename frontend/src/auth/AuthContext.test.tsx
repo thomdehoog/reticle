@@ -44,11 +44,14 @@ function renderApp(fetchImpl: typeof fetch) {
 describe('deciding whether somebody is signed in', () => {
   it('shows the site, not a login form, when the server says they are not', async () => {
     /* Reading is public. Somebody who arrives without a session came to follow
-       a procedure, and the sign-in is an offer at the foot of the rail rather
-       than a gate across the front of the site. */
+       a procedure, and the sign-in is one quiet button in the bar rather than a
+       gate across the front of the site. */
     renderApp(serverThat(401, 'not_authenticated'))
 
-    expect(await screen.findByText(/sign in to edit/i)).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Sign in' })).toHaveAttribute(
+      'href',
+      '/login',
+    )
     expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument()
   })
 

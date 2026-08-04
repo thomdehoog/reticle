@@ -96,6 +96,7 @@ function nested() {
         title: 'Stellaris start-up',
         categoryId: 'c-confocal',
         status: 'published',
+        tags: ['stellaris'],
       }),
       guideFixture({
         id: 'g-shutdown',
@@ -103,6 +104,7 @@ function nested() {
         title: 'Stellaris shutdown',
         categoryId: 'c-confocal',
         status: 'published',
+        tags: ['stellaris'],
       }),
       guideFixture({
         id: 'g-widefield',
@@ -137,6 +139,7 @@ function flat() {
         title: 'Preparing grids',
         categoryId: 'c-em',
         status: 'published',
+        tags: ['grids'],
       }),
       guideFixture({
         id: 'g-loading',
@@ -144,6 +147,7 @@ function flat() {
         title: 'Loading the holder',
         categoryId: 'c-em',
         status: 'published',
+        tags: ['grids'],
       }),
     ],
     pages: [
@@ -267,11 +271,11 @@ describe('RailGroups', () => {
   it('lists what a sub-category holds, under the path down to it', async () => {
     renderRail(nested(), '/c/confocal')
 
-    expect(await screen.findByRole('link', { name: 'Stellaris start-up' })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'Stellaris' })).toHaveAttribute(
       'href',
-      '/g/stellaris-startup',
+      '/c/confocal#group-stellaris',
     )
-    expect(places()).toEqual(['Stellaris start-up', 'Stellaris shutdown'])
+    expect(places()).toEqual(['Stellaris'])
     /* Two levels, and the reader is standing on the second: the path is the
        only thing that says so, now that the heading is a fixed label. */
     expect(trail()).toEqual(['Home', 'Light Microscopy', 'Confocal'])
@@ -289,7 +293,7 @@ describe('RailGroups', () => {
      not have. */
   it('gives each step of the path its depth', async () => {
     renderRail(nested(), '/c/confocal')
-    await screen.findByRole('link', { name: 'Stellaris start-up' })
+    await screen.findByRole('link', { name: 'Stellaris' })
 
     const steps = [...document.querySelectorAll<HTMLElement>('.rail__item--step')]
     expect(steps.map((step) => step.style.getPropertyValue('--depth'))).toEqual(['0', '1', '2'])
@@ -331,54 +335,67 @@ describe('RailGroups', () => {
     expect(places()).toEqual([])
   })
 
-  it('lists what a childless top-level category holds, with nothing marked', async () => {
+  it('lists a childless top-level category’s groups, not its guides', async () => {
     renderRail(flat(), '/c/electron-microscopy')
 
-    expect(await screen.findByRole('link', { name: 'Preparing grids' })).toBeInTheDocument()
-    /* The guides, then the wiki pages, in the order the category's page puts
-       them — and not the landing page, which is that page. */
-    expect(places()).toEqual(['Preparing grids', 'Loading the holder', 'Fixation protocols'])
-    /* The reader is on the category's own page, so the category is the marked
-       step of the path and nothing in the list below it is open yet. */
+    /* The groups the page draws, in the order it draws them: the wiki articles
+       first, then the tags. Not the documents — a ZMB section runs to a dozen
+       procedures and a column of all of them is a list nobody reads to the end. */
+    expect(await screen.findByRole('link', { name: 'Wikis' })).toBeInTheDocument()
+    expect(places()).toEqual(['Wikis', 'Grids'])
     expect(marked('content')).toBeNull()
     expect(marked('trail')).toBe('Electron Microscopy')
   })
 
-  it('marks a guide read inside a sub-category, beside its neighbours', async () => {
+  it('points a group at that group on the section’s page', async () => {
+    renderRail(flat(), '/c/electron-microscopy')
+
+    /* Not at the tag's own page, which is the same group gathered from every
+       section — a different set, and the wrong answer to "what is in here". */
+    expect(await screen.findByRole('link', { name: 'Grids' })).toHaveAttribute(
+      'href',
+      '/c/electron-microscopy#group-grids',
+    )
+  })
+
+  it('lists the same groups while a guide inside the section is open', async () => {
     renderRail(nested(), '/g/stellaris-shutdown')
 
-    const open = await screen.findByRole('link', { name: 'Stellaris shutdown' })
-    expect(open).toHaveAttribute('aria-current', 'page')
-    expect(places()).toEqual(['Stellaris start-up', 'Stellaris shutdown'])
-    expect(screen.getByRole('link', { name: 'Stellaris start-up' })).not.toHaveAttribute(
-      'aria-current',
-    )
+    await screen.findByRole('link', { name: 'Stellaris' })
+    expect(places()).toEqual(['Stellaris'])
     /* The path names the section and leads back to it: from a guide it is the
        only way to the section's own page that does not go through the front. */
     expect(trail()).toEqual(['Home', 'Light Microscopy', 'Confocal'])
     expect(screen.getByRole('link', { name: 'Confocal' })).toHaveAttribute('href', '/c/confocal')
-    /* The guide is what is open, so the section it sits in is not marked too —
-       one column may say the reader is in one place. */
-    expect(marked('trail')).toBeNull()
-    expect(marked('content')).toBe('Stellaris shutdown')
   })
 
-  it('marks a guide read inside a childless top-level category', async () => {
+  /**
+   * Nothing is marked while a document is open.
+   *
+   * A guide belongs to as many groups as it has tags, so marking the group it
+   * is in would light up three rows at once and say the reader is in three
+   * places. The path above already says where they are.
+   */
+  it('marks no group while a guide is being read', async () => {
     renderRail(flat(), '/g/loading-the-holder')
 
-    const open = await screen.findByRole('link', { name: 'Loading the holder' })
-    expect(open).toHaveAttribute('aria-current', 'page')
-    expect(places()).toEqual(['Preparing grids', 'Loading the holder', 'Fixation protocols'])
+    await screen.findByRole('link', { name: 'Grids' })
+    expect(marked('content')).toBeNull()
+    expect(marked('trail')).toBeNull()
   })
 
-  it('marks a wiki page read inside a category, in the same list', async () => {
-    renderRail(flat(), '/w/fixation')
+  it('leaves an untagged guide out, because it is under no heading on the page', async () => {
+    const server = createFakeServer({
+      categories: [categoryFixture({ id: 'c-em', slug: 'electron-microscopy', name: 'EM' })],
+      guides: [
+        guideFixture({ id: 'g-1', slug: 'untagged', title: 'Untagged', categoryId: 'c-em', status: 'published' }),
+        guideFixture({ id: 'g-2', slug: 'tagged', title: 'Tagged', categoryId: 'c-em', status: 'published', tags: ['grids'] }),
+      ],
+    })
+    renderRail(server, '/c/electron-microscopy')
 
-    expect(await screen.findByRole('link', { name: 'Fixation protocols' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    )
-    expect(places()).toEqual(['Preparing grids', 'Loading the holder', 'Fixation protocols'])
+    expect(await screen.findByRole('link', { name: 'Grids' })).toBeInTheDocument()
+    expect(places()).toEqual(['Grids'])
   })
 
   it('goes back to the front for a wiki page that belongs to no section', async () => {
@@ -422,10 +439,10 @@ describe('RailGroups', () => {
       </>,
       { route: '/c/confocal', fetchImpl: server.fetchImpl },
     )
-    await screen.findByRole('link', { name: 'Stellaris start-up' })
+    await screen.findByRole('link', { name: 'Stellaris' })
 
     fireEvent.click(screen.getByRole('link', { name: 'Open' }))
-    expect(places()).toEqual(['Stellaris start-up', 'Stellaris shutdown'])
+    expect(places()).toEqual(['Stellaris'])
   })
 
   /**
@@ -436,7 +453,7 @@ describe('RailGroups', () => {
   it('asks only the category it is standing in what it holds', async () => {
     const server = nested()
     renderRail(server, '/c/confocal')
-    await screen.findByRole('link', { name: 'Stellaris start-up' })
+    await screen.findByRole('link', { name: 'Stellaris' })
 
     const asked = server.requests.filter(
       (request) => request.method === 'GET' && /^\/(guides|pages)\?categoryId=/.test(request.path),

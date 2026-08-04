@@ -101,18 +101,20 @@ describe('AppShell', () => {
   })
 
   it('offers a viewer no way to create anything', async () => {
+    const user = userEvent.setup()
     renderShell(VIEWER)
 
-    await screen.findByRole('link', { name: 'Home' })
-    expect(screen.queryByRole('button', { name: 'New' })).not.toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /^Account:/ }))
+    expect(screen.queryByRole('button', { name: 'New guide' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New page' })).not.toBeInTheDocument()
   })
 
   it('opens one dialog at a time', async () => {
     const user = userEvent.setup()
     renderShell(AUTHOR)
 
-    await user.click(await screen.findByRole('button', { name: 'New' }))
-    await user.click(screen.getByRole('button', { name: 'Page' }))
+    await user.click(await screen.findByRole('button', { name: /^Account:/ }))
+    await user.click(screen.getByRole('button', { name: 'New page' }))
 
     expect(screen.getByRole('dialog', { name: 'New page' })).toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: 'New guide' })).not.toBeInTheDocument()
@@ -176,17 +178,18 @@ describe('AppShell menus', () => {
     expect(trigger).toHaveFocus()
   })
 
-  it('shows one panel at a time', async () => {
+  /* There is one panel in the frame now that "New" has gone from the bar, so
+     what used to be "only one open at a time" is "its own control closes it". */
+  it('closes the panel when its own control is clicked again', async () => {
     const user = userEvent.setup()
     renderShell(AUTHOR)
 
-    await user.click(await screen.findByRole('button', { name: 'New' }))
-    expect(screen.getByRole('button', { name: 'Guide' })).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /^Account:/ }))
+    expect(screen.getByRole('button', { name: 'New guide' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /^Account:/ }))
 
-    expect(screen.queryByRole('button', { name: 'Guide' })).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Your account' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New guide' })).not.toBeInTheDocument()
   })
 })
 

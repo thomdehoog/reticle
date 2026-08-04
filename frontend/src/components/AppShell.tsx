@@ -36,7 +36,7 @@ import {
 import { Link, useLocation, useNavigate } from 'react-router'
 
 import { useAuth } from '../auth/AuthContext'
-import { IconMenu, IconPlus, ReticleMark } from './icons'
+import { IconMenu, ReticleMark } from './icons'
 import { NewGuideDialog } from './NewGuideDialog'
 import { NewPageDialog } from './NewPageDialog'
 import { RailGroups, SideRail } from './SideRail'
@@ -72,6 +72,47 @@ function usePhoneLayout(): boolean {
     () => window.matchMedia(PHONE_WIDTH).matches,
     () => false,
   )
+}
+
+/**
+ * Scroll to whatever the address names after the `#`.
+ *
+ * The router handles a link to `/c/widefield#group-thunder` itself, changing the
+ * URL without the jump a browser performs for a plain anchor — so the rail's
+ * group links moved the address bar and nothing else. This puts the jump back.
+ *
+ * It retries for a few frames because the target usually does not exist yet.
+ * Following a group from a guide navigates to the section, and the section's
+ * groups are drawn only once its guides have arrived over the network; the URL
+ * changes first. Retrying briefly is the difference between landing on the
+ * group and landing at the top of the page.
+ */
+function useScrollToHash() {
+  const { hash, key } = useLocation()
+
+  useEffect(() => {
+    if (!hash) return
+    const id = decodeURIComponent(hash.slice(1))
+    let frames = 0
+    let raf = 0
+
+    const look = () => {
+      const target = document.getElementById(id)
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+      /* About a second at 60fps. Long enough for a listing to arrive, short
+         enough that it is not still scrolling the page under a reader who gave
+         up waiting and started reading. */
+      if (frames++ < 60) raf = requestAnimationFrame(look)
+    }
+
+    raf = requestAnimationFrame(look)
+    return () => cancelAnimationFrame(raf)
+    /* `key` is in here so that following the same group twice scrolls twice:
+       the hash has not changed, but the reader asked again. */
+  }, [hash, key])
 }
 
 function initials(displayName: string): string {
@@ -168,6 +209,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const phone = usePhoneLayout()
+  useScrollToHash()
   const [query, setQuery] = useState('')
   const [creatingGuide, setCreatingGuide] = useState(false)
   const [creatingPage, setCreatingPage] = useState(false)
@@ -194,9 +236,41 @@ export function AppShell({ children }: { children: ReactNode }) {
   const displayName = user?.displayName ?? ''
 
   /* The same entries in the rail's account panel and in the phone's sheet,
-     written once so neither can quietly lose one the other keeps. */
+     written once so neither can quietly lose one the other keeps.
+
+     Writing lives here rather than in the bar. The bar is what every reader
+     looks at on every screen, and almost nobody who opens Reticle is about to
+     write a guide — a permanent button for the rare case, in the busiest corner
+     of the frame, charges every reader for an author's convenience. Behind the
+     account it is two clicks for the person who wants it and nothing at all for
+     everybody else, and it sits with the other things that are about you rather
+     than about the material. */
   const accountItems = (
     <>
+      {can('author') && (
+        <>
+          <button
+            className="menu-item"
+            type="button"
+            onClick={() => {
+              close()
+              setCreatingGuide(true)
+            }}
+          >
+            New guide
+          </button>
+          <button
+            className="menu-item"
+            type="button"
+            onClick={() => {
+              close()
+              setCreatingPage(true)
+            }}
+          >
+            New page
+          </button>
+        </>
+      )}
       <Link className="menu-item" to="/account">
         Your account
       </Link>
@@ -216,25 +290,23 @@ export function AppShell({ children }: { children: ReactNode }) {
     </>
   )
 
-  /* At the foot of the rail rather than in the bar: whose session this is is a
-     question asked once a day, and it was taking a corner of every screen.
-
-     A reader who is not signed in gets a way in rather than an empty avatar.
-     Most people who open Reticle came to read a procedure and will never use
-     this, so it stays where the account menu was rather than being promoted to
-     something the reader has to get past. */
-  const account = user ? (
+  /* One corner of the bar, holding whichever of the two applies: "Sign in" for
+     somebody who has not, and who they are for somebody who has. It used to sit
+     at the foot of the rail, which left the rail carrying two unrelated things
+     — where you can go, and who you are — and left this corner meaning
+     something different depending on your session. The rail is navigation now,
+     top to bottom, and this corner is you. */
+  const account = user && (
     <HeaderMenu
       id="account-menu"
-      className="header-menu--rail"
-      triggerClassName="rail__me"
+      triggerClassName="app__me"
       label={`Account: ${displayName}`}
       trigger={
         <>
           <span className="avatar" aria-hidden="true">
             {initials(displayName)}
           </span>
-          <span className="rail__me-name">{displayName}</span>
+          <span className="app__me-name">{displayName}</span>
         </>
       }
       open={openMenu === 'account'}
@@ -243,17 +315,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     >
       {accountItems}
     </HeaderMenu>
-  ) : (
-    <Link className="rail__me" to="/login">
-      <span className="rail__me-name">Sign in to edit</span>
-    </Link>
   )
 
-  /* The rail's own cell is one window tall, so the stylesheet paints the column
-     behind it; `app--rail` is how it knows there is a rail to paint. */
   return (
     <div className={`app${phone ? '' : ' app--rail'}`}>
-      {!phone && <SideRail account={account} />}
+      {!phone && <SideRail />}
 
       <div className="app__column">
         <header className={`app__header${phone ? '' : ' app__header--desk'}`}>
@@ -280,42 +346,19 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <div className="app__spacer" />
 
-          {!phone && can('author') && (
-            <HeaderMenu
-              id="new-menu"
-              triggerClassName="button button--primary"
-              trigger={
-                <>
-                  <IconPlus />
-                  New
-                </>
-              }
-              open={openMenu === 'new'}
-              onOpen={() => open('new')}
-              onClose={close}
-            >
-              <button
-                className="menu-item"
-                type="button"
-                onClick={() => {
-                  close()
-                  setCreatingGuide(true)
-                }}
-              >
-                Guide
-              </button>
-              <button
-                className="menu-item"
-                type="button"
-                onClick={() => {
-                  close()
-                  setCreatingPage(true)
-                }}
-              >
-                Page
-              </button>
-            </HeaderMenu>
-          )}
+          {/* Top right, and always the same question: who is this. Signed in it
+              is your name and the menu behind it; signed out it is the way to
+              sign in. "New" used to have this corner — it is behind the account
+              now, because the bar is on every screen every reader looks at and
+              writing a guide is the rarest thing anybody does here. */}
+          {!phone &&
+            (user ? (
+              account
+            ) : (
+              <Link className="button button--primary" to="/login">
+                Sign in
+              </Link>
+            ))}
 
           {phone && (
             <button
@@ -344,35 +387,18 @@ export function AppShell({ children }: { children: ReactNode }) {
                 on. */}
             <RailGroups />
 
-            {can('author') && (
-              <>
-                <button
-                  className="menu-item"
-                  type="button"
-                  onClick={() => {
-                    close()
-                    setCreatingGuide(true)
-                  }}
-                >
-                  New guide
-                </button>
-                <button
-                  className="menu-item"
-                  type="button"
-                  onClick={() => {
-                    close()
-                    setCreatingPage(true)
-                  }}
-                >
-                  New page
-                </button>
-              </>
-            )}
+            {/* Creating is in `accountItems` now, so the drawer gets it from
+                there rather than keeping a second copy that has to be changed
+                twice.
+
+                On a phone the bar holds the brand, the search box and the one
+                menu button, so the sign-in that sits in the bar on a wide
+                screen has nowhere to be but in here. Same words either way. */}
             {user ? (
               accountItems
             ) : (
               <Link className="menu-item" to="/login" onClick={close}>
-                Sign in to edit
+                Sign in
               </Link>
             )}
           </nav>

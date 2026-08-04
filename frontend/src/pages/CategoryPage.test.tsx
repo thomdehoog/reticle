@@ -230,10 +230,14 @@ describe('CategoryPage', () => {
   /**
    * The bottom of the tree lists what it holds, in two parts.
    *
-   * Wikis first and flat, guides second and grouped. Reading before doing: the
-   * articles answer "which of these do I want" and the guides answer "how".
+   * A list of groups, and the articles are one of them, called Wikis.
+   *
+   * There is no wiki half and no guide half. A group is a group whatever it
+   * holds, so dividing the page by content type and then grouping inside one of
+   * the halves would be two arrangements of the same section for a reader to
+   * reconcile.
    */
-  it('lists the wikis flat, above the guides in their groups', async () => {
+  it('gives the wiki articles a group of their own, among the tag groups', async () => {
     const server = createFakeServer({
       guides: [
         guideFixture({
@@ -257,30 +261,24 @@ describe('CategoryPage', () => {
     renderCategory(server)
 
     const wikis = await screen.findByRole('heading', { name: 'Wikis' })
-    const guides = screen.getByRole('heading', { name: 'Guides' })
-    expect(wikis.compareDocumentPosition(guides)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-
     expect(screen.getByRole('link', { name: /Immersion oil/ })).toHaveAttribute(
       'href',
       '/w/immersion-oil',
     )
-    /* The wikis are not divided: a handful of articles under headings is
-       furniture around nothing. The guides are, by tag. */
-    expect(screen.getByRole('heading', { name: 'Talos' })).toBeInTheDocument()
+
+    const talos = screen.getByRole('heading', { name: 'Talos' })
+    expect(wikis.compareDocumentPosition(talos)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     expect(screen.getByRole('link', { name: /Talos start-up/ })).toBeInTheDocument()
+
+    /* No half above the groups saying which kind of thing follows. */
+    expect(screen.queryByRole('heading', { name: 'Guides' })).not.toBeInTheDocument()
   })
 
-  it('leaves out the half that has nothing in it', async () => {
-    const server = createFakeServer({
-      guides: [guideFixture({ status: 'published', tags: ['talos'] })],
-    })
-    renderCategory(server)
-
-    await screen.findByRole('heading', { name: 'Guides' })
-    expect(screen.queryByRole('heading', { name: 'Wikis' })).not.toBeInTheDocument()
-  })
-
-  it('shows a section that has only wikis without pretending it has guides', async () => {
+  /* Every other group heading is a link to that tag's page. This one is not:
+     `/w` is the whole institute's index, a different set from this section's
+     articles, and a heading that goes somewhere else is worse than one that
+     goes nowhere. */
+  it('links the Wikis heading like every other group', async () => {
     const server = createFakeServer({
       guides: [],
       pages: [
@@ -295,14 +293,32 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    await screen.findByRole('heading', { name: 'Wikis' })
-    expect(screen.queryByRole('heading', { name: 'Guides' })).not.toBeInTheDocument()
+    const heading = await screen.findByRole('heading', { name: 'Wikis' })
+    expect(heading.querySelector('a')).toHaveAttribute('href', '/w')
+  })
+
+  it('shows a section that has only wikis without saying it is empty', async () => {
+    const server = createFakeServer({
+      guides: [],
+      pages: [
+        pageFixture({
+          id: 'w-oil',
+          slug: 'immersion-oil',
+          title: 'Immersion oil',
+          categoryId: 'c-light',
+          status: 'published',
+        }),
+      ],
+    })
+    renderCategory(server)
+
+    expect(await screen.findByRole('link', { name: /Immersion oil/ })).toBeInTheDocument()
     expect(screen.queryByText('Nothing in this section yet.')).not.toBeInTheDocument()
   })
 
   /* The section's own front page is what the banner above is made of. Listing
      it inside the section offers the reader the page they are standing on. */
-  it('keeps the landing page out of the wiki list', async () => {
+  it('keeps the landing page out of the list', async () => {
     const server = createFakeServer({
       guides: [],
       pages: [
@@ -325,8 +341,7 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    await screen.findByRole('heading', { name: 'Wikis' })
-    expect(screen.getByRole('link', { name: /Immersion oil/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /Immersion oil/ })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /^Light Microscopy/ })).not.toBeInTheDocument()
   })
 

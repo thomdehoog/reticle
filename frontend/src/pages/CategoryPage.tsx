@@ -45,7 +45,7 @@ import { Banner } from '../components/Banner'
 import { CategoryTile, GuideRow, GuideRows, PageRow, TileGrid } from '../components/BrowseCards'
 import { IconEdit, IconPlus } from '../components/icons'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
-import { groupGuides, groupHeading } from '../domain/groups'
+import { GROUP_ANCHORS, groupAnchor, groupGuides, groupHeading } from '../domain/groups'
 import { browsableCategories } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
@@ -147,14 +147,31 @@ export function CategoryPage() {
 
       {isLeaf && (
         <>
-          {/* The written material, in one flat list. No groups: there are a
-              handful of these per section and dividing six articles is
-              furniture around nothing. Named, because the guides are named
-              below and an unlabelled list above a labelled one reads as part
-              of it. */}
-          {articles.length > 0 && (
+          {/* Guides nobody has tagged yet, above the groups and under no
+              heading — a section part-tagged is an ordinary state, not one to
+              invent a name for. */}
+          {grouped.loose.length > 0 && (
             <section className="section">
-              <h2 className="section__title section__title--caption">Wikis</h2>
+              <GuideRows>
+                {grouped.loose.map((guide) => (
+                  <GuideRow key={guide.id} guide={guide} />
+                ))}
+              </GuideRows>
+            </section>
+          )}
+
+          {/* The articles, as a group like any other: same heading, same link,
+              same rows. It was briefly special — a heading that did not link,
+              on the reasoning that `/w` is the whole institute's index rather
+              than this section's articles. That reasoning made it the one group
+              on the page that behaved differently, which is a worse thing for a
+              reader to learn than a link whose destination is broader than they
+              expected. Every group heading goes somewhere; so does this one. */}
+          {articles.length > 0 && (
+            <section className="section" id={GROUP_ANCHORS.wikis}>
+              <h3 className="section__title">
+                <Link to="/w">Wikis</Link>
+              </h3>
               <GuideRows>
                 {articles.map((page) => (
                   <PageRow key={page.id} page={page} />
@@ -163,47 +180,26 @@ export function CategoryPage() {
             </section>
           )}
 
-          {/* The procedures, under the tags that group them — `Talos`, then
-              start-up, acquisition, shutdown. A guide with several tags appears
-              under each, which is what lets one LAS X guide sit under every
+          {/* The groups, under the tags that make them — `Talos`, then start-up,
+              acquisition, shutdown. A guide with several tags appears under
+              each, which is what lets one LAS X guide sit under every
               instrument it applies to; that is the arrangement the corpus was
               written for rather than an accident of the grouping. */}
-          {guides.length > 0 && (
-            <>
-              <h2 className="section__title section__title--caption">Guides</h2>
+          {grouped.groups.map((group) => (
+            <section className="section" key={group.tag} id={groupAnchor(group.tag)}>
+              <h3 className="section__title">
+                <Link to={`/t/${encodeURIComponent(group.tag)}`}>
+                  {groupHeading(group.tag)}
+                </Link>
+              </h3>
+              <GuideRows>
+                {group.guides.map((guide) => (
+                  <GuideRow key={`${group.tag}-${guide.id}`} guide={guide} />
+                ))}
+              </GuideRows>
+            </section>
+          ))}
 
-              {/* Guides nobody has tagged yet, above the groups and under no
-                  heading of their own — a section half-tagged is an ordinary
-                  state, not one to invent a name for. */}
-              {grouped.loose.length > 0 && (
-                <section className="section">
-                  <GuideRows>
-                    {grouped.loose.map((guide) => (
-                      <GuideRow key={guide.id} guide={guide} />
-                    ))}
-                  </GuideRows>
-                </section>
-              )}
-
-              {grouped.groups.map((group) => (
-                <section className="section" key={group.tag}>
-                  <h3 className="section__title">
-                    <Link to={`/t/${encodeURIComponent(group.tag)}`}>
-                      {groupHeading(group.tag)}
-                    </Link>
-                  </h3>
-                  <GuideRows>
-                    {group.guides.map((guide) => (
-                      <GuideRow key={`${group.tag}-${guide.id}`} guide={guide} />
-                    ))}
-                  </GuideRows>
-                </section>
-              ))}
-            </>
-          )}
-
-          {/* Only when both halves are empty. Either one alone is a section
-              that has one kind of thing and not the other, which is ordinary. */}
           {guides.length === 0 && articles.length === 0 && (
             <EmptyState>Nothing in this section yet.</EmptyState>
           )}

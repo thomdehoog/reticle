@@ -6,11 +6,16 @@
  * and it is intentionally plain: somebody is reading it with one hand while doing
  * something with the other.
  *
- * What is above step 1 is held to what a reader acts on — the title, the one
- * line saying what this is, how hard it is and how long it takes. The name of
- * the author and the tags are at the bottom, because "who do I ask about this"
- * and "what should I read next" are questions that arise after the procedure,
- * not on the way into it.
+ * What is above step 1 is held to what a reader acts on: the title, the one
+ * line saying what this is, and one row carrying the version, the date and who
+ * wrote it. Those three answer the same question — whether to trust the page in
+ * front of you — so they are read together. The byline was at the bottom on the
+ * reasoning that "who do I ask about this" comes after the procedure; it comes
+ * before it as well, and a reader deciding whether this is the current way to
+ * start a confocal wants the name in the same glance as the date.
+ *
+ * The tags stay at the bottom. "What should I read next" really is a question
+ * that arises after the procedure and not on the way into it.
  */
 
 import { Link, useParams } from 'react-router'
@@ -142,6 +147,17 @@ export function GuideViewPage() {
           publishedAt={guide.publishedAt}
           updatedAt={guide.updatedAt}
         />
+        {/* Beside the version and the date rather than under the last step.
+            It used to sit in the footer, on the reasoning that "who do I ask
+            about this" is a question you have after reading. It is also the
+            question you have *before* reading, and it is the same question the
+            version and the date answer: whether to trust the page. The three
+            belong in one row. Written once — the footer keeps the tags. */}
+        <span className="guide__byline">
+          Written by {guide.author.displayName}
+          {otherContributors.length > 0 &&
+            `, with ${otherContributors.map((person) => person.displayName).join(', ')}`}
+        </span>
       </div>
 
       {guide.introduction && (
@@ -173,12 +189,6 @@ export function GuideViewPage() {
       </div>
 
       <footer className="guide__credits">
-        <p className="guide__byline">
-          Written by {guide.author.displayName}
-          {otherContributors.length > 0 &&
-            `, with ${otherContributors.map((person) => person.displayName).join(', ')}`}
-        </p>
-
         {guide.tags.length > 0 && (
           <div className="tag-row">
             {guide.tags.map((tag) => (

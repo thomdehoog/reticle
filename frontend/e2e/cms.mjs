@@ -91,13 +91,13 @@ await page.waitForSelector('.tile', { timeout: 15000 })
 consoleErrors.length = 0
 record('sign in', true)
 
-/* Authoring starts from the header's New menu. The flat "New guide" button this
-   used to click is the drawer's copy of the same action, and the drawer only
-   exists on a narrow screen — so on this walk's 1440px viewport the old label
-   matched nothing and the run ended one check in, before it had written a
-   single word of a guide. */
-await page.getByRole('button', { name: 'New' }).click()
-await page.locator('#new-menu').getByRole('button', { name: 'Guide' }).click()
+/* Authoring starts behind the account, at the foot of the rail. It used to be a
+   "New" button in the header; that corner belongs to the reader now, and
+   creating a guide is the rarest thing anybody does here. Same action, one
+   click further in, and the same entry on a phone — the drawer draws the
+   account's items rather than keeping a copy. */
+await page.getByRole('button', { name: /^Account:/ }).click()
+await page.getByRole('button', { name: 'New guide' }).click()
 await page.getByLabel('Title').fill(TITLE)
 await page.getByLabel('Category').selectOption({ label: 'Light Microscopy' })
 await page.getByRole('button', { name: 'Create and start writing' }).click()

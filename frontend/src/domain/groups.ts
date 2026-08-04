@@ -53,6 +53,20 @@ export function groupHeading(tag: string): string {
   return tag.charAt(0).toUpperCase() + tag.slice(1)
 }
 
+/**
+ * The id a group carries on the section page, so the rail can point at it.
+ *
+ * The rail lists a section's groups and the page draws them, and the two have
+ * to agree on a name for each one or the links go nowhere. Derived from the tag
+ * in one place rather than spelled out at both ends.
+ */
+export function groupAnchor(tag: string): string {
+  return `group-${tag}`
+}
+
+/** The groups that are not a tag, and so have no tag to derive an id from. */
+export const GROUP_ANCHORS = { wikis: 'group-wikis' } as const
+
 export function groupGuides(guides: GuideSummary[]): GroupedGuides {
   const byTag = new Map<string, GuideSummary[]>()
   const loose: GuideSummary[] = []

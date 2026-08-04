@@ -44,6 +44,7 @@ import { useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
+import { GROUP_ANCHORS, groupAnchor, groupGuides, groupHeading } from '../domain/groups'
 import type { Category, GuideSummary, PageSummary } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 import { useBrowsableCategories } from '../hooks/useCategories'
@@ -91,28 +92,44 @@ function categoryPlace(category: Category): RailPlace {
 }
 
 /**
- * A category's own documents, in the order the category's page lists them.
+ * The groups a category's page is divided into, in the order it draws them.
  *
- * Guides before wiki pages, which is the order the screen puts them in, and no
- * grouping of its own: where the guides are grouped under instrument headings
- * that grouping lives in the landing page's guide-list blocks, and a rail that
- * invented a second arrangement of the same procedures would leave a reader
- * unable to trust either. One order, from the same listing, in both places.
+ * The rail lists the groups and not the documents inside them. A ZMB section
+ * runs to a dozen procedures or more — every start-up, acquisition and shutdown
+ * for every instrument in the room — and a column of all of them is a list
+ * nobody reads to the end, while a column of five instrument names is one
+ * glance. It is also the same arrangement the page shows, rather than a second
+ * one beside it: whichever a reader learns, it is the other.
+ *
+ * Each entry points at that group on the section's page rather than at the tag's
+ * own page, which is the same group gathered from every section. From a guide
+ * that means going back to the section and landing on the right part of it.
  *
  * The landing page is left out because it is not something inside the category
  * — it is the category, and the heading above this list already leads there.
+ * Guides nobody has tagged are left out too: the page shows them under no
+ * heading, so there is no group name to list.
  */
-function contentsPlaces(contents: CategoryContents): RailPlace[] {
+function contentsPlaces(contents: CategoryContents, categorySlug: string): RailPlace[] {
+  const here = `/c/${categorySlug}`
+  const articles = contents.pages.filter((page) => !page.isLanding)
   return [
-    ...contents.guides.map((guide) => ({
-      id: guide.id,
-      slug: guide.slug,
-      name: guide.title,
-      to: `/g/${guide.slug}`,
+    ...(articles.length > 0
+      ? [
+          {
+            id: GROUP_ANCHORS.wikis,
+            slug: 'wikis',
+            name: 'Wikis',
+            to: `${here}#${GROUP_ANCHORS.wikis}`,
+          },
+        ]
+      : []),
+    ...groupGuides(contents.guides).groups.map((group) => ({
+      id: groupAnchor(group.tag),
+      slug: group.tag,
+      name: groupHeading(group.tag),
+      to: `${here}#${groupAnchor(group.tag)}`,
     })),
-    ...contents.pages
-      .filter((page) => !page.isLanding)
-      .map((page) => ({ id: page.id, slug: page.slug, name: page.title, to: `/w/${page.slug}` })),
   ]
 }
 
@@ -152,8 +169,9 @@ export function railTrail(browsable: Category[], slug: string | null): RailPlace
  * — at ZMB, Electron Microscopy is one and Light Microscopy is not.
  *
  * Reading a guide or a page is standing in the category that holds it, so the
- * rail shows that same list with the one being read marked. Which is what makes
- * the second navigation column beside a guide unnecessary: this is that list.
+ * rail shows that same list of groups. Nothing in it is marked while a document
+ * is open: a guide belongs to as many groups as it has tags, and a column with
+ * three rows highlighted says the reader is in three places at once.
  *
  * An empty category, and a category whose documents are still on their way,
  * list nothing at all — the area is simply not drawn. This used to fall back to
@@ -172,8 +190,6 @@ export function railPlaces(
   browsable: Category[],
   slug: string | null,
   contents: CategoryContents | null,
-  /** The guide or page in the address bar, by slug or id, or null. */
-  reading: string | null,
 ): Places {
   const current = slug === null ? undefined : browsable.find((c) => c.slug === slug)
 
@@ -183,12 +199,10 @@ export function railPlaces(
       return { places: children.map(categoryPlace), currentId: null }
     }
 
-    const inside = contents === null ? [] : contentsPlaces(contents)
-    const open =
-      reading === null
-        ? undefined
-        : inside.find((place) => place.id === reading || place.slug === reading)
-    return { places: inside, currentId: open?.id ?? null }
+    return {
+      places: contents === null ? [] : contentsPlaces(contents, current.slug),
+      currentId: null,
+    }
   }
 
   return {
@@ -232,8 +246,13 @@ function RailGroup({
 }) {
   return (
     <>
-      <hr className="rail__rule" />
+      {/* The rule sits under the heading, not over it. Above, it separated this
+          area from the one before — which made the heading look like the last
+          line of what came above rather than the first of what comes below.
+          Under it, the word and the rule are one thing: a label with the list
+          it labels beneath. */}
       <h2 className="rail__section">{heading}</h2>
+      <hr className="rail__rule" />
       <div className={`rail__places rail__places--${scrolls ? 'content' : 'trail'}`}>
         {children}
       </div>
@@ -335,7 +354,7 @@ export function RailGroups() {
     return { guides, pages }
   }, [api, bottom])
 
-  const { places, currentId } = railPlaces(browsable ?? [], slug, contents, here?.key ?? null)
+  const { places, currentId } = railPlaces(browsable ?? [], slug, contents)
   const trail = railTrail(browsable ?? [], slug)
 
   /* The path marks a step only when that step is the address in the bar. On a
@@ -383,11 +402,15 @@ export function RailGroups() {
 }
 
 /**
- * `account` is the signed-in person at the foot. It arrives as a prop because
- * the panel it opens is one of the shell's menus, and only one of those may be
- * open at a time — a rule that has to live where all of them can see it.
+ * Navigation, top to bottom, and nothing else.
+ *
+ * Who is signed in used to sit at the foot of this column. It has gone to the
+ * top right of the bar, where the sign-in is for somebody who has not — one
+ * corner that always answers the same question. The rail was carrying two
+ * unrelated things, and the one a reader consults once a day was taking the
+ * most permanent piece of the frame.
  */
-export function SideRail({ account }: { account: ReactNode }) {
+export function SideRail() {
   const { organisation } = useAuth()
 
   return (
@@ -399,9 +422,6 @@ export function SideRail({ account }: { account: ReactNode }) {
       {organisation && <span className="rail__facility">{organisation.name}</span>}
 
       <RailGroups />
-
-      <div className="rail__spacer" />
-      {account}
     </nav>
   )
 }
