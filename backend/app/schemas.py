@@ -543,7 +543,26 @@ def user_out(user: models.User) -> UserOut:
     )
 
 
-def category_out(category: models.Category) -> CategoryOut:
+def category_out(
+    category: models.Category, landing_hero_id: str | None = None
+) -> CategoryOut:
+    """One section, as every browse surface is given it.
+
+    ``image_url`` falls back to the picture on the section's landing page, and
+    that fallback belongs here rather than on each screen that shows a picture.
+    A section's photograph reaches a reader through the banner across the top of
+    its page, the tile that opens it, and the card beside a search result; when
+    only the banner knew about the fallback, a corpus whose every picture came
+    from the migration showed one real photograph and a wall of drawn
+    placeholders beside it.
+
+    ``hero_media_id`` is deliberately left alone. It is what an administrator
+    set and what the admin screen saves back, so blurring the two would turn
+    "this section has no picture of its own" into "this section has one", and
+    the next save would write the landing page's picture onto the category as
+    though somebody had chosen it.
+    """
+    hero = category.hero_media_id or landing_hero_id
     return CategoryOut(
         id=category.id,
         slug=category.slug,
@@ -553,7 +572,7 @@ def category_out(category: models.Category) -> CategoryOut:
         order_index=category.order_index,
         is_hidden=category.is_hidden,
         hero_media_id=category.hero_media_id,
-        image_url=media_url(category.hero_media_id) if category.hero_media_id else None,
+        image_url=media_url(hero) if hero else None,
     )
 
 

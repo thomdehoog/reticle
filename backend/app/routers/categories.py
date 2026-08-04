@@ -80,10 +80,28 @@ def _assert_no_cycle(db: DbSession, category: Category, parent_id: str) -> None:
         cursor = db.get(Category, cursor.parent_id) if cursor.parent_id else None
 
 
+def _landing_heroes(db: DbDep) -> dict[str, str]:
+    """Each section's landing-page picture, by section.
+
+    One query for the whole listing rather than one per section: this endpoint
+    is asked for on every browse screen there is, and a facility with eighty
+    sections would otherwise pay eighty round trips to draw one wall of tiles.
+    """
+    rows = db.execute(
+        select(Page.category_id, Page.hero_media_id).where(
+            Page.is_landing.is_(True),
+            Page.category_id.is_not(None),
+            Page.hero_media_id.is_not(None),
+        )
+    ).all()
+    return dict(rows)  # type: ignore[arg-type]
+
+
 @router.get("", response_model=list[CategoryOut])
 def list_categories(db: DbDep, user: MaybeUser) -> list[CategoryOut]:
     categories = db.scalars(select(Category).order_by(Category.order_index, Category.name)).all()
-    return [category_out(category) for category in categories]
+    heroes = _landing_heroes(db)
+    return [category_out(category, heroes.get(category.id)) for category in categories]
 
 
 @router.get("/{category_id}/page", response_model=PageOut | None)

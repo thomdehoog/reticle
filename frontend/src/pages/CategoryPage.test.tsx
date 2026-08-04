@@ -74,31 +74,21 @@ describe('CategoryPage banner', () => {
     expect(screen.queryByText('What the migration brought.')).not.toBeInTheDocument()
   })
 
-  /* The picture follows the same fallback as the words, and deliberately so:
-     taking one from the category and the other from its landing page is how a
-     section ends up showing one instrument over a sentence about another. */
-  it('uses the landing page’s hero when the category has no picture of its own', async () => {
+  /* The picture arrives already resolved. The server falls back to the landing
+     page's hero, because the tile and the search card show the same photograph
+     and a rule kept on one screen is a rule the other two do not have. */
+  it('shows the picture the listing gives it', async () => {
     const server = createFakeServer({
-      categories: [categoryFixture({ description: '', heroMediaId: null, imageUrl: null })],
+      categories: [categoryFixture({ description: '', imageUrl: '/api/media/m-section' })],
       guides: [guideFixture({ status: 'published' })],
-      pages: [
-        pageFixture({
-          id: 'w-landing',
-          slug: 'light-microscopy',
-          title: 'Light Microscopy',
-          categoryId: 'c-light',
-          isLanding: true,
-          status: 'published',
-          summary: 'Widefield, confocal and live-cell systems.',
-          heroMediaId: 'm-section',
-        }),
-      ],
     })
     renderCategory(server)
 
-    await screen.findByText('Widefield, confocal and live-cell systems.')
-    const plate = document.querySelector('.banner__plate img')
-    expect(plate).toHaveAttribute('src', '/api/media/m-section')
+    await screen.findByRole('heading', { level: 1, name: 'Light Microscopy' })
+    expect(document.querySelector('.banner__plate img')).toHaveAttribute(
+      'src',
+      '/api/media/m-section',
+    )
   })
 
   it('shows the title alone when neither holds anything', async () => {

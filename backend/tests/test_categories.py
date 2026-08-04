@@ -259,3 +259,87 @@ def test_a_section_can_be_created_with_its_picture(admin):
     body = admin.post("/api/categories", json={"name": "CryoEM", "heroMediaId": image["id"]}).json()
 
     assert body["imageUrl"] == f"/api/media/{image['id']}"
+
+
+def _listed(client, category_id: str) -> dict:
+    return next(row for row in client.get("/api/categories").json() if row["id"] == category_id)
+
+
+def test_a_section_is_browsed_by_its_landing_pages_picture_when_it_has_none_of_its_own(
+    admin, category
+):
+    """Which is every imported section: the migration puts the vendor's category
+    picture on the landing page, and nothing sets one on the category.
+
+    The fallback is served rather than left to each screen, because a section's
+    photograph reaches a reader through three of them — the banner across its
+    page, the tile that opens it, and the card beside a search result. When only
+    the banner knew, a corpus whose every picture came from the migration showed
+    one real photograph and a wall of drawn placeholders beside it.
+    """
+    image = upload_media(admin)
+    admin.post(
+        "/api/pages",
+        json={"title": "Light Microscopy", "categoryId": category.id, "isLanding": True},
+    )
+    page = admin.get("/api/pages").json()[0]
+    admin.put(
+        f"/api/pages/{page['id']}",
+        json={**admin.get(f"/api/pages/{page['id']}").json(), "heroMediaId": image["id"]},
+    )
+
+    listed = _listed(admin, category.id)
+
+    assert listed["imageUrl"] == f"/api/media/{image['id']}"
+    # Untouched: it is what an administrator set and what the admin screen saves
+    # back, so borrowing a picture must not read as having chosen one.
+    assert listed["heroMediaId"] is None
+
+
+def test_a_sections_own_picture_wins_over_its_landing_pages(admin, category):
+    own = upload_media(admin)
+    borrowed = upload_media(admin)
+    admin.post(
+        "/api/pages",
+        json={"title": "Light Microscopy", "categoryId": category.id, "isLanding": True},
+    )
+    page = admin.get("/api/pages").json()[0]
+    admin.put(
+        f"/api/pages/{page['id']}",
+        json={**admin.get(f"/api/pages/{page['id']}").json(), "heroMediaId": borrowed["id"]},
+    )
+    admin.patch(f"/api/categories/{category.id}", json={"heroMediaId": own["id"]})
+
+    listed = _listed(admin, category.id)
+
+    assert listed["imageUrl"] == f"/api/media/{own['id']}"
+    assert listed["heroMediaId"] == own["id"]
+
+
+def test_listing_every_section_asks_once_for_the_landing_pictures(admin, database, category):
+    """One query for the whole listing, not one per section.
+
+    This endpoint is fetched by every browse screen there is; a facility with
+    eighty sections would otherwise pay eighty round trips to draw one wall of
+    tiles. Measured against several sections rather than one, because a per-
+    section query is indistinguishable from a single one when there is only a
+    single section to ask about.
+    """
+    from sqlalchemy import event
+
+    for name in ("Widefield", "Confocal", "Lightsheet", "CryoEM"):
+        admin.post("/api/categories", json={"name": name})
+
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(database, "before_cursor_execute", record)
+    try:
+        listed = admin.get("/api/categories").json()
+    finally:
+        event.remove(database, "before_cursor_execute", record)
+
+    assert len(listed) >= 5
+    assert sum(1 for statement in statements if "FROM pages" in statement) == 1
