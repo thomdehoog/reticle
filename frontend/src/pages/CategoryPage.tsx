@@ -1,15 +1,26 @@
 /**
  * One section, opened up.
  *
- * A section shows exactly one kind of thing, and which kind is decided by where
- * it sits in the tree rather than by what somebody wrote on it:
+ * What a section shows is decided by where it sits in the tree rather than by
+ * what somebody wrote on it:
  *
  * - with sub-sections under it, the sub-sections, as pictures;
- * - with none, its guides, under the tags that group them.
+ * - with none, it is the bottom of the tree, and it lists what it holds.
+ *
+ * The list at the bottom is in two parts, wikis and then guides, and each part
+ * appears only if it has anything in it. The wikis are a plain list: they are
+ * the written material a section carries beside its procedures, there are few
+ * of them, and grouping half a dozen articles is furniture around nothing. The
+ * guides are grouped by tag, because that is how a facility's procedures
+ * actually divide — `Talos`, then start-up, then acquisition, then shutdown —
+ * and because a guide belongs under every instrument it applies to.
+ *
+ * Reading before doing is why the wikis come first: they answer "which of these
+ * do I want", and the guides answer "how".
  *
  * That is the whole page. It used to be five things at once — a banner, the
  * landing page's prose, tiles, quick links, a plain list of guides as a
- * fallback, and a separate row of wiki cards — and no two sections showed the
+ * fallback, and a separate grid of wiki cards — and no two sections showed the
  * same combination, because which of them appeared depended on whether anyone
  * had got round to writing a page for that section. A reader could not learn
  * the shape of a section page because there wasn't one.
@@ -31,10 +42,10 @@ import { Link, useNavigate, useParams } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { Banner } from '../components/Banner'
-import { CategoryTile, GuideRow, GuideRows, TileGrid } from '../components/BrowseCards'
+import { CategoryTile, GuideRow, GuideRows, PageRow, TileGrid } from '../components/BrowseCards'
 import { IconEdit, IconPlus } from '../components/icons'
 import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
-import { groupGuides } from '../domain/groups'
+import { groupGuides, groupHeading } from '../domain/groups'
 import { browsableCategories } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
@@ -78,12 +89,16 @@ export function CategoryPage() {
   if (error) return <ErrorAlert error={error} />
   if (!data?.category) return <EmptyState>That category does not exist.</EmptyState>
 
-  const { category, categories, guides, landing } = data
+  const { category, categories, guides, landing, pages } = data
   const children = browsableCategories(categories, data.publishedGuides, data.publishedPages)
     .filter((candidate) => candidate.parentId === category.id)
     .sort((a, b) => a.orderIndex - b.orderIndex)
   const isLeaf = children.length === 0
   const grouped = groupGuides(guides)
+  /* The landing page is the section's front, not something inside it — its
+     words are already in the banner above, so listing it here would be the
+     page a reader is standing on offered as somewhere to go. */
+  const articles = pages.filter((page) => !page.isLanding)
 
   async function startLandingPage() {
     if (!data?.category) return
@@ -130,37 +145,68 @@ export function CategoryPage() {
         </TileGrid>
       )}
 
-      {/* The bottom of the tree: the procedures, under the tags that group
-          them. A guide with several tags appears under each — that is what lets
-          one LAS X guide sit under every instrument it applies to, and it is
-          the arrangement the corpus was written for rather than an accident of
-          the grouping. */}
       {isLeaf && (
         <>
-          {grouped.loose.length > 0 && (
+          {/* The written material, in one flat list. No groups: there are a
+              handful of these per section and dividing six articles is
+              furniture around nothing. Named, because the guides are named
+              below and an unlabelled list above a labelled one reads as part
+              of it. */}
+          {articles.length > 0 && (
             <section className="section">
+              <h2 className="section__title section__title--caption">Wikis</h2>
               <GuideRows>
-                {grouped.loose.map((guide) => (
-                  <GuideRow key={guide.id} guide={guide} />
+                {articles.map((page) => (
+                  <PageRow key={page.id} page={page} />
                 ))}
               </GuideRows>
             </section>
           )}
 
-          {grouped.groups.map((group) => (
-            <section className="section" key={group.tag}>
-              <h2 className="section__title">
-                <Link to={`/t/${encodeURIComponent(group.tag)}`}>{group.tag}</Link>
-              </h2>
-              <GuideRows>
-                {group.guides.map((guide) => (
-                  <GuideRow key={`${group.tag}-${guide.id}`} guide={guide} />
-                ))}
-              </GuideRows>
-            </section>
-          ))}
+          {/* The procedures, under the tags that group them — `Talos`, then
+              start-up, acquisition, shutdown. A guide with several tags appears
+              under each, which is what lets one LAS X guide sit under every
+              instrument it applies to; that is the arrangement the corpus was
+              written for rather than an accident of the grouping. */}
+          {guides.length > 0 && (
+            <>
+              <h2 className="section__title section__title--caption">Guides</h2>
 
-          {guides.length === 0 && <EmptyState>No guides in this section yet.</EmptyState>}
+              {/* Guides nobody has tagged yet, above the groups and under no
+                  heading of their own — a section half-tagged is an ordinary
+                  state, not one to invent a name for. */}
+              {grouped.loose.length > 0 && (
+                <section className="section">
+                  <GuideRows>
+                    {grouped.loose.map((guide) => (
+                      <GuideRow key={guide.id} guide={guide} />
+                    ))}
+                  </GuideRows>
+                </section>
+              )}
+
+              {grouped.groups.map((group) => (
+                <section className="section" key={group.tag}>
+                  <h3 className="section__title">
+                    <Link to={`/t/${encodeURIComponent(group.tag)}`}>
+                      {groupHeading(group.tag)}
+                    </Link>
+                  </h3>
+                  <GuideRows>
+                    {group.guides.map((guide) => (
+                      <GuideRow key={`${group.tag}-${guide.id}`} guide={guide} />
+                    ))}
+                  </GuideRows>
+                </section>
+              ))}
+            </>
+          )}
+
+          {/* Only when both halves are empty. Either one alone is a section
+              that has one kind of thing and not the other, which is ordinary. */}
+          {guides.length === 0 && articles.length === 0 && (
+            <EmptyState>Nothing in this section yet.</EmptyState>
+          )}
         </>
       )}
 

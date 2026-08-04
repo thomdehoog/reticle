@@ -99,6 +99,32 @@ export function GuideRows({ children }: { children: React.ReactNode }) {
 }
 
 /**
+ * A wiki page as a row, for the list of them on a section.
+ *
+ * The same row as a guide's rather than the card used on the wiki index,
+ * because on a section the two lists sit one above the other and a reader
+ * comparing them should be reading one kind of thing in two groups, not two
+ * kinds of furniture. What the wiki list is *called* is what says which is
+ * which; the rows do not need to differ to make that point.
+ *
+ * It says nothing about being a landing page: a section's own front page is
+ * not listed inside that section, so the only pages here are its articles.
+ */
+export function PageRow({ page }: { page: PageSummary }) {
+  return (
+    <Link className="guide-row" to={`/w/${page.slug}`}>
+      <span className="guide-row__main">
+        <span className="guide-row__title">{page.title}</span>
+        <span className="guide-row__meta">
+          {page.status !== 'published' && <StatusBadge status={page.status} />}
+        </span>
+      </span>
+      <Thumbnail seed={page.title} src={page.heroImageUrl} className="guide-row__thumb" />
+    </Link>
+  )
+}
+
+/**
  * A wiki page. Landing pages are marked, because they are a section's front.
  *
  * `context` is the section it belongs to, shown where the card is seen away

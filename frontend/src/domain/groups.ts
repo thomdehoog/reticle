@@ -33,6 +33,26 @@ export interface GroupedGuides {
   groups: GuideGroup[]
 }
 
+/**
+ * A tag as a heading: its own text, with a capital on the front.
+ *
+ * The tag is a slug — `nikonti2`, `thunder` — because that is what the URL and
+ * the identity are, and lower-case is right there. As the title over a group of
+ * procedures it reads as an unfinished label rather than a name, so the first
+ * letter is raised and nothing else is touched.
+ *
+ * Only the first letter. Capitalising every word would turn `carbon-on-mica`
+ * into `Carbon-On-Mica`, which is not how anybody writes it, and the CSS
+ * `capitalize` keyword does exactly that in some browsers and not others.
+ *
+ * This is display only. Everything that identifies the tag — the link, the
+ * grouping key — keeps the slug, so a nicer name is still a thing an
+ * administrator sets on the tag rather than something a stylesheet invents.
+ */
+export function groupHeading(tag: string): string {
+  return tag.charAt(0).toUpperCase() + tag.slice(1)
+}
+
 export function groupGuides(guides: GuideSummary[]): GroupedGuides {
   const byTag = new Map<string, GuideSummary[]>()
   const loose: GuideSummary[] = []

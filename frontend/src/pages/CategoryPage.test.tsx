@@ -220,9 +220,114 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    expect(await screen.findByRole('heading', { name: 'stellaris' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'stellaris' })).toHaveAttribute('href', '/t/stellaris')
+    /* Shown with a capital, linked by the slug: the heading is a name and the
+       URL is the identity, and only one of them may change. */
+    expect(await screen.findByRole('heading', { name: 'Stellaris' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Stellaris' })).toHaveAttribute('href', '/t/stellaris')
     expect(screen.getByRole('link', { name: /Confocal startup/ })).toBeInTheDocument()
+  })
+
+  /**
+   * The bottom of the tree lists what it holds, in two parts.
+   *
+   * Wikis first and flat, guides second and grouped. Reading before doing: the
+   * articles answer "which of these do I want" and the guides answer "how".
+   */
+  it('lists the wikis flat, above the guides in their groups', async () => {
+    const server = createFakeServer({
+      guides: [
+        guideFixture({
+          id: 'g-startup',
+          slug: 'talos-startup',
+          title: 'Talos start-up',
+          status: 'published',
+          tags: ['talos'],
+        }),
+      ],
+      pages: [
+        pageFixture({
+          id: 'w-oil',
+          slug: 'immersion-oil',
+          title: 'Immersion oil',
+          categoryId: 'c-light',
+          status: 'published',
+        }),
+      ],
+    })
+    renderCategory(server)
+
+    const wikis = await screen.findByRole('heading', { name: 'Wikis' })
+    const guides = screen.getByRole('heading', { name: 'Guides' })
+    expect(wikis.compareDocumentPosition(guides)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+
+    expect(screen.getByRole('link', { name: /Immersion oil/ })).toHaveAttribute(
+      'href',
+      '/w/immersion-oil',
+    )
+    /* The wikis are not divided: a handful of articles under headings is
+       furniture around nothing. The guides are, by tag. */
+    expect(screen.getByRole('heading', { name: 'Talos' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Talos start-up/ })).toBeInTheDocument()
+  })
+
+  it('leaves out the half that has nothing in it', async () => {
+    const server = createFakeServer({
+      guides: [guideFixture({ status: 'published', tags: ['talos'] })],
+    })
+    renderCategory(server)
+
+    await screen.findByRole('heading', { name: 'Guides' })
+    expect(screen.queryByRole('heading', { name: 'Wikis' })).not.toBeInTheDocument()
+  })
+
+  it('shows a section that has only wikis without pretending it has guides', async () => {
+    const server = createFakeServer({
+      guides: [],
+      pages: [
+        pageFixture({
+          id: 'w-oil',
+          slug: 'immersion-oil',
+          title: 'Immersion oil',
+          categoryId: 'c-light',
+          status: 'published',
+        }),
+      ],
+    })
+    renderCategory(server)
+
+    await screen.findByRole('heading', { name: 'Wikis' })
+    expect(screen.queryByRole('heading', { name: 'Guides' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Nothing in this section yet.')).not.toBeInTheDocument()
+  })
+
+  /* The section's own front page is what the banner above is made of. Listing
+     it inside the section offers the reader the page they are standing on. */
+  it('keeps the landing page out of the wiki list', async () => {
+    const server = createFakeServer({
+      guides: [],
+      pages: [
+        pageFixture({
+          id: 'w-landing',
+          slug: 'light-microscopy',
+          title: 'Light Microscopy',
+          categoryId: 'c-light',
+          isLanding: true,
+          status: 'published',
+        }),
+        pageFixture({
+          id: 'w-oil',
+          slug: 'immersion-oil',
+          title: 'Immersion oil',
+          categoryId: 'c-light',
+          status: 'published',
+        }),
+      ],
+    })
+    renderCategory(server)
+
+    await screen.findByRole('heading', { name: 'Wikis' })
+    expect(screen.getByRole('link', { name: /Immersion oil/ })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^Light Microscopy/ })).not.toBeInTheDocument()
   })
 
   /**
@@ -246,7 +351,13 @@ describe('CategoryPage', () => {
           isLanding: true,
           status: 'published',
           title: 'Light Microscopy',
-          body: 'Book the instrument first.\n\n```guidelist\ntags: stellaris\nheading: Stellaris\n```',
+          /* The embedded list's heading is deliberately a phrase no tag could
+             produce: the guide below carries `stellaris`, so a heading of
+             "Stellaris" would now be ambiguous between the landing page's
+             markdown and the tag group, and the test would pass either way. */
+          body:
+            'Book the instrument first.\n\n' +
+            '```guidelist\ntags: stellaris\nheading: From the landing page\n```',
         }),
       ],
     })
@@ -254,7 +365,9 @@ describe('CategoryPage', () => {
 
     await screen.findByRole('link', { name: /Confocal startup/ })
     expect(screen.queryByText('Book the instrument first.')).not.toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Stellaris' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'From the landing page' }),
+    ).not.toBeInTheDocument()
   })
 
   /**
@@ -444,7 +557,9 @@ describe('CategoryPage', () => {
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'CryoEM' })).toBeInTheDocument(),
     )
-    expect(screen.getByText('No guides in this section yet.')).toBeInTheDocument()
+    /* Both halves empty, which is the only case that says nothing is here —
+       a section with wikis and no guides, or the reverse, is ordinary. */
+    expect(screen.getByText('Nothing in this section yet.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Write a landing page/ })).toBeInTheDocument()
   })
 })

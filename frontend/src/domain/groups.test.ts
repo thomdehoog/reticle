@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { groupGuides } from './groups'
+import { groupGuides, groupHeading } from './groups'
 import { guideSummaryFixture } from '../test/fakeServer'
 
 function guide(title: string, tags: string[]) {
@@ -68,5 +68,29 @@ describe('groupGuides', () => {
 
   it('has nothing to say about a section with no guides', () => {
     expect(groupGuides([])).toEqual({ loose: [], groups: [] })
+  })
+})
+
+describe('groupHeading', () => {
+  it('raises the first letter of a tag and leaves the rest alone', () => {
+    expect(groupHeading('nikonti2')).toBe('Nikonti2')
+    expect(groupHeading('thunder')).toBe('Thunder')
+    expect(groupHeading('z1scschlieren')).toBe('Z1scschlieren')
+  })
+
+  /* Not every word: `Carbon-On-Mica` is not how anybody writes it, and the CSS
+     `capitalize` keyword does exactly that in some browsers and not others,
+     which is why this is code rather than a stylesheet rule. */
+  it('does not capitalise past the first letter', () => {
+    expect(groupHeading('carbon-on-mica')).toBe('Carbon-on-mica')
+    expect(groupHeading('data managment')).toBe('Data managment')
+  })
+
+  it('leaves a tag that already reads as a name untouched', () => {
+    expect(groupHeading('GEInCell')).toBe('GEInCell')
+  })
+
+  it('has nothing to raise in an empty tag', () => {
+    expect(groupHeading('')).toBe('')
   })
 })

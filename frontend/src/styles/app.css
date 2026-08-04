@@ -1202,24 +1202,38 @@ a:hover {
  * that was eight phone screens. As rows it is one, which is the difference
  * between choosing a procedure and hunting for one.
  */
+/* Three abreast, and capped by measure rather than by the column.
+   A procedure's title is short — "Nikon Ti2-E (Balgrist) - Shutdown" — so a row
+   spanning a 1200px window is mostly the gap between the title and its picture,
+   which the eye crosses on every line to pair the two. Narrow enough to pair at
+   a glance, three fit side by side, and a group of six is a block you can see
+   the shape of at once instead of a column you scroll.
+
+   Three and not four, and the width is why: ZMB names a guide by instrument,
+   location and step — "Slidescanner - A self-training guide (Fluorescence)" —
+   and at a quarter of the row two of those came out reading identically, with
+   the part that tells them apart cut off. A card has to be wide enough that
+   the title is a title.
+
+   The cap is what holds it to three: `auto-fill` would keep adding columns on
+   a wide monitor until a group read as a wall. Below it the same rule gives
+   two on a tablet and one on a phone, with no breakpoint to keep in step. */
 .guide-rows {
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr));
+  gap: 0.7rem;
+  max-width: 71rem;
 }
 
 .guide-row {
   display: flex;
   align-items: center;
-  gap: 0.9rem;
-  padding: 0.85rem 0.9rem;
+  gap: 0.8rem;
+  padding: 0.5rem 0.7rem;
   color: inherit;
-  border-bottom: 1px solid var(--border);
-}
-
-.guide-row:last-child {
-  border-bottom: none;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 
 .guide-row:hover {
@@ -1232,9 +1246,20 @@ a:hover {
   min-width: 0;
 }
 
+/* Three lines, and then it stops.
+   Cards mean a long title wraps, and left to wrap freely the longest one in a
+   row decides how tall every card beside it is. Three lines is what ZMB's
+   naming convention actually needs: instrument, location and step run past two
+   often enough that the step — the part that distinguishes one card from the
+   one next to it — was the part being cut. */
 .guide-row__title {
-  display: block;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
   font-weight: 600;
+  line-height: 1.3;
   color: var(--ink-900);
 }
 
@@ -1249,15 +1274,18 @@ a:hover {
 }
 
 /* Big enough to recognise the instrument from, which is usually faster than
-   reading the title. That sets the height of the row rather than the other way
-   round: the row is as tall as a legible picture needs.
+   reading the title, and no bigger: this sets the height of the row, so a
+   picture sized to be looked at makes a list of twelve procedures into a page
+   nobody can see the shape of. It is an aid to the title beside it, not the
+   thing being browsed — the tiles above are where a picture is the subject.
+
    The selector names the parent on purpose: `.thumb`, which every picture also
    carries, sets width and height to 100% further down the sheet, and a single
    class here loses to it and lets the picture eat the title. */
 .guide-row > .guide-row__thumb {
   flex: 0 0 auto;
-  width: 184px;
-  height: 116px;
+  width: 104px;
+  height: 66px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);

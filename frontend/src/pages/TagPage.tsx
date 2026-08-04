@@ -15,6 +15,7 @@ import { Link, useParams } from 'react-router'
 import { useApi } from '../auth/AuthContext'
 import { GuideCard, TileGrid } from '../components/BrowseCards'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
+import { groupHeading } from '../domain/groups'
 import { useAsync } from '../hooks/useAsync'
 
 export function TagPage() {
@@ -41,7 +42,9 @@ export function TagPage() {
 
       <div className="page-header">
         <div className="page-header__text">
-          <h1>{tag}</h1>
+          {/* The same form the group heading that led here used, so arriving
+              does not look like arriving somewhere else. */}
+          <h1>{groupHeading(tag)}</h1>
           <p className="page-header__sub">
             {guides.length} {guides.length === 1 ? 'guide carries' : 'guides carry'} this tag.
           </p>
