@@ -3690,17 +3690,14 @@ a:hover {
   cursor: pointer;
 }
 
-/* The same pairing as the tile's controls, so the two places an administrator
-   meets these buttons agree about which is which. */
+/* Green under the pointer, matching the edit control on a tile. There is no
+   red counterpart here: the only thing a banner offers is editing, and
+   deleting a section is done from the grid where the tile stays visible. */
 .banner__action:hover {
   background: rgba(12, 20, 38, 0.78);
   border-color: var(--success-600);
   color: #ffffff;
   text-decoration: none;
-}
-
-.banner__action--danger:hover {
-  border-color: var(--danger-600);
 }
 
 /* The picture, whole, on white. Composed images — a line drawing of a

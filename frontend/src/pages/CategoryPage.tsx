@@ -37,15 +37,14 @@
  * It is simply not this screen any more.
  */
 
-import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useParams } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { Banner } from '../components/Banner'
 import { GuideRow, GuideRows, PageRow } from '../components/BrowseCards'
 import { SectionGrid } from '../components/SectionGrid'
-import { IconEdit, IconTrash } from '../components/icons'
-import { EmptyState, ErrorAlert, Modal, Spinner } from '../components/ui'
+import { IconEdit } from '../components/icons'
+import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
 import { GROUP_ANCHORS, groupAnchor, groupGuides, groupHeading } from '../domain/groups'
 import { browsableCategories, isEmptyToReaders } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
@@ -53,12 +52,7 @@ import { useAsync } from '../hooks/useAsync'
 export function CategoryPage() {
   const { slug = '' } = useParams()
   const api = useApi()
-  const navigate = useNavigate()
   const { can } = useAuth()
-  const [deleting, setDeleting] = useState(false)
-  const [removing, setRemoving] = useState(false)
-  const [password, setPassword] = useState('')
-  const [createError, setCreateError] = useState<unknown>(null)
 
   const { data, error, loading, reload } = useAsync(
     async () => {
@@ -109,22 +103,6 @@ export function CategoryPage() {
      page a reader is standing on offered as somewhere to go. */
   const articles = pages.filter((page) => !page.isLanding)
 
-  /* Deleting from the banner leaves the reader on a page that is gone, so it
-     ends at the front rather than reloading into a 404. The server is what
-     refuses a section that still holds anything; this only reports it. */
-  async function removeSection() {
-    if (!data?.category) return
-    setRemoving(true)
-    setCreateError(null)
-    try {
-      await api.deleteCategory(data.category.id, password)
-      navigate('/')
-    } catch (cause) {
-      setCreateError(cause)
-      setRemoving(false)
-    }
-  }
-
   return (
     <>
       {/* The section's own words, from whichever of the two places holds them.
@@ -143,37 +121,27 @@ export function CategoryPage() {
         title={category.name}
         intro={category.description || landing?.summary}
         src={category.imageUrl}
-        /* Edit and delete sit on the banner as well as on the tile, because the
-           tile is where a section is noticed and this is where it is read: an
-           administrator who has opened a section to check its words is exactly
-           the one who wants to change them, and sending them back to the grid
-           to do it is a journey with nothing in it. */
+        /* Edit, and only edit. An administrator who has opened a section to
+           read it is exactly the one who wants to change its words, so that
+           belongs here — but deleting it is done from the grid, on the tile,
+           where the thing being destroyed is one of several and is visibly
+           still there afterwards. Offering it from inside the section means
+           answering for a page that no longer exists, and puts the most
+           destructive control in the room on the screen somebody is most often
+           merely reading. */
         actions={
           can('admin') ? (
-            <>
-              <Link
-                className="banner__action"
-                to={`/categories/${category.id}/edit`}
-                aria-label={`Edit ${category.name}`}
-              >
-                <IconEdit size={15} />
-                Edit
-              </Link>
-              <button
-                className="banner__action banner__action--danger"
-                type="button"
-                aria-label={`Delete ${category.name}`}
-                onClick={() => setDeleting(true)}
-              >
-                <IconTrash size={15} />
-                Delete
-              </button>
-            </>
+            <Link
+              className="banner__action"
+              to={`/categories/${category.id}/edit`}
+              aria-label={`Edit ${category.name}`}
+            >
+              <IconEdit size={15} />
+              Edit
+            </Link>
           ) : null
         }
       />
-
-      <ErrorAlert error={createError} />
 
       {/* No heading over them: a row of pictures under a section's own name is
           not something a reader needs told is a list of sections.
@@ -276,80 +244,6 @@ export function CategoryPage() {
           landing pages are where they were, and their longer `body` still
           belongs to them. */}
 
-      {deleting && (
-        <Modal
-          title={`Delete ${category.name}?`}
-          onClose={() => {
-            setDeleting(false)
-            setPassword('')
-          }}
-        >
-          <ErrorAlert error={createError} />
-          <p>
-            <strong>Everything inside it goes as well</strong> — its sub-sections, and every guide and
-            wiki page filed in any of them. They are deleted, not archived: this is the one place
-            in Reticle where content does not come back.
-          </p>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              void removeSection()
-            }}
-          >
-            <div className="field">
-              <label className="field__label" htmlFor="delete-section-password">
-                Your password
-              </label>
-              <input
-                id="delete-section-password"
-                className="input"
-                type="password"
-                /* Every layer here exists because the one above it is ignored.
-                   "off" is ignored by browsers on password fields; "new-password"
-                   tells them this is not the saved credential, which Chrome and
-                   Firefox honour. The three data attributes are 1Password,
-                   LastPass and Bitwarden, which read their own and not the
-                   standard one. And "readOnly" until the field is touched is what
-                   catches the rest: a manager fills on load, and there is nothing
-                   fillable on load. It clears on focus, so typing is unaffected.
-
-                   No autoFocus, deliberately — focusing it on open would hand a
-                   manager the moment it is waiting for. */
-                autoComplete="new-password"
-                data-1p-ignore
-                data-lpignore="true"
-                data-bwignore
-                readOnly
-                onFocus={(event) => {
-                  event.currentTarget.readOnly = false
-                }}
-                required
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </div>
-            <div className="page-actions">
-              <button
-                className="button button--danger"
-                type="submit"
-                disabled={removing || password === ''}
-              >
-                {removing ? 'Deleting…' : 'Delete section'}
-              </button>
-              <button
-                className="button"
-                type="button"
-                onClick={() => {
-                  setDeleting(false)
-                  setPassword('')
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
     </>
   )
 }

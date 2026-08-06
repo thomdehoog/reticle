@@ -1,5 +1,4 @@
 import { screen, waitFor, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { Route, Routes } from 'react-router'
 
@@ -472,18 +471,22 @@ describe('CategoryPage', () => {
     expect(screen.queryByText('Prose the migration brought.')).not.toBeInTheDocument()
   })
 
-  /* Asked for twice over: the modal is the whole point of the control, since
-     the server refuses a section that still holds anything and the mistake left
-     to make is deleting an empty one nobody meant to touch. */
-  it('asks before deleting a section', async () => {
+  /**
+   * The banner edits and does not delete.
+   *
+   * Deleting a section destroys everything under it, and it is done from the
+   * grid, where the tile is one of several and is visibly still there
+   * afterwards. Offering it from inside the section puts the most destructive
+   * control in the building on the screen somebody is most often only reading,
+   * and leaves them answering for a page that no longer exists.
+   */
+  it('offers editing from the banner and nothing that destroys anything', async () => {
     const server = createFakeServer()
-    const user = userEvent.setup()
     renderCategory(server)
 
-    await user.click(await screen.findByRole('button', { name: 'Delete Light Microscopy' }))
-
-    expect(await screen.findByRole('heading', { name: 'Delete Light Microscopy?' })).toBeInTheDocument()
-    expect(server.state.categories.some((row) => row.id === 'c-light')).toBe(true)
+    await screen.findByRole('link', { name: 'Edit Light Microscopy' })
+    expect(screen.queryByRole('button', { name: /^Delete/ })).not.toBeInTheDocument()
+    expect(document.querySelector('.banner__action--danger')).toBeNull()
   })
 
   /* Both sub-categories hold a published guide, so the hidden one is kept out
