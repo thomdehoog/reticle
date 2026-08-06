@@ -3997,6 +3997,36 @@ a:hover {
   scroll-margin-top: calc(var(--header-height) + 1rem);
 }
 
+/*
+ * A group of a section's documents, in a box of its own.
+ *
+ * The page below a sub-section is a stack of groups — the wikis, then the
+ * guides under each tag — and they were separated by space alone. That reads as
+ * one long list with headings in it, and at ZMB a sub-section runs to five or
+ * six groups, so the eye has to hold which heading it is under while scrolling
+ * past a dozen rows. A frame answers that without being read.
+ *
+ * The space between groups comes down as the frame goes up: a border and 3.5rem
+ * of air are two ways of saying the same thing, and together they push the last
+ * group of a busy section off the bottom of the screen.
+ *
+ * The rows keep their own cards on the sunken ground of the box, so the
+ * nesting reads as rows *in* a group rather than as two borders around one
+ * thing.
+ */
+.section--group {
+  margin-top: 1.1rem;
+  padding: 1.1rem 1.25rem 1.35rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+/* The heading sits on the frame's own ground, not floating above it. */
+.section--group > .section__title {
+  margin-bottom: 0.85rem;
+}
+
 .section__title {
   margin-bottom: 1rem;
   font-size: 1.05rem;

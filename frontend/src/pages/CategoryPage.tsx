@@ -181,7 +181,7 @@ export function CategoryPage() {
               heading — a section part-tagged is an ordinary state, not one to
               invent a name for. */}
           {grouped.loose.length > 0 && (
-            <section className="section">
+            <section className="section section--group">
               <GuideRows>
                 {grouped.loose.map((guide) => (
                   <GuideRow key={guide.id} guide={guide} />
@@ -198,7 +198,7 @@ export function CategoryPage() {
               reader to learn than a link whose destination is broader than they
               expected. Every group heading goes somewhere; so does this one. */}
           {articles.length > 0 && (
-            <section className="section" id={GROUP_ANCHORS.wikis}>
+            <section className="section section--group" id={GROUP_ANCHORS.wikis}>
               <h3 className="section__title">
                 <Link to="/w">Wikis</Link>
               </h3>
@@ -216,7 +216,7 @@ export function CategoryPage() {
               instrument it applies to; that is the arrangement the corpus was
               written for rather than an accident of the grouping. */}
           {grouped.groups.map((group) => (
-            <section className="section" key={group.tag} id={groupAnchor(group.tag)}>
+            <section className="section section--group" key={group.tag} id={groupAnchor(group.tag)}>
               <h3 className="section__title">
                 <Link to={`/t/${encodeURIComponent(group.tag)}`}>
                   {groupHeading(group.tag)}
