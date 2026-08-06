@@ -34,7 +34,52 @@ function Fixture() {
   )
 }
 
+/**
+ * A dialog whose field is driven by the state of whatever opened it, and whose
+ * `onClose` is written the way every caller writes it — inline.
+ *
+ * That combination is what broke: a new `onClose` on every keystroke re-ran the
+ * dialog's focus effect, and its cleanup hands focus back to the opener, so the
+ * caret left the field after the first character. The password confirming a
+ * section's deletion reached the server as the letter "c".
+ */
+function TypingFixture() {
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState('')
+
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        Open
+      </button>
+      <p>Sent: {text}</p>
+      {open && (
+        <Modal title="Confirm" onClose={() => setOpen(false)}>
+          <label htmlFor="secret">Your password</label>
+          <input
+            id="secret"
+            type="password"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+          />
+        </Modal>
+      )}
+    </>
+  )
+}
+
 describe('Modal', () => {
+  it('keeps the caret in a field the opener holds the state for', async () => {
+    const user = userEvent.setup()
+    render(<TypingFixture />)
+
+    await user.click(screen.getByRole('button', { name: 'Open' }))
+    await user.type(screen.getByLabelText('Your password'), 'correct-horse-battery')
+
+    expect(screen.getByLabelText('Your password')).toHaveValue('correct-horse-battery')
+    expect(screen.getByText('Sent: correct-horse-battery')).toBeInTheDocument()
+  })
+
   it('keeps Tab inside the dialog', async () => {
     const user = userEvent.setup()
     render(<Fixture />)

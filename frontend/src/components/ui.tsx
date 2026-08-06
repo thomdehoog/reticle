@@ -133,6 +133,25 @@ const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tab
 export function Modal({ title, onClose, children, id }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
 
+  /**
+   * The latest `onClose`, held so the effect below does not depend on it.
+   *
+   * Callers pass an arrow function — `onClose={() => setConfirming(null)}` —
+   * which is a new value on every render of whatever opened the dialog. With
+   * `onClose` in the dependency list, that re-ran this effect on every one of
+   * those renders, and its cleanup hands focus back to the opener: a dialog
+   * with a text field whose state lives in the parent therefore lost focus
+   * after the first character, and the rest of the typing went to the button
+   * behind it. A password arrived at the server as its first letter.
+   *
+   * Only a dialog carrying an input could show it, and until one did, nothing
+   * did.
+   */
+  const closeRef = useRef(onClose)
+  useEffect(() => {
+    closeRef.current = onClose
+  })
+
   useEffect(() => {
     const panel = panelRef.current
     const opener = document.activeElement as HTMLElement | null
@@ -144,7 +163,7 @@ export function Modal({ title, onClose, children, id }: ModalProps) {
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
-        onClose()
+        closeRef.current()
         return
       }
       if (event.key !== 'Tab') return
@@ -172,7 +191,10 @@ export function Modal({ title, onClose, children, id }: ModalProps) {
       document.removeEventListener('keydown', onKeyDown)
       opener?.focus()
     }
-  }, [onClose])
+    /* Once, on open. Focus is placed when the dialog appears and returned when
+       it goes; re-running this because a parent re-rendered is what moved the
+       caret out of a field somebody was still typing in. */
+  }, [])
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
