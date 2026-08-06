@@ -16,8 +16,9 @@
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { Banner } from '../components/Banner'
-import { CategoryTile, GuideCard, TileGrid } from '../components/BrowseCards'
+import { GuideCard, TileGrid } from '../components/BrowseCards'
 import { QuickLinks } from '../components/QuickLinks'
+import { SectionGrid } from '../components/SectionGrid'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
 import { browsableCategories, buildCategoryTree } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
@@ -34,7 +35,7 @@ export function HomePage() {
    * institute would send a viewer the whole editorial pipeline — drafts and
    * other people's in-review work included — for a screen that shows neither.
    */
-  const { data, error, loading } = useAsync(
+  const { data, error, loading, reload } = useAsync(
     async () => {
       const [categories, publishedGuides, publishedPages, mine] = await Promise.all([
         api.listCategories(),
@@ -65,14 +66,14 @@ export function HomePage() {
         src={organisation?.heroImageUrl}
       />
 
-      {roots.length === 0 ? (
+      {/* An administrator is never shown "no categories yet" — the grid draws
+          the tile that makes one, which is the same control they would reach
+          for with thirty sections on screen. A reader still gets the sentence:
+          for them there is nothing to do about it. */}
+      {roots.length === 0 && !can('admin') ? (
         <EmptyState>No categories yet.</EmptyState>
       ) : (
-        <TileGrid>
-          {roots.map((category) => (
-            <CategoryTile key={category.id} category={category} />
-          ))}
-        </TileGrid>
+        <SectionGrid categories={roots} onChanged={reload} />
       )}
 
       <QuickLinks />

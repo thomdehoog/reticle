@@ -3602,6 +3602,43 @@ a:hover {
   min-height: calc(var(--plate) * 3 / 4 + 3rem);
 }
 
+/* Top-right of the banner, away from the title and the paragraph under it.
+   Legible on the darkened photograph behind them rather than on the page's own
+   background, which is why these carry their own surface rather than
+   `.button`. */
+.banner__actions {
+  position: absolute;
+  top: 1.1rem;
+  right: 1.2rem;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.banner__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(12, 20, 38, 0.55);
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.banner__action:hover {
+  background: rgba(12, 20, 38, 0.78);
+  border-color: rgba(255, 255, 255, 0.7);
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.banner__action--danger:hover {
+  border-color: var(--danger-600);
+}
+
 /* The picture, whole, on white. Composed images — a line drawing of a
    microscope, a field of labelled cells — are the point of the banner, and the
    plate is what lets one be looked at instead of used as a texture. */
@@ -3702,6 +3739,83 @@ a:hover {
   }
 }
 
+/* The tile and the controls over it are siblings, and this is what holds them
+   in one square of the grid. A button inside the link would be invalid markup
+   and would leave the browser to guess which of the two a click meant. */
+.tile-holder {
+  position: relative;
+  display: flex;
+}
+
+.tile-holder > .tile {
+  flex: 1;
+}
+
+.tile-holder--draggable .tile__media {
+  cursor: grab;
+}
+
+/* Sits over the picture's top-right corner, quiet until the tile is under the
+   pointer: a reader's eye should land on the photograph, and an administrator
+   is already looking at the tile they mean to change. Shown outright on a
+   touch screen and to anybody navigating by keyboard, neither of which has a
+   hover to reveal it with. */
+.tile-tools {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  gap: 0.3rem;
+  opacity: 0;
+  transition: opacity 0.14s ease;
+}
+
+.tile-holder:hover .tile-tools,
+.tile-tools:focus-within {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .tile-tools {
+    opacity: 1;
+  }
+}
+
+.tile-tools__button {
+  display: grid;
+  place-items: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink-700);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+.tile-tools__button:hover {
+  border-color: var(--brand-600);
+  color: var(--brand-700);
+  text-decoration: none;
+}
+
+.tile-tools__button--danger:hover {
+  border-color: var(--danger-600);
+  color: var(--danger-700);
+}
+
+/* Where a dragged tile would land. A line down the leading edge rather than a
+   filled box: the tile keeps its picture legible while the eye is choosing. */
+.tile-drop {
+  display: flex;
+  border-radius: var(--radius-lg);
+}
+
+.tile-drop--over {
+  box-shadow: -3px 0 0 0 var(--brand-600);
+}
+
 .tile {
   position: relative;
   display: flex;
@@ -3714,6 +3828,7 @@ a:hover {
   box-shadow: var(--shadow-sm);
   transition: border-color 0.14s ease, box-shadow 0.14s ease, transform 0.14s ease;
 }
+
 
 .tile:hover,
 .tile:focus-visible {
@@ -3729,6 +3844,32 @@ a:hover {
   aspect-ratio: 16 / 10;
   overflow: hidden;
   background: var(--brand-900);
+}
+
+/* The tile that makes a section: the same frame, none of the weight — dashed,
+   because it is the outline of a tile rather than one.
+ *
+ * After `.tile__media` and not before it. Both carry one class, so the later
+ * rule wins whatever it says, and written above this one the plus sat on the
+ * navy a picture would have covered, in the corner rather than the middle:
+ * `display: block` and `background: var(--brand-900)` beat it silently. The
+ * same source-order trap the rail's padding fell into.
+ */
+.tile--new {
+  border-style: dashed;
+  box-shadow: none;
+  background: transparent;
+}
+
+.tile__media--new {
+  display: grid;
+  place-items: center;
+  color: var(--ink-500);
+  background: var(--surface);
+}
+
+.tile--new:hover .tile__media--new {
+  color: var(--brand-700);
 }
 
 .thumb {

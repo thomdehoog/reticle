@@ -111,7 +111,6 @@ describe('CategoryPage', () => {
     renderCategory(server)
 
     expect(await screen.findByRole('link', { name: /Confocal startup/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Write a landing page/ })).toBeInTheDocument()
   })
 
   /**
@@ -149,7 +148,7 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    expect(await screen.findByRole('link', { name: /Confocal$/ })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'Confocal' })).toHaveAttribute(
       'href',
       '/c/confocal',
     )
@@ -195,7 +194,7 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    const section = await screen.findByRole('link', { name: /Confocal$/ })
+    const section = await screen.findByRole('link', { name: 'Confocal' })
     expect(within(section).queryByText(/guides?$/)).toBeNull()
   })
 
@@ -427,7 +426,7 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    expect(await screen.findByRole('link', { name: /Confocal$/ })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'Confocal' })).toHaveAttribute(
       'href',
       '/c/confocal',
     )
@@ -437,9 +436,18 @@ describe('CategoryPage', () => {
     expect(screen.queryByRole('link', { name: /Stellaris startup/ })).not.toBeInTheDocument()
   })
 
-  /* Kept and reachable: the page still exists and still holds what the
-     migration brought, and this is the only route left to it. */
-  it('keeps an author’s route to the landing page it no longer shows', async () => {
+  /**
+   * The section form is the route to a section's words and picture, and the
+   * only one.
+   *
+   * "Edit landing page" used to sit at the foot of this screen, because the
+   * document holding those two things was reachable from nowhere else. The form
+   * reaches the same fields under the names a reader would use, so the button
+   * is gone rather than left as a second way in — and this asserts its absence,
+   * because a second editor for one thing is exactly what nobody notices has
+   * come back.
+   */
+  it('offers an administrator the section form, and no route to the landing page', async () => {
     const server = createFakeServer({
       guides: [guideFixture({ status: 'published' })],
       pages: [
@@ -454,45 +462,28 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    expect(await screen.findByRole('link', { name: /Edit landing page/ })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'Edit Light Microscopy' })).toHaveAttribute(
       'href',
-      '/w/w-light-landing/edit',
+      '/categories/c-light/edit',
     )
+    expect(screen.queryByRole('link', { name: /Edit landing page/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Write a landing page/ })).not.toBeInTheDocument()
+    /* The body still belongs to the landing page and is still not shown here. */
     expect(screen.queryByText('Prose the migration brought.')).not.toBeInTheDocument()
   })
 
-  it('sends an author to the editor for the landing page that already exists', async () => {
-    const server = createFakeServer({
-      pages: [
-        pageFixture({
-          id: 'w-light-landing',
-          categoryId: 'c-light',
-          isLanding: true,
-          status: 'published',
-          body: 'Prose.',
-        }),
-      ],
-    })
-    renderCategory(server)
-
-    expect(await screen.findByRole('link', { name: /Edit landing page/ })).toHaveAttribute(
-      'href',
-      '/w/w-light-landing/edit',
-    )
-  })
-
-  it('creates a landing page for the category and opens it', async () => {
+  /* Asked for twice over: the modal is the whole point of the control, since
+     the server refuses a section that still holds anything and the mistake left
+     to make is deleting an empty one nobody meant to touch. */
+  it('asks before deleting a section', async () => {
     const server = createFakeServer()
     const user = userEvent.setup()
     renderCategory(server)
 
-    await user.click(await screen.findByRole('button', { name: /Write a landing page/ }))
+    await user.click(await screen.findByRole('button', { name: 'Delete Light Microscopy' }))
 
-    expect(await screen.findByText('Editing the landing page')).toBeInTheDocument()
-    const created = server.state.pages[0]
-    expect(created.categoryId).toBe('c-light')
-    expect(created.isLanding).toBe(true)
-    expect(created.title).toBe('Light Microscopy')
+    expect(await screen.findByRole('heading', { name: 'Delete Light Microscopy?' })).toBeInTheDocument()
+    expect(server.state.categories.some((row) => row.id === 'c-light')).toBe(true)
   })
 
   /* Both sub-categories hold a published guide, so the hidden one is kept out
@@ -532,7 +523,7 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    expect(await screen.findByRole('link', { name: /Stellaris/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Stellaris' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Tag-only guides/ })).not.toBeInTheDocument()
   })
 
@@ -575,6 +566,12 @@ describe('CategoryPage', () => {
     /* Both halves empty, which is the only case that says nothing is here —
        a section with wikis and no guides, or the reverse, is ordinary. */
     expect(screen.getByText('Nothing in this section yet.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Write a landing page/ })).toBeInTheDocument()
+    /* And an administrator is offered the thing to do about it. A section with
+       no sub-sections is exactly where one gets added, so the tile that makes
+       one is drawn even though there is no grid of them to sit beside. */
+    expect(screen.getByRole('link', { name: 'Add a section' })).toHaveAttribute(
+      'href',
+      '/categories/new?parent=c-cryo',
+    )
   })
 })

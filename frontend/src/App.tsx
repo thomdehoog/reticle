@@ -20,6 +20,7 @@ import { useAuth } from './auth/AuthContext'
 import type { Role } from './domain/types'
 import { AccountPage } from './pages/AccountPage'
 import { CategoriesPage } from './pages/CategoriesPage'
+import { SectionFormPage } from './pages/SectionFormPage'
 import { CategoryPage } from './pages/CategoryPage'
 import { GuideEditorPage } from './pages/GuideEditorPage'
 import { GuideViewPage } from './pages/GuideViewPage'
@@ -119,6 +120,11 @@ export function App() {
           <Route path="/account" element={<Guarded role="viewer"><AccountPage /></Guarded>} />
           <Route path="/users" element={<Guarded role="admin"><UsersPage /></Guarded>} />
           <Route path="/categories" element={<Guarded role="admin"><CategoriesPage /></Guarded>} />
+          {/* Before `/categories/:id/edit` would matter either way — these two
+              cannot collide, `new` being a literal — but the pair reads as one
+              screen and is written as one. */}
+          <Route path="/categories/new" element={<Guarded role="admin"><SectionFormPage /></Guarded>} />
+          <Route path="/categories/:id/edit" element={<Guarded role="admin"><SectionFormPage /></Guarded>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

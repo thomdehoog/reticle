@@ -45,6 +45,8 @@
  * their own heading rather than as well as it.
  */
 
+import type { ReactNode } from 'react'
+
 import { DrawnFigure } from './Thumbnail'
 
 export interface BannerProps {
@@ -64,9 +66,17 @@ export interface BannerProps {
    * levels down they know where they are and want the guides.
    */
   variant?: 'facility' | 'section'
+  /**
+   * Controls for whoever owns this section, drawn in the corner of the plate.
+   *
+   * A slot rather than a pair of props, because the banner has no business
+   * knowing what may be done to the thing it is describing — the front page
+   * passes none, and a section passes two only to an administrator.
+   */
+  actions?: ReactNode
 }
 
-export function Banner({ title, intro, src, variant = 'section' }: BannerProps) {
+export function Banner({ title, intro, src, variant = 'section', actions }: BannerProps) {
   /* The same drawn cover the tiles use, so a category with no photograph looks
      unfinished in neither place. No monogram, unlike the tiles: on a tile the
      letters stand in for a name that is underneath in small type, and here the
@@ -90,6 +100,7 @@ export function Banner({ title, intro, src, variant = 'section' }: BannerProps) 
           <h1 className="banner__title">{title}</h1>
           {intro && <p className="banner__intro">{intro}</p>}
         </div>
+        {actions && <div className="banner__actions">{actions}</div>}
       </div>
     </section>
   )

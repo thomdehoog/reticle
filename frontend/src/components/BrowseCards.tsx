@@ -15,7 +15,7 @@
 import { Link } from 'react-router'
 
 import type { Category, GuideSummary, PageSummary } from '../domain/types'
-import { IconBook } from './icons'
+import { IconBook, IconEdit, IconPlus, IconTrash } from './icons'
 import { Thumbnail } from './Thumbnail'
 import { StatusBadge } from './ui'
 
@@ -27,16 +27,87 @@ import { StatusBadge } from './ui'
  * filled in reads as broken rather than as new. The only mark left is the one
  * that changes what the tile means: a holding section, which is reached by tag
  * rather than by browsing, and which only an author ever sees.
+ *
+ * An administrator gets two more: edit and delete, in the tile's own corner.
+ * They sit on the tile rather than on a screen of their own because the tile is
+ * where somebody is already looking when they notice the picture is wrong —
+ * and they are small and quiet, because a reader's eye should still land on the
+ * photograph. `onDelete` absent means the controls are not drawn at all, which
+ * is how everyone who is not an administrator sees this.
+ *
+ * The buttons are siblings of the link, not children of it: a button inside an
+ * anchor is invalid, and both browsers and screen readers make their own guess
+ * about what a click on it meant.
  */
-export function CategoryTile({ category }: { category: Category }) {
+export function CategoryTile({
+  category,
+  onDelete,
+  draggable = false,
+}: {
+  category: Category
+  /** Given only to an administrator; its absence is what hides the controls. */
+  onDelete?: (category: Category) => void
+  draggable?: boolean
+}) {
   return (
-    <Link className="tile" to={`/c/${category.slug}`}>
-      <Thumbnail seed={category.name} src={category.imageUrl} className="tile__media" />
-      <span className="tile__body">
-        <span className="tile__name">{category.name}</span>
-      </span>
-      {category.isHidden && <span className="tile__flag">Hidden</span>}
-    </Link>
+    <div className={`tile-holder${draggable ? ' tile-holder--draggable' : ''}`}>
+      <Link className="tile" to={`/c/${category.slug}`}>
+        <Thumbnail seed={category.name} src={category.imageUrl} className="tile__media" />
+        <span className="tile__body">
+          <span className="tile__name">{category.name}</span>
+        </span>
+        {category.isHidden && <span className="tile__flag">Hidden</span>}
+      </Link>
+
+      {onDelete && (
+        <div className="tile-tools">
+          <Link
+            className="tile-tools__button"
+            to={`/categories/${category.id}/edit`}
+            aria-label={`Edit ${category.name}`}
+            title={`Edit ${category.name}`}
+          >
+            <IconEdit size={15} />
+          </Link>
+          <button
+            className="tile-tools__button tile-tools__button--danger"
+            type="button"
+            aria-label={`Delete ${category.name}`}
+            title={`Delete ${category.name}`}
+            onClick={() => onDelete(category)}
+          >
+            <IconTrash size={15} />
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The tile that makes a section, wearing the same shape as the ones that open
+ * them.
+ *
+ * It is a tile and not a button above the grid because that is where the eye
+ * already is, and because it answers the question an empty facility asks: a
+ * site with no sections at all showed a line of text saying so, which tells an
+ * administrator what is wrong and not what to do about it. This is the same
+ * control in both cases — the last tile in a full grid, and the only tile in an
+ * empty one.
+ */
+export function NewCategoryTile({ parentId }: { parentId?: string | null }) {
+  const to = parentId ? `/categories/new?parent=${encodeURIComponent(parentId)}` : '/categories/new'
+  return (
+    <div className="tile-holder">
+      <Link className="tile tile--new" to={to}>
+        <span className="tile__media tile__media--new" aria-hidden="true">
+          <IconPlus size={30} />
+        </span>
+        <span className="tile__body">
+          <span className="tile__name">Add a section</span>
+        </span>
+      </Link>
+    </div>
   )
 }
 

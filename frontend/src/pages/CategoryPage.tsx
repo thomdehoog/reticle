@@ -42,9 +42,10 @@ import { Link, useNavigate, useParams } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { Banner } from '../components/Banner'
-import { CategoryTile, GuideRow, GuideRows, PageRow, TileGrid } from '../components/BrowseCards'
-import { IconEdit, IconPlus } from '../components/icons'
-import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
+import { GuideRow, GuideRows, PageRow } from '../components/BrowseCards'
+import { SectionGrid } from '../components/SectionGrid'
+import { IconEdit, IconTrash } from '../components/icons'
+import { EmptyState, ErrorAlert, Modal, Spinner } from '../components/ui'
 import { GROUP_ANCHORS, groupAnchor, groupGuides, groupHeading } from '../domain/groups'
 import { browsableCategories } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
@@ -54,10 +55,11 @@ export function CategoryPage() {
   const api = useApi()
   const navigate = useNavigate()
   const { can } = useAuth()
-  const [creating, setCreating] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [removing, setRemoving] = useState(false)
   const [createError, setCreateError] = useState<unknown>(null)
 
-  const { data, error, loading } = useAsync(
+  const { data, error, loading, reload } = useAsync(
     async () => {
       const categories = await api.listCategories()
       const category = categories.find((candidate) => candidate.slug === slug) ?? null
@@ -95,25 +97,28 @@ export function CategoryPage() {
     .sort((a, b) => a.orderIndex - b.orderIndex)
   const isLeaf = children.length === 0
   const grouped = groupGuides(guides)
+  /* Nothing under it at all — no sections, no guides, no articles. The one
+     state where an administrator is shown the tile that makes a section from
+     inside a section, because it is the only thing this screen can offer. */
+  const isBare = isLeaf && guides.length === 0 && pages.filter((page) => !page.isLanding).length === 0
   /* The landing page is the section's front, not something inside it — its
      words are already in the banner above, so listing it here would be the
      page a reader is standing on offered as somewhere to go. */
   const articles = pages.filter((page) => !page.isLanding)
 
-  async function startLandingPage() {
+  /* Deleting from the banner leaves the reader on a page that is gone, so it
+     ends at the front rather than reloading into a 404. The server is what
+     refuses a section that still holds anything; this only reports it. */
+  async function removeSection() {
     if (!data?.category) return
-    setCreating(true)
+    setRemoving(true)
     setCreateError(null)
     try {
-      const page = await api.createPage({
-        title: data.category.name,
-        categoryId: data.category.id,
-        isLanding: true,
-      })
-      navigate(`/w/${page.id}/edit`)
+      await api.deleteCategory(data.category.id)
+      navigate('/')
     } catch (cause) {
       setCreateError(cause)
-      setCreating(false)
+      setRemoving(false)
     }
   }
 
@@ -131,18 +136,54 @@ export function CategoryPage() {
           because a section's photograph reaches a reader through the tile and
           the search card as well as this banner, and a rule kept on one screen
           is a rule the other two do not have. */}
-      <Banner title={category.name} intro={category.description || landing?.summary} src={category.imageUrl} />
+      <Banner
+        title={category.name}
+        intro={category.description || landing?.summary}
+        src={category.imageUrl}
+        /* Edit and delete sit on the banner as well as on the tile, because the
+           tile is where a section is noticed and this is where it is read: an
+           administrator who has opened a section to check its words is exactly
+           the one who wants to change them, and sending them back to the grid
+           to do it is a journey with nothing in it. */
+        actions={
+          can('admin') ? (
+            <>
+              <Link
+                className="banner__action"
+                to={`/categories/${category.id}/edit`}
+                aria-label={`Edit ${category.name}`}
+              >
+                <IconEdit size={15} />
+                Edit
+              </Link>
+              <button
+                className="banner__action banner__action--danger"
+                type="button"
+                aria-label={`Delete ${category.name}`}
+                onClick={() => setDeleting(true)}
+              >
+                <IconTrash size={15} />
+                Delete
+              </button>
+            </>
+          ) : null
+        }
+      />
 
       <ErrorAlert error={createError} />
 
       {/* No heading over them: a row of pictures under a section's own name is
-          not something a reader needs told is a list of sections. */}
-      {!isLeaf && (
-        <TileGrid>
-          {children.map((child) => (
-            <CategoryTile key={child.id} category={child} />
-          ))}
-        </TileGrid>
+          not something a reader needs told is a list of sections.
+
+          An administrator also gets the grid — for the tile that makes one — on
+          a section holding nothing at all, where it is the only thing to do
+          about an empty screen. Not on a section that is full of guides: each
+          level of this tree shows one kind of thing, and a lone dashed tile
+          above a page of procedures says sections are what this screen is for
+          when they are not. Splitting a full section is the categories screen's
+          job, which is where the whole tree is visible at once. */}
+      {(!isLeaf || (can('admin') && isBare)) && (
+        <SectionGrid categories={children} parentId={category.id} onChanged={reload} />
       )}
 
       {isLeaf && (
@@ -206,31 +247,35 @@ export function CategoryPage() {
         </>
       )}
 
-      {/* The landing page is no longer this screen, but it still exists and
-          still holds what the migration brought. This is the only route to it,
-          so it stays: content that is kept and unreachable is worse than
-          content that is deleted on purpose. Author-only, so no reader meets
-          it. */}
-      {can('author') && (
-        <div className="page-actions page-actions--footer">
-          {landing && landing.status !== 'published' && <StatusBadge status={landing.status} />}
-          {landing ? (
-            <Link className="button" to={`/w/${landing.id}/edit`}>
-              <IconEdit />
-              Edit landing page
-            </Link>
-          ) : (
+      {/* "Edit landing page" used to sit here, and it was the only route to the
+          document holding a section's words and picture. The section form is
+          that route now, and it reaches the same two fields under the names a
+          reader would use for them — so the button is gone rather than left as
+          a second way to edit one thing. Nothing was deleted with it: the
+          landing pages are where they were, and their longer `body` still
+          belongs to them. */}
+
+      {deleting && (
+        <Modal title={`Delete ${category.name}?`} onClose={() => setDeleting(false)}>
+          <ErrorAlert error={createError} />
+          <p>
+            The section and its picture go. Anything inside it has to be moved first — the server
+            refuses while it still holds guides, wiki pages or sections of its own, and says which.
+          </p>
+          <div className="page-actions">
             <button
-              className="button"
+              className="button button--danger"
               type="button"
-              disabled={creating}
-              onClick={() => void startLandingPage()}
+              disabled={removing}
+              onClick={() => void removeSection()}
             >
-              <IconPlus />
-              {creating ? 'Creating…' : 'Write a landing page'}
+              {removing ? 'Deleting…' : 'Delete section'}
             </button>
-          )}
-        </div>
+            <button className="button" type="button" onClick={() => setDeleting(false)}>
+              Cancel
+            </button>
+          </div>
+        </Modal>
       )}
     </>
   )

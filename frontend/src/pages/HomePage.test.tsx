@@ -35,7 +35,7 @@ describe('HomePage', () => {
     })
     renderHome(server)
 
-    expect(await screen.findByRole('link', { name: /Light Microscopy/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Light Microscopy' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Tag-only/ })).not.toBeInTheDocument()
   })
 
@@ -55,8 +55,8 @@ describe('HomePage', () => {
     })
     renderHome(server)
 
-    expect(await screen.findByRole('link', { name: /Light Microscopy/ })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /CryoEM/ })).not.toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Light Microscopy' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'CryoEM' })).not.toBeInTheDocument()
   })
 
   /* A draft is not something a reader can open, so it does not keep a section
@@ -102,7 +102,7 @@ describe('HomePage', () => {
     })
     renderHome(server)
 
-    expect(await screen.findByRole('link', { name: /Light Microscopy/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Light Microscopy' })).toBeInTheDocument()
   })
 
   /* A parent holds what its children hold, hidden children included: those
@@ -124,7 +124,7 @@ describe('HomePage', () => {
     })
     renderHome(server)
 
-    expect(await screen.findByRole('link', { name: /Light Microscopy/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Light Microscopy' })).toBeInTheDocument()
   })
 
   /* The tile is a picture and a name. A count never decided which section
@@ -137,7 +137,7 @@ describe('HomePage', () => {
     })
     renderHome(server)
 
-    const tile = await screen.findByRole('link', { name: /Light Microscopy/ })
+    const tile = await screen.findByRole('link', { name: 'Light Microscopy' })
     expect(tile).toHaveTextContent('Light Microscopy')
     expect(screen.queryByText(/guides?$/)).toBeNull()
   })
