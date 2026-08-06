@@ -36,6 +36,7 @@ import {
 import { Link, useLocation, useNavigate } from 'react-router'
 
 import { useAuth } from '../auth/AuthContext'
+import { useFadingScrollbars } from '../hooks/useFadingScrollbars'
 import { IconMenu, ReticleMark } from './icons'
 import { NewGuideDialog } from './NewGuideDialog'
 import { NewPageDialog } from './NewPageDialog'
@@ -210,6 +211,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
   const phone = usePhoneLayout()
   useScrollToHash()
+  useFadingScrollbars()
   const [query, setQuery] = useState('')
   const [creatingGuide, setCreatingGuide] = useState(false)
   const [creatingPage, setCreatingPage] = useState(false)

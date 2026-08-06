@@ -38,14 +38,19 @@ export function SectionFormPage() {
   const [search] = useSearchParams()
   const api = useApi()
 
+  const parentId = search.get('parent')
+
   const { data, error, loading } = useAsync(async () => {
-    if (!id) return { category: null, landing: null }
     const categories = await api.listCategories()
+    /* The section this one will sit in, so that finishing can go back to the
+       grid the tile belongs to rather than to the front page. */
+    const parent = categories.find((candidate) => candidate.id === parentId) ?? null
+    if (!id) return { category: null, landing: null, parent }
     const category = categories.find((candidate) => candidate.id === id) ?? null
-    if (!category) return { category: null, landing: null }
+    if (!category) return { category: null, landing: null, parent }
     const landing = await api.getCategoryLandingPage(category.id).catch(() => null)
-    return { category, landing }
-  }, [api, id])
+    return { category, landing, parent }
+  }, [api, id, parentId])
 
   if (loading) return <Spinner />
   if (error) return <ErrorAlert error={error} />
@@ -62,7 +67,7 @@ export function SectionFormPage() {
          moving an existing section between parents is the categories admin
          screen's job, and two screens offering the same move is how a tree ends
          up rearranged by somebody who meant to rename something. */
-      parentId={search.get('parent')}
+      parent={data?.parent ?? null}
     />
   )
 }
@@ -70,11 +75,11 @@ export function SectionFormPage() {
 function SectionForm({
   category,
   landing,
-  parentId,
+  parent,
 }: {
   category: Category | null
   landing: Page | null
-  parentId: string | null
+  parent: Category | null
 }) {
   const api = useApi()
   const navigate = useNavigate()
@@ -136,9 +141,18 @@ function SectionForm({
     try {
       const section = category
         ? await api.updateCategory(category.id, { name: title.trim() })
-        : await api.createCategory({ name: title.trim(), parentId })
+        : await api.createCategory({ name: title.trim(), parentId: parent?.id ?? null })
       await saveTheWordsAndThePicture(section)
-      navigate(`/c/${section.slug}`)
+
+      /* Back to where the tile will be, not into the section itself.
+
+         A new section is empty by definition, so opening it shows a screen with
+         nothing on it — which reads as though the thing just made did not work.
+         Landing on the grid instead puts the new tile in front of the person who
+         made it, in its place among the others, and that is the confirmation. An
+         edit does go to the section: there is something there to look at, and it
+         is what was just changed. */
+      navigate(category ? `/c/${category.slug}` : parent ? `/c/${parent.slug}` : '/')
     } catch (cause) {
       setFailure(cause)
       setSaving(false)
@@ -232,7 +246,11 @@ function SectionForm({
           <button
             className="button"
             type="button"
-            onClick={() => navigate(category ? `/c/${category.slug}` : '/')}
+            /* Cancelling goes back where finishing would have, so leaving
+               without saving does not also move somebody somewhere new. */
+            onClick={() =>
+              navigate(category ? `/c/${category.slug}` : parent ? `/c/${parent.slug}` : '/')
+            }
           >
             Cancel
           </button>

@@ -210,6 +210,64 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/*
+ * Scrollbars, while they are being used and not otherwise.
+ *
+ * A scrollbar answers how far down am I, and that is only asked while moving.
+ * Parked down the side of both columns it is a permanent rule of colour beside
+ * photographs that are the point of the page. `data-scrolling` is put on
+ * whichever box is moving by `useFadingScrollbars`, and taken off again when it
+ * stops.
+ *
+ * **The track keeps its width throughout.** Only the thumb's colour changes, so
+ * nothing reflows when it appears — a column of text shifting sideways to
+ * announce that somebody has started reading is worse than the bar was. That is
+ * also why this is a colour and not `display`, and why there is no `overflow:
+ * overlay`, which was never standard and is gone from Chrome.
+ *
+ * One property holds the colour so the two engines cannot disagree: Firefox
+ * reads `--scrollbar-thumb` through `scrollbar-color`, WebKit and Blink through
+ * the thumb's background, and the rail overrides the variable rather than
+ * repeating the rule.
+ */
+:root {
+  --scrollbar-thumb: rgba(91, 102, 117, 0.42);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+*[data-scrolling] {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Drawn inside a transparent border so the thumb is a 4px lozenge in a 10px
+   track rather than a bar filling the gutter. `background-clip: content-box`
+   is what keeps the border transparent instead of painted. */
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+  transition: background-color 0.25s ease;
+}
+
+*[data-scrolling]::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  background-clip: content-box;
+}
+
 h1,
 h2,
 h3,
@@ -818,6 +876,10 @@ a:hover {
   padding: 1rem 0;
   background: var(--brand-900);
   color: #fff;
+  /* Light on the navy column, where the default grey thumb would be invisible.
+     Declared here rather than in a `.rail` block of its own beside the
+     scrollbar rules, so there is one place that says what the rail is. */
+  --scrollbar-thumb: rgba(255, 255, 255, 0.38);
 }
 
 .rail__brand {
@@ -3755,30 +3817,20 @@ a:hover {
   cursor: grab;
 }
 
-/* Sits over the picture's top-right corner, quiet until the tile is under the
-   pointer: a reader's eye should land on the photograph, and an administrator
-   is already looking at the tile they mean to change. Shown outright on a
-   touch screen and to anybody navigating by keyboard, neither of which has a
-   hover to reveal it with. */
+/* Over the picture's top-right corner, and always drawn.
+ *
+ * They faded in on hover to begin with, on the reasoning that a reader's eye
+ * should land on the photograph. Only an administrator ever sees them at all,
+ * and for that person a control that appears when the pointer happens to cross
+ * it is one they have to go looking for — worse, it is invisible on a touch
+ * screen and to anybody who does not already know it is there. So they stay
+ * put, and are kept quiet by size and weight instead. */
 .tile-tools {
   position: absolute;
   top: 0.5rem;
   right: 0.5rem;
   display: flex;
   gap: 0.3rem;
-  opacity: 0;
-  transition: opacity 0.14s ease;
-}
-
-.tile-holder:hover .tile-tools,
-.tile-tools:focus-within {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .tile-tools {
-    opacity: 1;
-  }
 }
 
 .tile-tools__button {
