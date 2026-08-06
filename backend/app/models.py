@@ -617,3 +617,45 @@ class AuditLog(Base):
     @validates("ip_address")
     def _clip_ip_address(self, _key: str, value: str | None) -> str | None:
         return clip(value, IP_ADDRESS_LENGTH)
+
+
+ORGANISATION_ROW = "organisation"
+"""The primary key of the one row in ``organisation``.
+
+A fixed string rather than a generated id, because "there is exactly one of
+these" is the whole shape of the table and a primary key is the cheapest place
+to say it. A second row cannot be inserted without choosing the same key twice.
+"""
+
+
+class Organisation(Base):
+    """Whose installation this is: the name, the sentence, and the picture.
+
+    These reached the front page from the environment — `RETICLE_ORGANISATION_*`
+    — read once at start-up. That is the right home for a secret and the wrong
+    one for a facility's own front page: changing the tagline meant editing a
+    file on the server and restarting the process, which is not a thing the
+    person who knows what the tagline should say can do.
+
+    So they live here, and the environment becomes what a fresh installation
+    starts with rather than what it is stuck with. `app/settings.py` still
+    carries the same fields and they are still read — once, to fill this row in
+    the first time anybody asks for it.
+
+    One row, addressed by a constant. A settings table with a key column and a
+    value column would have been the other shape; this one is typed, and a
+    misspelt key is a column that does not exist rather than a setting that
+    silently does nothing.
+    """
+
+    __tablename__ = "organisation"
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True, default=ORGANISATION_ROW)
+    name: Mapped[str] = mapped_column(String(200))
+    short_name: Mapped[str] = mapped_column(String(40), default="")
+    url: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    tagline: Mapped[str] = mapped_column(Text, default="")
+    hero_media_id: Mapped[str | None] = mapped_column(
+        ForeignKey("media.id"), nullable=True, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, onupdate=utcnow)

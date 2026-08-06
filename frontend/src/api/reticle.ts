@@ -9,6 +9,7 @@ import type {
   AppConfig,
   Category,
   ContentStatus,
+  Facility,
   Guide,
   GuideSummary,
   Media,
@@ -83,6 +84,19 @@ export class ReticleApi {
 
   me(): Promise<User> {
     return this.http.get<User>('/auth/me')
+  }
+
+  /** The facility as its settings form sees it — with the picture's id, not only its URL. */
+  getFacility(): Promise<Facility> {
+    return this.http.get<Facility>('/facility')
+  }
+
+  updateFacility(changes: {
+    name?: string
+    tagline?: string
+    heroMediaId?: string | null
+  }): Promise<Facility> {
+    return this.http.patch<Facility>('/facility', changes)
   }
 
   listCategories(): Promise<Category[]> {

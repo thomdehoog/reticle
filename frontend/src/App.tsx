@@ -20,6 +20,7 @@ import { useAuth } from './auth/AuthContext'
 import type { Role } from './domain/types'
 import { AccountPage } from './pages/AccountPage'
 import { CategoriesPage } from './pages/CategoriesPage'
+import { FacilityFormPage } from './pages/FacilityFormPage'
 import { SectionFormPage } from './pages/SectionFormPage'
 import { CategoryPage } from './pages/CategoryPage'
 import { GuideEditorPage } from './pages/GuideEditorPage'
@@ -123,6 +124,7 @@ export function App() {
           {/* Before `/categories/:id/edit` would matter either way — these two
               cannot collide, `new` being a literal — but the pair reads as one
               screen and is written as one. */}
+          <Route path="/facility/edit" element={<Guarded role="admin"><FacilityFormPage /></Guarded>} />
           <Route path="/categories/new" element={<Guarded role="admin"><SectionFormPage /></Guarded>} />
           <Route path="/categories/:id/edit" element={<Guarded role="admin"><SectionFormPage /></Guarded>} />
 

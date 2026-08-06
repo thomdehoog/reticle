@@ -336,6 +336,39 @@ class CategoryPatchIn(Wire):
     hero_media_id: str | None = None
 
 
+class FacilityOut(Wire):
+    """The facility as its own settings form sees it.
+
+    Carries the picture's identifier as well as its URL: the URL is what an
+    ``img`` needs and the identifier is what a save sends back, and a form that
+    only had the first would have to parse it out of a path.
+    """
+
+    name: str
+    short_name: str
+    url: str | None
+    tagline: str
+    hero_media_id: str | None
+    hero_image_url: str | None
+
+
+class FacilityPatchIn(Wire):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    tagline: str | None = Field(default=None, max_length=2000)
+    hero_media_id: str | None = None
+
+
+def facility_out(facility: models.Organisation) -> FacilityOut:
+    return FacilityOut(
+        name=facility.name,
+        short_name=facility.short_name,
+        url=facility.url,
+        tagline=facility.tagline,
+        hero_media_id=facility.hero_media_id,
+        hero_image_url=media_url(facility.hero_media_id) if facility.hero_media_id else None,
+    )
+
+
 class CategoryDeleteIn(Wire):
     """The administrator's own password, confirming they meant it.
 

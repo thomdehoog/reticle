@@ -14,8 +14,11 @@
  * material, and only an author has it at all.
  */
 
+import { Link } from 'react-router'
+
 import { useApi, useAuth } from '../auth/AuthContext'
 import { Banner } from '../components/Banner'
+import { IconEdit } from '../components/icons'
 import { GuideCard, TileGrid } from '../components/BrowseCards'
 import { QuickLinks } from '../components/QuickLinks'
 import { SectionGrid } from '../components/SectionGrid'
@@ -64,6 +67,17 @@ export function HomePage() {
         title={organisation?.name ?? 'Guides'}
         intro={organisation?.tagline}
         src={organisation?.heroImageUrl}
+        /* Edit only. A section can be deleted because it is something the
+           facility holds; the facility is the thing itself, and a button that
+           removed the front page's name would have nothing to leave behind. */
+        actions={
+          can('admin') ? (
+            <Link className="banner__action" to="/facility/edit" aria-label="Edit the front page">
+              <IconEdit size={15} />
+              Edit
+            </Link>
+          ) : null
+        }
       />
 
       {/* An administrator is never shown "no categories yet" — the grid draws

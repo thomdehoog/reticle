@@ -336,3 +336,20 @@ export interface Organisation {
 export interface AppConfig {
   organisation: Organisation
 }
+
+/**
+ * The facility as its own settings form sees it.
+ *
+ * `Organisation` is what a browser needs to draw the front page and is public;
+ * this is the record an administrator edits, and it carries the picture's
+ * identifier as well as its URL — the URL is what an `img` wants, the
+ * identifier is what a save sends back.
+ */
+export interface Facility {
+  name: string
+  shortName: string
+  url: string | null
+  tagline: string
+  heroMediaId: string | null
+  heroImageUrl: string | null
+}

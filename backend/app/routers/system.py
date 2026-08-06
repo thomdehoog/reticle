@@ -17,6 +17,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text as sqlalchemy_text
 
+from .. import organisation
 from ..db import SessionLocal
 from ..schemas import media_url
 from ..settings import get_settings
@@ -70,16 +71,16 @@ async def configuration() -> dict[str, object]:
     Everything else here stays behind the login.
     """
     settings = get_settings()
-    return {
-        "organisation": {
-            "name": settings.organisation_name,
-            "shortName": settings.organisation_short_name,
-            "url": settings.organisation_url,
-            "tagline": settings.organisation_tagline,
-            "heroImageUrl": (
-                media_url(settings.organisation_hero_media_id)
-                if settings.organisation_hero_media_id
-                else None
-            ),
+    with SessionLocal() as session:
+        facility = organisation.load(session, settings)
+        return {
+            "organisation": {
+                "name": facility.name,
+                "shortName": facility.short_name,
+                "url": facility.url,
+                "tagline": facility.tagline or None,
+                "heroImageUrl": (
+                    media_url(facility.hero_media_id) if facility.hero_media_id else None
+                ),
+            }
         }
-    }

@@ -35,6 +35,16 @@ interface AuthContextValue {
   api: ReticleApi
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  /**
+   * Read the facility's details again.
+   *
+   * Fetched once at start-up, because they never used to change without a
+   * restart. They are editable now, and the name and the picture appear in the
+   * rail and on the login screen as well as on the banner — so the screen that
+   * saves them says so, rather than leaving the rest of the frame quoting the
+   * old name until somebody reloads.
+   */
+  refresh: () => Promise<void>
   /** Role check used to hide controls; the server enforces the real rule. */
   can: (minimum: Role) => boolean
 }
@@ -150,9 +160,21 @@ export function AuthProvider({ children, fetchImpl }: AuthProviderProps) {
     [user],
   )
 
+  /* Failure is swallowed for the same reason the first read's is: an instance
+     that cannot say its own name still works, and the frame keeps whatever it
+     was already showing rather than emptying itself. */
+  const refresh = useCallback(async () => {
+    try {
+      const config = await api.configuration()
+      setOrganisation(config.organisation)
+    } catch {
+      /* Keep what is on screen. */
+    }
+  }, [api])
+
   const value = useMemo(
-    () => ({ status, user, organisation, api, login, logout, can }),
-    [status, user, organisation, api, login, logout, can],
+    () => ({ status, user, organisation, api, login, logout, can, refresh }),
+    [status, user, organisation, api, login, logout, can, refresh],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

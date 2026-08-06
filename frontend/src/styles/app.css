@@ -3690,9 +3690,11 @@ a:hover {
   cursor: pointer;
 }
 
+/* The same pairing as the tile's controls, so the two places an administrator
+   meets these buttons agree about which is which. */
 .banner__action:hover {
   background: rgba(12, 20, 38, 0.78);
-  border-color: rgba(255, 255, 255, 0.7);
+  border-color: var(--success-600);
   color: #ffffff;
   text-decoration: none;
 }
@@ -3846,9 +3848,13 @@ a:hover {
   cursor: pointer;
 }
 
+/* Green for the one that changes something, red for the one that destroys it.
+   The pair is the point: two identical grey squares a few pixels apart, one of
+   which deletes a section and everything under it, is a mis-click waiting to
+   happen — and the colour arrives under the pointer, before the click. */
 .tile-tools__button:hover {
-  border-color: var(--brand-600);
-  color: var(--brand-700);
+  border-color: var(--success-600);
+  color: var(--success-600);
   text-decoration: none;
 }
 

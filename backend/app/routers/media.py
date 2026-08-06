@@ -28,6 +28,7 @@ from ..models import (
     Category,
     Guide,
     Media,
+    Organisation,
     Page,
     Step,
     StepMedia,
@@ -210,6 +211,23 @@ def _heading_a_published_page(db: DbSession, media_id: str) -> bool:
     )
 
 
+def _heading_the_front_page(db: DbSession, media_id: str) -> bool:
+    """Unconditional, and the most public picture there is.
+
+    The facility's own photograph is behind the banner on the front page, which
+    is served to anybody who loads the site and named by ``/api/config`` before
+    a session exists. Anything narrower here would hide the one image every
+    visitor is handed the URL for.
+    """
+    return bool(
+        db.scalar(
+            select(func.count())
+            .select_from(Organisation)
+            .where(Organisation.hero_media_id == media_id)
+        )
+    )
+
+
 def _heading_a_section(db: DbSession, media_id: str) -> bool:
     """Unconditional, because ``categories.list_categories`` is.
 
@@ -233,6 +251,7 @@ _DIRECT_REFERENCES: tuple[
     (Step.video_media_id, _played_by_a_readable_guide),
     (Page.hero_media_id, _heading_a_published_page),
     (Category.hero_media_id, _heading_a_section),
+    (Organisation.hero_media_id, _heading_the_front_page),
 )
 """Every column pointing at ``media.id`` whose owner carries its own rule."""
 
