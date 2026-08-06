@@ -4017,14 +4017,30 @@ a:hover {
 .section--group {
   margin-top: 1.1rem;
   padding: 1.1rem 1.25rem 1.35rem;
-  background: var(--surface-sunken);
-  border: 1px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
 }
 
 /* The heading sits on the frame's own ground, not floating above it. */
 .section--group > .section__title {
   margin-bottom: 0.85rem;
+}
+
+/* Inside a group the rows take the sunken ground instead.
+ *
+ * The box was the same colour as the page it sits on — `--surface-sunken` is
+ * the body's background too — so a hairline border was the only thing saying it
+ * was there. The panel is raised now, and the rows invert with it: white cards
+ * on a white panel are a border and nothing else, which is the flatness the box
+ * was added to fix, one level down. */
+.section--group .guide-row {
+  background: var(--surface-sunken);
+}
+
+.section--group .guide-row:hover {
+  background: var(--brand-050);
 }
 
 .section__title {
