@@ -94,12 +94,19 @@ ANNOTATION_SHAPES = {
     "oval": "ellipse",
     "arrow": "arrow",
     "line": "arrow",
+    "gap": "arrow",
 }
 """Shapes drawn over a step image.
 
 Reticle draws three. A ``line`` becomes an ``arrow`` because an arrow without a
 head is a line, and losing the shape entirely would leave the reader with a
 colour and nothing pointing at anything.
+
+A ``gap`` is the same trade made twice. Every one of the five in the ZMB corpus
+carries an identical x in both of its points — ``488x159`` to ``488x247`` — so
+it is a vertical segment written in the ordinary four-field form and not a
+geometry of its own. It arrives with a head it was not drawn with; the
+alternative was to drop five marks off four electron-microscopy screenshots.
 """
 
 NO_TIME_ESTIMATE = frozenset({"no estimate", "not specified", "unknown", "n/a"})
@@ -681,10 +688,14 @@ def parse_markup(
     positive extents; an arrow keeps a **signed** vector, because which end
     carries the head is the whole point of drawing one.
 
-    A shape that does not land on the picture is reported rather than clamped.
-    Roughly a fifth of them do not, and what that means is not yet known — a
-    guess here would either move a shape off the control it points at or, if it
-    stayed out of range, make the guide it belongs to permanently unsaveable.
+    A shape that does not land on the picture is reported rather than clamped,
+    with one exception that the corpus itself settled. Two of the 419 shapes in
+    it land off their image, and both are the same arrow drawn in from the left
+    margin with its head on the photograph — so the tail is slid up the shaft to
+    the border and nothing else is moved. See ``_slid_onto_the_picture`` for why
+    a head may not be. Everything else is still reported: a guess would either
+    move a mark off the control it points at or, staying out of range, make the
+    guide holding it permanently unsaveable.
     """
     if markup in (None, "", [], {}):
         return [], []
@@ -748,6 +759,10 @@ def parse_markup(
             extent_x / image_width,
             extent_y / image_height,
         )
+        if shape == "arrow":
+            slid = _slid_onto_the_picture(fractions)
+            if slid is not None:
+                fractions = slid
         if not _lands_on_the_picture(fractions):
             problems.append(Unmapped("markup_off_the_image", entry[:120], where))
             continue
@@ -840,16 +855,73 @@ def attach_image_details(
     return problems
 
 
+def _inside_the_frame(point: tuple[float, float]) -> bool:
+    """One end of a shape, within the tolerance the schema allows.
+
+    The single definition of "on the picture", so the check that refuses a shape
+    and the slide that rescues one cannot disagree about where the edge is.
+    """
+    limit = 1.0 + EDGE_TOLERANCE
+    return all(-EDGE_TOLERANCE <= value <= limit for value in point)
+
+
 def _lands_on_the_picture(fractions: tuple[float, float, float, float]) -> bool:
-    """Both ends of a shape inside the frame, within the tolerance the schema allows.
+    """Both ends of a shape inside the frame.
 
     Checked against the far corner as well as the origin, because an arrow is
     stored from its tail and a tail on the picture says nothing about where the
     head is.
     """
     x, y, extent_x, extent_y = fractions
-    limit = 1.0 + EDGE_TOLERANCE
-    return all(-EDGE_TOLERANCE <= value <= limit for value in (x, y, x + extent_x, y + extent_y))
+    return _inside_the_frame((x, y)) and _inside_the_frame((x + extent_x, y + extent_y))
+
+
+def _slid_onto_the_picture(
+    fractions: tuple[float, float, float, float],
+) -> tuple[float, float, float, float] | None:
+    """An arrow drawn in from the margin, shortened until its tail is on the picture.
+
+    **Only the tail moves, and only towards the head.** The head is what the
+    arrow points at, so an arrow whose head is off the picture is a mark nobody
+    can place and is reported rather than aimed somewhere else. A tail is merely
+    where the shaft starts — an author dragging in from outside the frame — and
+    an arrow whose shaft is cut off at the border still points at the same
+    control.
+
+    Slid along the segment rather than clamped per axis, so the direction is
+    exactly the one that was drawn. Clamping the offending coordinate on its own
+    would swing the shaft by a few degrees, and on a screenshot of an
+    acquisition dialog that is the difference between pointing at a field and
+    pointing at the one below it.
+
+    The border it slides to is the picture, not the tolerance around it:
+    ``EDGE_TOLERANCE`` is five percent, which exists so that a shape drawn a
+    little past the edge is accepted where it is, and is far too much room to
+    *leave* a tail in — forty pixels adrift on an 800px photograph.
+
+    ``None`` when there is nothing safe to do: the head off the picture, both
+    ends off it, or a shaft with no length to slide along.
+    """
+    x, y, extent_x, extent_y = fractions
+    head = (x + extent_x, y + extent_y)
+    if not _inside_the_frame(head):
+        return None
+
+    tail = (x, y)
+    if _inside_the_frame(tail):
+        return fractions
+
+    towards_tail = (tail[0] - head[0], tail[1] - head[1])
+    reach = 1.0
+    for start, delta in zip(head, towards_tail, strict=True):
+        if delta == 0.0:
+            continue
+        reach = min(reach, ((1.0 if delta > 0 else 0.0) - start) / delta)
+    if reach <= 0.0:
+        return None
+
+    slid = (head[0] + towards_tail[0] * reach, head[1] + towards_tail[1] * reach)
+    return (slid[0], slid[1], head[0] - slid[0], head[1] - slid[1])
 
 
 def map_step_media(
@@ -1123,6 +1195,26 @@ _WIKI_MAILTO = re.compile(r"\[mailto\|([^\]|]+)(?:\|([^\]]*))?\]", re.IGNORECASE
 _HTML_TAG = re.compile(r"<\s*/?[a-zA-Z][^>]*>")
 _WIKI_LIST = re.compile(r"^\*\s+", re.MULTILINE)
 
+_LOOSE_EMPHASIS = re.compile(
+    r"(?<!\*)(\*{1,3})([ \t]*)(?=[^\s*])((?:(?!\n[ \t]*\n).)+?)(?<=[^\s*])([ \t]*)\1(?!\*)",
+    re.DOTALL,
+)
+"""Emphasis the corpus writes with the space on the wrong side of the marker.
+
+``There are many ***good ***reasongs`` and ``use the*** XYZ navigation*** tool``
+are both real. CommonMark will not open a delimiter run that is followed by
+whitespace, nor close one that is preceded by it, so both arrive at the reader
+as literal asterisks around the words they were meant to mark. The vendor's
+renderer accepts them, and this is the vendor's text.
+
+The space is **moved outside the run**, never deleted: in the second example it
+is the only thing between "the" and "XYZ". Applied after the list conversion, so
+a line that begins ``* `` is already a bullet and cannot be read as the start of
+one enormous span; the body may not cross a blank line for the same reason, and
+a run that has no partner — ``3 * 4``, a lone footnote marker, a ``***`` rule —
+matches nothing and is left exactly as it is.
+"""
+
 
 def wiki_to_markdown(source: str) -> str:
     """Convert the vendor's wiki syntax into Markdown.
@@ -1161,7 +1253,34 @@ def wiki_to_markdown(source: str) -> str:
         lambda m: f"[{(m.group(2) or m.group(1)).strip()}](mailto:{m.group(1).strip()})", text
     )
     text = _WIKI_LIST.sub("- ", text)
+    text = _LOOSE_EMPHASIS.sub(_tighten_emphasis, text)
     return _BLANK_LINES.sub("\n\n", text).strip()
+
+
+def _tighten_emphasis(match: re.Match[str]) -> str:
+    """Pull a delimiter run in against the words it marks.
+
+    The space it gives up is put back outside the run only where there is not
+    already one there. ``the*** XYZ`` has nothing between the two words but that
+    space, so it has to survive the move; ``**bold ** word`` already has one, and
+    emitting a second would leave a visible gap where the asterisks used to be.
+
+    A run with whitespace inside **both** ends is left exactly as it is. There is
+    nothing in ``3 * 4 * 5`` to tell arithmetic from emphasis, and the corpus
+    writes neither of its real spellings that way — both have one end tight
+    against a word, which is the end that says a delimiter was meant.
+    """
+    marks, before, body, after = match.groups()
+    if before and after:
+        return match.group(0)
+
+    text = match.string
+    against_a_word_before = match.start() > 0 and not text[match.start() - 1].isspace()
+    against_a_word_after = match.end() < len(text) and not text[match.end()].isspace()
+
+    lead = " " if before and against_a_word_before else ""
+    trail = " " if after and against_a_word_after else ""
+    return f"{lead}{marks}{body}{marks}{trail}"
 
 
 def _wiki_link(target: str, label: str | None) -> str:

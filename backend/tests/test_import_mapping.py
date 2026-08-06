@@ -252,6 +252,62 @@ def test_the_link_spellings_the_corpus_actually_writes(source, expected):
 
 
 @pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        # Every one of these is a string from the ZMB corpus.
+        ("There are many ***good ***reasongs", "There are many ***good*** reasongs"),
+        (
+            "This will show you how to use the*** XYZ navigation*** tool.",
+            "This will show you how to use the ***XYZ navigation*** tool.",
+        ),
+        # Already well formed, and must come through untouched rather than
+        # gaining a space at either end.
+        ("in ***urgent cases +41 44 635 55 16.***", "in ***urgent cases +41 44 635 55 16.***"),
+        # The same slip at the other two widths. Neither gains a second space:
+        # there is already one outside the run, and the one being given up is
+        # dropped rather than added to it.
+        ("a **bold ** word", "a **bold** word"),
+        ("an *italic * word", "an *italic* word"),
+    ],
+)
+def test_emphasis_written_with_a_space_inside_it_still_reads_as_emphasis(source, expected):
+    """The corpus writes ``***good ***``, and CommonMark renders the asterisks.
+
+    A delimiter run may not open on trailing whitespace or close on leading
+    whitespace, so both of the real spellings above fall through as literal
+    text — which is what a reader was seeing. The vendor's renderer is more
+    forgiving, and it is the vendor's text, so the space moves to the outside of
+    the run where it means the same thing and marks the same words.
+
+    Moved rather than dropped: in ``the*** XYZ navigation***`` that space is the
+    only thing between "the" and "XYZ", and deleting it would run two words
+    together to fix an emphasis marker.
+    """
+    assert wiki_to_markdown(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # A lone asterisk is not a delimiter run looking for a partner.
+        "a * b and nothing else",
+        "see the note *",
+        # Arithmetic. Both ends are loose, and nothing distinguishes this from
+        # emphasis except that emphasis is not what anybody meant — so a run
+        # with a space inside *both* ends is deliberately left alone. The cost
+        # is that `both ** sides **` is not repaired either; the corpus does not
+        # write it that way, and turning `3 * 4 * 5` into `3 *4* 5` is the worse
+        # of the two mistakes.
+        "3 * 4 * 5",
+        # A separator line, which must not be read as one enormous span.
+        "before\n\n***\n\nafter",
+    ],
+)
+def test_an_asterisk_that_is_not_emphasis_is_left_alone(source):
+    assert wiki_to_markdown(source) == source
+
+
+@pytest.mark.parametrize(
     "source",
     [
         "[guide|26|new_window=true]",
@@ -366,15 +422,82 @@ def test_the_camel_case_colour_the_site_writes_is_recognised():
     assert mapped[0].color == "light_blue"
 
 
-def test_a_shape_off_the_picture_is_reported_rather_than_clamped():
-    """About a fifth of the sample's shapes land outside their image.
+def test_the_gap_the_site_draws_is_a_straight_segment_and_becomes_an_arrow():
+    """Five of them in the ZMB corpus, and every one is vertical.
 
-    Why is not yet known, and neither answer is safe to assume: clamping moves
-    the shape off whatever it points at, and passing it through unchanged puts a
-    value outside the range the schema accepts, which refuses every later save
-    of the guide holding it. So it is reported and the run does not reconcile.
+    Both points carry the same x — `488x159` to `488x247` here — so a gap is a
+    segment between two points in the ordinary four-field format, not a shape
+    with a geometry of its own. Reticle draws one straight primitive, and
+    `line` already becomes an arrow on the reasoning that an arrow without a
+    head is a line: losing the shape entirely would leave the reader a colour
+    and nothing marked.
+    """
+    mapped, problems = parse_markup(";gap,488x159,488x247,red;", 1703, 1184, "image 6031")
+
+    assert problems == []
+    assert mapped[0].shape == "arrow"
+    assert mapped[0].color == "red"
+    assert mapped[0].x == pytest.approx(488 / 1703)
+    assert mapped[0].y == pytest.approx(159 / 1184)
+    assert mapped[0].width == pytest.approx(0)
+    assert mapped[0].height == pytest.approx(88 / 1184)
+
+
+def test_an_arrow_drawn_in_from_the_margin_is_slid_onto_the_picture_by_its_tail():
+    """The one shape in the ZMB corpus that starts off its own image.
+
+    `arrow,-106x652,59x643,black` on an 800x800 photograph: the tail is 13% off
+    the left edge and the head is on the picture. The tail is only where the
+    shaft starts, so it moves to the border along the line it was drawn on; the
+    head does not move at all, because it is the thing the arrow points at.
+    """
+    mapped, problems = parse_markup(";arrow,-106x652,59x643,black;", 800, 800, "image 2349")
+
+    assert problems == []
+    shape = mapped[0]
+    assert shape.shape == "arrow"
+
+    assert shape.x + shape.width == pytest.approx(59 / 800)
+    assert shape.y + shape.height == pytest.approx(643 / 800)
+
+    # On the border, and on the line: at x = 0 the shaft has fallen 106/165 of
+    # the 9px it falls over its whole length, which is 646.22px and not the 652
+    # a per-axis clamp would have left standing.
+    assert shape.x == pytest.approx(0.0)
+    assert shape.y == pytest.approx(646.2181818 / 800)
+
+
+def test_an_arrow_whose_head_is_off_the_picture_is_reported_rather_than_re_aimed():
+    """The head is the annotation; moving it points the reader somewhere else.
+
+    Only two of the 419 shapes in the ZMB corpus land off their image, and both
+    are the same arrow drawn in from the margin — the "about a fifth" this rule
+    was written against came from reading the second field as a size rather than
+    as a point. A tail can be brought in without changing what is marked. A head
+    cannot, so it is reported and the run does not reconcile.
     """
     mapped, problems = parse_markup(";arrow,100x100,99999x99999,red;", 4032, 3024, "image 1")
+
+    assert mapped == []
+    assert problems and problems[0].kind == "markup_off_the_image"
+
+
+def test_an_arrow_with_neither_end_on_the_picture_is_reported():
+    """Nothing to slide towards: both ends were placed somewhere else."""
+    mapped, problems = parse_markup(";arrow,-500x-500,-400x-400,red;", 4032, 3024, "image 1")
+
+    assert mapped == []
+    assert problems and problems[0].kind == "markup_off_the_image"
+
+
+def test_a_rectangle_off_the_picture_is_reported_rather_than_clamped():
+    """A box has no tail and no head, so there is no end that may safely move.
+
+    Which corner would be kept is a question the corpus never asks — no
+    rectangle or ellipse in it lands off its image — and inventing an answer
+    would move a frame off whatever it was drawn around.
+    """
+    mapped, problems = parse_markup(";rectangle,100x100,99999x99999,red;", 4032, 3024, "image 1")
 
     assert mapped == []
     assert problems and problems[0].kind == "markup_off_the_image"
