@@ -106,6 +106,9 @@
      sets the measure a bullet is read at. */
   --step-image-max: 34rem;
   --step-thumb-width: 7.5rem;
+  /* The editor's lane is wider than the reader's because its slots are not
+     thumbnails: each carries the description field for its picture. */
+  --editor-slot-width: 15rem;
 }
 
 /*
@@ -2726,9 +2729,18 @@ a:hover {
  * Empty slots hold the places, so a step has one shape whether it has four
  * pictures or none, and the card does not jump about as they are added.
  */
+/*
+ * The author's slots, in the same lane the reader's thumbnails stand in.
+ *
+ * Three equal columns while the strip ran under the picture, which is what it
+ * no longer does — left at three it claimed 736px of the row beside the stage
+ * and squeezed the picture to 377px, the reverse of the arrangement the two are
+ * meant to share. One column, and wider than the reader's, because a slot is a
+ * picture *and* the field describing it.
+ */
 .media-strip {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: var(--editor-slot-width);
   gap: 0.5rem;
   align-items: start;
 }

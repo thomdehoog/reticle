@@ -161,9 +161,9 @@ describe('the shared step grid', () => {
    * with the strip back in the text column, which is what it is moving out of.
    */
   it.each([
-    ['the stage', '.step__body > .step__stage,\n.editor-step__body > .media-stage', 1, '1'],
-    ['the strip', '.step__body > .step__thumbs,\n.editor-step__body > .media-strip', 1, '2'],
-    ['the points', '.step__body > .bullets,\n.editor-step__body > .editor-step__points', 2, '1 / 3'],
+    ['the stage', '.step__body > .step__stage,\n.editor-step__body > .media-stage', '1', '1'],
+    ['the strip', '.step__body > .step__thumbs,\n.editor-step__body > .media-strip', '2', '1'],
+    ['the points', '.step__body > .bullets,\n.editor-step__body > .editor-step__points', '1 / -1', '2'],
   ])('places %s from one rule', (_what, selector, column, row) => {
     const at = stylesheet.indexOf(selector)
     expect(at).toBeGreaterThan(-1)
@@ -173,22 +173,46 @@ describe('the shared step grid', () => {
     expect(body).toContain(`grid-row: ${row};`)
   })
 
-  it('gives the thumbnails the width of the picture, not of a thumbnail', () => {
-    /* Under the picture they have its whole column, so a fixed per-thumbnail
-       cap would leave the strip short of the picture's right edge. Both strips
-       size from the row instead — the reader in tracks that fit, the editor in
-       three equal ones, because it always has exactly three. */
-    /* Searched with a leading newline: the placement rule above ends in
-       `> .media-strip {`, and a bare search finds that instead of the rule that
-       actually sizes the tracks. */
+  /**
+   * The picture is capped and the lane beside it is fixed, so the row cannot be
+   * carved up by whichever child happens to want more.
+   *
+   * This is the failure the change actually had: the strip kept three equal
+   * columns from the days when it ran *under* the picture, and standing it
+   * beside one it claimed 736px of the row and left the picture 377px — the
+   * reverse of the arrangement the two are meant to share. Each lane is a named
+   * width now, and the reader's is narrower than the author's because a
+   * thumbnail is a picture and a slot is a picture with a field under it.
+   */
+  it('gives the picture a ceiling and each strip a lane of its own', () => {
+    const grid = stylesheet.slice(stylesheet.indexOf('.step__body,\n.editor-step__body {'))
+    expect(grid.slice(0, grid.indexOf('}'))).toContain(
+      'grid-template-columns: minmax(0, var(--step-image-max)) auto;',
+    )
+
+    /* Searched with a leading newline: the placement rules above end in
+       `> .media-strip {`, and a bare search finds those instead of the rule
+       that actually sizes the tracks. */
     const reader = stylesheet.slice(stylesheet.indexOf('\n.step__thumbs {'))
-    expect(reader.slice(0, reader.indexOf('}'))).toMatch(/grid-template-columns:\s*repeat\(auto-fill/)
+    expect(reader.slice(0, reader.indexOf('}'))).toContain(
+      'grid-template-columns: var(--step-thumb-width);',
+    )
 
     const editor = stylesheet.slice(stylesheet.indexOf('\n.media-strip {'))
-    expect(editor.slice(0, editor.indexOf('}'))).toMatch(/grid-template-columns:\s*repeat\(3/)
+    expect(editor.slice(0, editor.indexOf('}'))).toContain(
+      'grid-template-columns: var(--editor-slot-width);',
+    )
 
     const thumb = stylesheet.slice(stylesheet.indexOf('\n.step__thumb {'))
     expect(thumb.slice(0, thumb.indexOf('}'))).not.toContain('max-width')
+  })
+
+  /* Beside the picture a single column; under it, on a phone, a row again. */
+  it('lays the thumbnails back into a row once they are under the picture', () => {
+    const phone = stylesheet.slice(stylesheet.indexOf('@media (max-width: 640px)'))
+    const block = phone.slice(0, phone.indexOf('\n}\n'))
+
+    expect(block).toMatch(/\.step__body > \.step__thumbs \{[^}]*repeat\(auto-fill/)
   })
 
   /**
