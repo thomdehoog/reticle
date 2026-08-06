@@ -363,9 +363,20 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      # The application, from the lock a facility installs. The demonstration
+      # corpus below is filled by `tools/demo_corpus.py`, which talks to the
+      # running instance over HTTP and needs a client to do it — and the
+      # application itself never imports one, so httpx is a development
+      # dependency and this job installed neither it nor anything it pulls in.
+      # The tool is a development tool, so it gets the development lock; still
+      # hash-pinned, and still on top of the production lock rather than instead
+      # of it, so what the browser then exercises is the same set of versions a
+      # facility runs.
       - name: Install backend
         working-directory: backend
-        run: pip install --require-hashes -r requirements.lock
+        run: |
+          pip install --require-hashes -r requirements.lock
+          pip install --require-hashes -r requirements-dev.lock
 
       - name: Install frontend
         working-directory: frontend
