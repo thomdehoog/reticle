@@ -299,19 +299,54 @@ for (const viewport of VIEWPORTS) {
     /**
      * The rail followed the reader down to the guide.
      *
-     * It lists what the section holds and marks the one open, which is the
-     * whole reason there is no longer a second list of the same procedures
-     * beside the article. On a wide screen that list is the rail; below the
-     * breakpoint the rail is not rendered and the same component is in the
-     * drawer, so the phone is asked the same question through the button it
-     * actually has.
+     * It does not mark the guide, and asking whether it does was this check for
+     * one rework too long: a guide belongs to as many groups as it has tags, so
+     * a marked row would light up three of them and say the reader is in three
+     * places. What the column carries instead is the way back — a path ending
+     * at the section that holds the guide, and that section's group names — and
+     * that is what is asked here, because a guide with no way back to its
+     * neighbours is the failure the second list of procedures used to prevent.
+     *
+     * On a wide screen the column is the rail; below the breakpoint the rail is
+     * not rendered and the same component is in the drawer, so the phone is
+     * asked the same question through the button it actually has.
      */
-    const railMark = await page.evaluate(() => {
-      const item = document.querySelector('.rail .rail__item[aria-current="page"]')
-      return item ? item.textContent.trim() : null
-    })
+    const wayBack = (selector) =>
+      page.evaluate((root) => {
+        const column = document.querySelector(root)
+        if (!column) return null
+        const href = (item) => item.getAttribute('href') ?? ''
+        const steps = [...column.querySelectorAll('.rail__item--step')]
+        const groups = [...column.querySelectorAll('.rail__item')].filter(
+          (item) => !item.classList.contains('rail__item--step'),
+        )
+        const section = steps.length ? href(steps[steps.length - 1]) : null
+        return {
+          path: steps.map((item) => item.textContent.trim()),
+          section,
+          groups: groups.map((item) => item.textContent.trim()),
+          /* Every group row has to lead back into that same section, at the
+             heading it names. A row pointing at the tag's own page instead
+             gathers the group from every section in the institute, which is a
+             different place wearing the same word. */
+          allLeadBackToTheSection:
+            section !== null &&
+            groups.every((item) => href(item).startsWith(`${section}#group-`)),
+        }
+      }, selector)
+
     if (await page.locator('.rail').count()) {
-      record(`[${viewport.name}] the rail marks the guide being read`, railMark !== null, railMark ?? '')
+      const rail = await wayBack('.rail')
+      record(
+        `[${viewport.name}] the rail's path reaches the section holding the guide`,
+        rail !== null && rail.path.length > 1,
+        rail ? rail.path.join(' → ') : 'no rail',
+      )
+      record(
+        `[${viewport.name}] every group in the rail leads back into that section`,
+        rail !== null && rail.allLeadBackToTheSection,
+        rail ? `${rail.groups.length} groups → ${rail.section}` : 'no rail',
+      )
     }
 
     const drawer = page.getByRole('button', { name: 'Menu' })
@@ -319,18 +354,23 @@ for (const viewport of VIEWPORTS) {
       await drawer.click()
       await page.waitForSelector('.menu-sheet')
       /* The drawer is built when it opens, so its copy of the list asks for the
-         section from scratch. Waited for rather than read, or this measures how
-         fast the machine is. */
-      const sheetMark = await page
-        .locator('.menu-sheet .rail__item[aria-current="page"]')
-        .first()
-        .textContent({ timeout: 10000 })
-        .then((text) => text.trim())
-        .catch(() => null)
+         section from scratch — about a second of it, on this corpus. Waited for
+         rather than read, or this measures how fast the machine is.
+
+         Waited for the path to *descend*, not for a row to exist: Home is drawn
+         before anything has been fetched, so waiting for one step row is
+         satisfied instantly and reads the column mid-build. */
+      await page
+        .waitForFunction(
+          () => document.querySelectorAll('.menu-sheet .rail__item--step').length > 1,
+          { timeout: 10000 },
+        )
+        .catch(() => {})
+      const sheet = await wayBack('.menu-sheet')
       record(
-        `[${viewport.name}] the drawer marks the guide being read`,
-        sheetMark !== null,
-        sheetMark ?? '',
+        `[${viewport.name}] the drawer carries the same way back`,
+        sheet !== null && sheet.path.length > 1 && sheet.allLeadBackToTheSection,
+        sheet ? sheet.path.join(' → ') : 'no drawer column',
       )
       await page.keyboard.press('Escape')
       await page.waitForSelector('.menu-sheet', { state: 'detached' })

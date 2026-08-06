@@ -69,13 +69,6 @@ export interface CategoryContents {
   pages: PageSummary[]
 }
 
-/** What the content area lists, and which of it is open. */
-export interface Places {
-  places: RailPlace[]
-  /** The one being read, marked by weight and a bar rather than by colour. */
-  currentId: string | null
-}
-
 function byOrder(categories: Category[]): Category[] {
   return [...categories].sort(
     (a, b) => a.orderIndex - b.orderIndex || a.name.localeCompare(b.name),
@@ -139,8 +132,8 @@ function contentsPlaces(contents: CategoryContents, categorySlug: string): RailP
  * Home is always its first row, because the front page is always somewhere to
  * go back to; the sections follow, outermost first, ending with the one the
  * reader is in. Reading a guide is standing in the category that holds it, so
- * a guide's path is its section's — the guide itself is marked in the content
- * area below and does not repeat here.
+ * a guide's path is its section's — and from a guide this path is the only way
+ * back to that section that does not go through the front page.
  *
  * A category outside `browsable` ends the walk rather than appearing in it: a
  * hidden holding category is not a place the reader can be sent, and a path
@@ -190,25 +183,19 @@ export function railPlaces(
   browsable: Category[],
   slug: string | null,
   contents: CategoryContents | null,
-): Places {
+): RailPlace[] {
   const current = slug === null ? undefined : browsable.find((c) => c.slug === slug)
 
   if (current) {
     const children = byOrder(browsable.filter((c) => c.parentId === current.id))
     if (children.length > 0) {
-      return { places: children.map(categoryPlace), currentId: null }
+      return children.map(categoryPlace)
     }
 
-    return {
-      places: contents === null ? [] : contentsPlaces(contents, current.slug),
-      currentId: null,
-    }
+    return contents === null ? [] : contentsPlaces(contents, current.slug)
   }
 
-  return {
-    places: byOrder(browsable.filter((c) => c.parentId === null)).map(categoryPlace),
-    currentId: null,
-  }
+  return byOrder(browsable.filter((c) => c.parentId === null)).map(categoryPlace)
 }
 
 /** The slug of the category being read, or null anywhere else in the app. */
@@ -354,13 +341,14 @@ export function RailGroups() {
     return { guides, pages }
   }, [api, bottom])
 
-  const { places, currentId } = railPlaces(browsable ?? [], slug, contents)
+  const places = railPlaces(browsable ?? [], slug, contents)
   const trail = railTrail(browsable ?? [], slug)
 
-  /* The path marks a step only when that step is the address in the bar. On a
-     guide nothing in it is marked: the reader is *in* Confocal but they are
-     *looking at* the guide, which is the row marked below, and two marks would
-     make the column say the reader is in two places. */
+  /* The path marks a step only when that step is the address in the bar, which
+     on a guide is no step at all: the reader is *in* Confocal but they are
+     *looking at* a guide, and the content area below marks nothing either — a
+     guide belongs to as many groups as it has tags. The address is marked or
+     nothing is, never two rows at once. */
   const openCategory = categorySlug(pathname)
   const isOpen = (place: RailPlace) =>
     place.to === '/' ? pathname === '/' : place.slug === openCategory
@@ -386,12 +374,7 @@ export function RailGroups() {
       {places.length > 0 && (
         <RailGroup heading="Content" scrolls>
           {places.map((place) => (
-            <Link
-              key={place.id}
-              className={`rail__item${place.id === currentId ? ' rail__item--on' : ''}`}
-              to={place.to}
-              aria-current={place.id === currentId ? 'page' : undefined}
-            >
+            <Link key={place.id} className="rail__item" to={place.to}>
               {place.name}
             </Link>
           ))}

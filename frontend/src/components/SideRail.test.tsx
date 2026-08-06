@@ -55,10 +55,10 @@ function trail(): string[] {
 /**
  * The marked row of one area, or null.
  *
- * Asked of an area rather than of the document, because the two areas mark
- * different things and always did: the path marks the address in the bar, the
- * content marks the document being read, and on a guide only the second of
- * those exists. A search of the whole column cannot tell them apart.
+ * Asked of an area rather than of the document, because only one of them ever
+ * marks anything: the path marks the address in the bar, and the content area
+ * marks nothing at all. A search of the whole column could not tell a mark in
+ * the wrong area from the right one.
  */
 function marked(area: 'content' | 'trail'): string | null {
   const row = document.querySelector(`.rail__places--${area} .rail__item--on`)
