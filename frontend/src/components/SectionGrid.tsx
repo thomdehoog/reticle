@@ -222,9 +222,26 @@ export function SectionGrid({
                 id="delete-password"
                 className="input"
                 type="password"
-                autoComplete="off"
+                /* Every layer here exists because the one above it is ignored.
+                   "off" is ignored by browsers on password fields; "new-password"
+                   tells them this is not the saved credential, which Chrome and
+                   Firefox honour. The three data attributes are 1Password,
+                   LastPass and Bitwarden, which read their own and not the
+                   standard one. And "readOnly" until the field is touched is what
+                   catches the rest: a manager fills on load, and there is nothing
+                   fillable on load. It clears on focus, so typing is unaffected.
+
+                   No autoFocus, deliberately — focusing it on open would hand a
+                   manager the moment it is waiting for. */
+                autoComplete="new-password"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore
+                readOnly
+                onFocus={(event) => {
+                  event.currentTarget.readOnly = false
+                }}
                 required
-                autoFocus
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
               />
