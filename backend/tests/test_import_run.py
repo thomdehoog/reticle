@@ -536,7 +536,9 @@ def test_the_tree_shows_a_section_a_guide_had_already_hidden(
 
     importer.adopt_category_tree()
 
-    assert not db_session.scalars(select(Category).where(Category.name == "Widefield")).one().is_hidden
+    assert (
+        not db_session.scalars(select(Category).where(Category.name == "Widefield")).one().is_hidden
+    )
 
 
 def test_an_import_never_hides_a_section_somebody_chose_to_show(
@@ -554,14 +556,14 @@ def test_an_import_never_hides_a_section_somebody_chose_to_show(
     client.category_tree = {"Light Microscopy": {}}
     _run(db_session, client)
 
-    assert not db_session.scalars(
-        select(Category).where(Category.name == "Cell Culture")
-    ).one().is_hidden
+    assert (
+        not db_session.scalars(select(Category).where(Category.name == "Cell Culture"))
+        .one()
+        .is_hidden
+    )
 
 
-def test_naming_a_section_imports_that_section_and_no_other(
-    db_session, author_account, media_root
-):
+def test_naming_a_section_imports_that_section_and_no_other(db_session, author_account, media_root):
     """A migration is done in stages, and this is what stages it.
 
     `--limit` takes whatever the catalogue lists first, which is no use for

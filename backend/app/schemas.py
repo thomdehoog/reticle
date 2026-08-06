@@ -543,9 +543,7 @@ def user_out(user: models.User) -> UserOut:
     )
 
 
-def category_out(
-    category: models.Category, landing_hero_id: str | None = None
-) -> CategoryOut:
+def category_out(category: models.Category, landing_hero_id: str | None = None) -> CategoryOut:
     """One section, as every browse surface is given it.
 
     ``image_url`` falls back to the picture on the section's landing page, and
