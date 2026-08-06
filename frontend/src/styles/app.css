@@ -3385,7 +3385,7 @@ a:hover {
  * earn their place — search is how somebody at an instrument finds a procedure
  * by name — and everything else is one tap away instead of always present.
  */
-@media (max-width: 860px) {
+@media (max-width: 767px) {
   .app__header {
     gap: 0.5rem;
     padding: 0 0.75rem;
@@ -4045,28 +4045,64 @@ a:hover {
 }
 
 /*
- * `auto-fit` rather than `auto-fill`, and only inside a panel.
+ * Every bar the same size, in every group, at every window width.
  *
- * `auto-fill` keeps the empty tracks, so a group holding one guide drew that
- * row at a third of the width with two thirds of white panel stranded beside
- * it — and half of ZMB's groups hold one or two. `auto-fit` collapses what is
- * not used, so a short group is a full-width row and reads as deliberate.
+ * A fixed track rather than `minmax(19rem, 1fr)`: the `1fr` is what let a bar
+ * grow to swallow the leftover width, so the same guide was a different shape
+ * depending on how many happened to sit beside it and on how wide the window
+ * was. `auto-fit` was worse again — it collapses the empty tracks, so a group
+ * of one stretched right across the panel while the group under it drew three
+ * narrow ones.
+ *
+ * What changes with the window is how many bars fit on a line. What does not
+ * change is the bar. A reader going down this page is comparing them, and the
+ * comparison is the whole reason they are the same shape; the leftover width
+ * is left over, which is what `justify-content: start` says.
+ *
+ * Below one track's width there is nothing to arrange, so the bar gives up its
+ * fixed width rather than overflowing the panel — a phone gets one bar per line
+ * at whatever the line is.
  */
 .section--group .guide-rows {
-  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  grid-template-columns: repeat(auto-fill, 19rem);
+  justify-content: start;
+  /* More air above and below than beside: the bars are wide and short, so the
+     vertical gaps are what keep two lines of them from reading as one block. */
+  gap: 0.85rem 0.7rem;
   max-width: none;
-  padding: 0.85rem 1.15rem 1rem;
+  padding: 1.15rem 1.15rem 1.3rem;
 }
 
-/* Plain until pointed at. The panel is doing the framing now. */
+@media (max-width: 24rem) {
+  .section--group .guide-rows {
+    grid-template-columns: 1fr;
+  }
+}
+
+/*
+ * The same height as well as the same width. A title on one line and a title on
+ * three are the same bar, so the floor is set by the picture inside it rather
+ * than by the words: without it the rows of a group step up and down as the
+ * titles happen to wrap.
+ */
 .section--group .guide-row {
-  background: transparent;
-  border-color: transparent;
+  min-height: 4.4rem;
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+/* Two lines, not three. The bar is wide enough that a third line is rare, and
+   the one bar that takes it is 5px taller than every other — which is exactly
+   the unevenness the fixed size is for. Elsewhere the row is one column wide
+   and the third line earns its place. */
+.section--group .guide-row__title {
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .section--group .guide-row:hover {
   background: var(--brand-050);
-  border-color: var(--border);
+  border-color: var(--brand-600);
 }
 
 /*
@@ -4138,7 +4174,7 @@ a:hover {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-@media (max-width: 860px) {
+@media (max-width: 767px) {
   .quick-links {
     grid-template-columns: minmax(0, 1fr);
   }

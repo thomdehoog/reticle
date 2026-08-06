@@ -41,7 +41,7 @@ function pretendPhone() {
   window.matchMedia = ((media: string) =>
     ({
       media,
-      matches: media.includes('max-width: 860px'),
+      matches: media.includes('max-width: 767px'),
       onchange: null,
       addEventListener: () => {},
       removeEventListener: () => {},

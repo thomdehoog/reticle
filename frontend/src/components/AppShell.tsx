@@ -44,7 +44,7 @@ import { RailGroups, SideRail } from './SideRail'
 import { Modal } from './ui'
 
 /** The width below which the header is a brand, a search box and a button. */
-const PHONE_WIDTH = '(max-width: 860px)'
+const PHONE_WIDTH = '(max-width: 767px)'
 
 function subscribeToWidth(onChange: () => void) {
   const query = window.matchMedia(PHONE_WIDTH)
