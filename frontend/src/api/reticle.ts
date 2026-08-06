@@ -111,8 +111,9 @@ export class ReticleApi {
     return this.http.patch<Category>(`/categories/${id}`, changes)
   }
 
-  deleteCategory(id: string): Promise<void> {
-    return this.http.delete<void>(`/categories/${id}`)
+  /** The password is the administrator's own, and the server checks it. */
+  deleteCategory(id: string, password: string): Promise<void> {
+    return this.http.delete<void>(`/categories/${id}`, { password })
   }
 
   listGuides(query: GuideQuery = {}): Promise<GuideSummary[]> {

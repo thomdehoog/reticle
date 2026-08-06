@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .conftest import create_guide, upload_media, upload_video
+from .conftest import TEST_PASSWORD, create_guide, upload_media, upload_video
 
 
 def test_any_authenticated_role_can_list_categories(viewer, category):
@@ -165,30 +165,76 @@ def test_renaming_a_category_to_nothing_is_rejected(admin, category):
 def test_deleting_an_empty_category_succeeds(admin):
     created = admin.post("/api/categories", json={"name": "Temporary"}).json()
 
-    assert admin.delete(f"/api/categories/{created['id']}").status_code == 204
+    assert (
+        admin.delete(
+            f"/api/categories/{created['id']}", json={"password": TEST_PASSWORD}
+        ).status_code
+        == 204
+    )
     assert admin.get("/api/categories").json() == []
 
 
-def test_deleting_a_category_that_still_has_children_conflicts(admin, category):
-    admin.post("/api/categories", json={"name": "Child", "parentId": category.id})
+def test_deleting_a_section_takes_its_sub_sections_with_it(admin, category):
+    """Everything underneath goes. This is what the password is asked for."""
+    admin.post("/api/categories", json={"name": "Talos", "parentId": category.id})
 
+    response = admin.delete(f"/api/categories/{category.id}", json={"password": TEST_PASSWORD})
+
+    assert response.status_code == 204
+    assert admin.get("/api/categories").json() == []
+
+
+def test_deleting_a_section_takes_the_guides_inside_it(admin, category):
+    """Not archived — deleted. A guide removed on its own is kept as a row and
+    marked archived; a guide inside a deleted section stops existing, along with
+    its steps and its revisions."""
+    guide = create_guide(admin, category.id)
+
+    response = admin.delete(f"/api/categories/{category.id}", json={"password": TEST_PASSWORD})
+
+    assert response.status_code == 204
+    assert admin.get(f"/api/guides/{guide['id']}").status_code == 404
+    assert admin.get("/api/guides").json() == []
+
+
+def test_deleting_a_section_takes_the_guides_in_its_sub_sections_too(admin, category):
+    sub = admin.post("/api/categories", json={"name": "Talos", "parentId": category.id}).json()
+    create_guide(admin, sub["id"])
+
+    response = admin.delete(f"/api/categories/{category.id}", json={"password": TEST_PASSWORD})
+
+    assert response.status_code == 204
+    assert admin.get("/api/guides").json() == []
+    assert admin.get("/api/categories").json() == []
+
+
+def test_deleting_a_category_without_the_password_is_refused(admin, category):
+    """The confirmation is the server's, not the dialog's.
+
+    A password typed into a modal guards the hand that clicked. This endpoint is
+    reachable without the modal, so a check that lived only in the browser would
+    guard nothing at all — and a section, unlike a guide or a page, is not
+    archived but deleted.
+    """
+    wrong = admin.delete(f"/api/categories/{category.id}", json={"password": "not-my-password"})
+
+    assert wrong.status_code == 401
+    assert wrong.json()["error"]["code"] == "invalid_credentials"
+    assert admin.get("/api/categories").json()[0]["id"] == category.id
+
+
+def test_deleting_a_category_with_no_password_at_all_is_refused(admin, category):
+    """An absent password is a caller that was never asked."""
     response = admin.delete(f"/api/categories/{category.id}")
 
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "conflict"
-
-
-def test_deleting_a_category_that_still_holds_guides_conflicts(admin, category):
-    create_guide(admin, category.id)
-
-    response = admin.delete(f"/api/categories/{category.id}")
-
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "conflict"
+    assert response.status_code == 422
+    assert admin.get("/api/categories").json()[0]["id"] == category.id
 
 
 def test_deleting_an_unknown_category_is_not_found(admin):
-    response = admin.delete("/api/categories/01JQNOTAREALULID00000000")
+    response = admin.delete(
+        "/api/categories/01JQNOTAREALULID00000000", json={"password": TEST_PASSWORD}
+    )
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "not_found"
@@ -343,3 +389,41 @@ def test_listing_every_section_asks_once_for_the_landing_pictures(admin, databas
 
     assert len(listed) >= 5
     assert sum(1 for statement in statements if "FROM pages" in statement) == 1
+
+
+def test_a_sub_section_cannot_be_given_a_sub_section(admin, category):
+    """The tree is two deep, and the third level has no screen.
+
+    A section with sub-sections lists them; a section without them lists its
+    guides. A third level would therefore be reachable only by typing its
+    address, and the guides inside it would appear in no listing at all.
+    """
+    sub = admin.post("/api/categories", json={"name": "Talos", "parentId": category.id}).json()
+
+    response = admin.post("/api/categories", json={"name": "Deeper", "parentId": sub["id"]})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+
+
+def test_a_section_holding_sub_sections_cannot_be_moved_inside_another(admin, category):
+    """The same rule from the other end: its children would become the third level."""
+    admin.post("/api/categories", json={"name": "Talos", "parentId": category.id})
+    other = admin.post("/api/categories", json={"name": "Electron Microscopy"}).json()
+
+    response = admin.patch(f"/api/categories/{category.id}", json={"parentId": other["id"]})
+
+    assert response.status_code == 422
+    assert [
+        c["parentId"] for c in admin.get("/api/categories").json() if c["id"] == category.id
+    ] == [None]
+
+
+def test_a_childless_section_can_still_be_made_a_sub_section(admin, category):
+    """The limit is on depth, not on moving things about."""
+    other = admin.post("/api/categories", json={"name": "Electron Microscopy"}).json()
+
+    response = admin.patch(f"/api/categories/{category.id}", json={"parentId": other["id"]})
+
+    assert response.status_code == 200
+    assert response.json()["parentId"] == other["id"]

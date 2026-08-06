@@ -12,11 +12,13 @@
  * for all three of these operations, so a viewer who forges the markup still
  * gets a 403.
  *
- * **Deleting is confirmed but not warned about.** The server refuses to delete a
- * section that still holds guides, pages or sub-sections, and says which — so
- * the dangerous case is already impossible and the dialog does not need to
- * describe it. What the dialog is for is the *other* mistake: an empty section
- * deleted by a mis-aimed click on a tile the eye had already moved past.
+ * **Deleting takes everything underneath, and asks for a password.** The server
+ * used to refuse while a section still held anything, which left emptying one a
+ * manual chore and made the button unable to do what it said. It does the whole
+ * thing now — sub-sections, guides, wiki pages — and none of it is archived, so
+ * the dialog says so plainly and the password is what stands between a tile and
+ * a body of documentation. It is checked on the server as well; a confirmation
+ * that lived only here would guard the mis-click and nothing else.
  *
  * **Order is dragged, and also nudged.** Dragging is what an administrator
  * reaches for on a wall of pictures, and it is not reachable from a keyboard;
@@ -37,11 +39,19 @@ import { ErrorAlert, Modal } from './ui'
 export function SectionGrid({
   categories,
   parentId = null,
+  canAdd = true,
   onChanged,
 }: {
   categories: Category[]
   /** Which section these sit in, so a new one is made in the right place. */
   parentId?: string | null
+  /**
+   * Whether a section may be added here at all.
+   *
+   * False inside a sub-section: the tree is two deep and the server refuses a
+   * third level, so offering the tile would be offering a 422.
+   */
+  canAdd?: boolean
   /** Called after an order change or a deletion, to re-read the tree. */
   onChanged: () => void
 }) {
@@ -50,17 +60,39 @@ export function SectionGrid({
   const admin = can('admin')
 
   const [confirming, setConfirming] = useState<Category | null>(null)
+  const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<unknown>(null)
   const [dragging, setDragging] = useState<string | null>(null)
-  const [over, setOver] = useState<string | null>(null)
+
+  /**
+   * The order on screen, which during a drag is ahead of the order on the
+   * server.
+   *
+   * A tile moves as soon as the pointer is over the place it would land, so
+   * what the grid shows while somebody is still holding the mouse down is the
+   * result of letting go — the arrangement is the preview, and there is no
+   * marker to interpret. Only when the drag ends is any of it written.
+   */
+  const [order, setOrder] = useState(categories)
+  /* Adjusted during render rather than in an effect: an effect would paint the
+     stale order first and then correct it, and React re-renders this component
+     before the browser sees either. The remembered list is what says the
+     property genuinely changed, as opposed to this component simply rendering
+     again mid-drag. */
+  const [rendered, setRendered] = useState(categories)
+  if (rendered !== categories) {
+    setRendered(categories)
+    setOrder(categories)
+  }
 
   async function remove(category: Category) {
     setBusy(true)
     setFailure(null)
     try {
-      await api.deleteCategory(category.id)
+      await api.deleteCategory(category.id, password)
       setConfirming(null)
+      setPassword('')
       onChanged()
     } catch (cause) {
       setFailure(cause)
@@ -69,34 +101,46 @@ export function SectionGrid({
     }
   }
 
-  /**
-   * Drop `dragged` where `target` is, and write the order back.
-   *
-   * Every tile from the smaller of the two positions onward is renumbered,
-   * because `orderIndex` is a position and not a weight: writing one row's new
-   * number and leaving the rest would put two sections on the same index and
-   * let the tie decide the order.
-   */
-  async function reorder(draggedId: string, targetId: string) {
+  /** Move the dragged tile to where `targetId` currently sits, on screen only. */
+  function previewMove(draggedId: string, targetId: string) {
     if (draggedId === targetId) return
-    const from = categories.findIndex((candidate) => candidate.id === draggedId)
-    const to = categories.findIndex((candidate) => candidate.id === targetId)
-    if (from < 0 || to < 0) return
+    setOrder((current) => {
+      const from = current.findIndex((candidate) => candidate.id === draggedId)
+      const to = current.findIndex((candidate) => candidate.id === targetId)
+      if (from < 0 || to < 0 || from === to) return current
+      const next = [...current]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }
 
-    const next = [...categories]
-    const [moved] = next.splice(from, 1)
-    next.splice(to, 0, moved)
+  /**
+   * Write down what the grid is already showing.
+   *
+   * Every tile from the first moved position onward is renumbered, because
+   * `orderIndex` is a position and not a weight: writing one row's new number
+   * and leaving the rest would put two sections on the same index and let the
+   * tie decide which came first.
+   *
+   * `onChanged` is not called on success. The screen is already right — it has
+   * been since the pointer passed the tile — and re-reading the tree only to
+   * redraw the same order is a flicker for nothing. It is called on failure,
+   * where the screen is showing an arrangement the server refused and the truth
+   * has to come back.
+   */
+  async function commitOrder() {
+    const moved = order.filter((category, index) => category.orderIndex !== index)
+    if (moved.length === 0) return
 
     setFailure(null)
     try {
-      for (const [index, category] of next.entries()) {
-        if (category.orderIndex !== index) {
-          await api.updateCategory(category.id, { orderIndex: index })
-        }
+      for (const category of moved) {
+        await api.updateCategory(category.id, { orderIndex: order.indexOf(category) })
       }
-      onChanged()
     } catch (cause) {
       setFailure(cause)
+      onChanged()
     }
   }
 
@@ -105,12 +149,10 @@ export function SectionGrid({
       <ErrorAlert error={failure} />
 
       <TileGrid>
-        {categories.map((category) => (
+        {order.map((category) => (
           <div
             key={category.id}
-            className={
-              over === category.id && dragging !== category.id ? 'tile-drop tile-drop--over' : 'tile-drop'
-            }
+            className={`tile-drop${dragging === category.id ? ' tile-drop--lifted' : ''}`}
             draggable={admin}
             onDragStart={(event) => {
               setDragging(category.id)
@@ -120,22 +162,23 @@ export function SectionGrid({
             }}
             onDragEnd={() => {
               setDragging(null)
-              setOver(null)
+              void commitOrder()
+            }}
+            /* `dragEnter` and not `dragOver`: entering fires once per tile
+               crossed, where `dragOver` fires every few pixels and would move
+               the same tile over and over while the pointer sat still. */
+            onDragEnter={() => {
+              if (admin && dragging) previewMove(dragging, category.id)
             }}
             onDragOver={(event) => {
               if (!admin || !dragging) return
+              /* Both of these are needed for a drop to be allowed at all, which
+                 is what makes `dragEnd` mean "let go here" rather than
+                 "cancelled". */
               event.preventDefault()
               event.dataTransfer.dropEffect = 'move'
-              setOver(category.id)
             }}
-            onDragLeave={() => setOver((current) => (current === category.id ? null : current))}
-            onDrop={(event) => {
-              event.preventDefault()
-              const draggedId = dragging ?? event.dataTransfer.getData('text/plain')
-              setDragging(null)
-              setOver(null)
-              if (draggedId) void reorder(draggedId, category.id)
-            }}
+            onDrop={(event) => event.preventDefault()}
           >
             <CategoryTile
               category={category}
@@ -145,29 +188,67 @@ export function SectionGrid({
           </div>
         ))}
 
-        {admin && <NewCategoryTile parentId={parentId} />}
+        {admin && canAdd && <NewCategoryTile parentId={parentId} />}
       </TileGrid>
 
       {confirming && (
-        <Modal title={`Delete ${confirming.name}?`} onClose={() => setConfirming(null)}>
+        <Modal
+          title={`Delete ${confirming.name}?`}
+          onClose={() => {
+            setConfirming(null)
+            setPassword('')
+          }}
+        >
           <ErrorAlert error={failure} />
           <p>
-            The section and its picture go. Anything inside it has to be moved first — the server
-            refuses while it still holds guides, wiki pages or sections of its own, and says which.
+            <strong>Everything inside it goes as well</strong> — its sub-sections, and every guide
+            and wiki page filed in any of them. They are deleted, not archived: this is the one
+            place in Reticle where content does not come back.
           </p>
-          <div className="page-actions">
-            <button
-              className="button button--danger"
-              type="button"
-              disabled={busy}
-              onClick={() => void remove(confirming)}
-            >
-              {busy ? 'Deleting…' : 'Delete section'}
-            </button>
-            <button className="button" type="button" onClick={() => setConfirming(null)}>
-              Cancel
-            </button>
-          </div>
+          {/* The password is why this can be allowed to do what it says. The
+              server checks it too — a confirmation that lived only here would
+              stop the mis-click and nothing else. */}
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              void remove(confirming)
+            }}
+          >
+            <div className="field">
+              <label className="field__label" htmlFor="delete-password">
+                Your password
+              </label>
+              <input
+                id="delete-password"
+                className="input"
+                type="password"
+                autoComplete="off"
+                required
+                autoFocus
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </div>
+            <div className="page-actions">
+              <button
+                className="button button--danger"
+                type="submit"
+                disabled={busy || password === ''}
+              >
+                {busy ? 'Deleting…' : 'Delete section'}
+              </button>
+              <button
+                className="button"
+                type="button"
+                onClick={() => {
+                  setConfirming(null)
+                  setPassword('')
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
     </>

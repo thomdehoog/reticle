@@ -87,8 +87,11 @@ export class ApiClient {
     return this.send<T>('PATCH', path, body)
   }
 
-  delete<T>(path: string): Promise<T> {
-    return this.send<T>('DELETE', path)
+  /* A body is unusual on DELETE and is what carries the password confirming a
+     section's removal. Optional, because everything else deleted here needs no
+     second word. */
+  delete<T>(path: string, body?: unknown): Promise<T> {
+    return this.send<T>('DELETE', path, body)
   }
 
   /** Uploads one image. The browser sets the multipart boundary, so we must not. */

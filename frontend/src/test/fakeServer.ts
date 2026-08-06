@@ -25,6 +25,14 @@ import type {
   User,
 } from '../domain/types'
 
+/**
+ * The one password this server accepts, wherever it is asked for.
+ *
+ * Signing in and deleting a section both want it, and naming it once means a
+ * test cannot pass by getting one of them right.
+ */
+export const KNOWN_PASSWORD = 'correct-horse-battery'
+
 export interface FakeServerState {
   user: User
   users: User[]
@@ -549,16 +557,31 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       }
 
       if (method === 'DELETE') {
-        if (state.categories.some((c) => c.parentId === category.id)) {
-          return error('conflict', 'Move or delete the sub-categories first.', 409)
+        /* The real server verifies the caller's password before removing a
+           section, so this one does too. A fake that waves the confirmation
+           through would let the dialog lose its password field without a single
+           test noticing — which is the whole failure the check exists to
+           prevent, moved one layer out. */
+        if ((body as { password?: string } | null)?.password !== KNOWN_PASSWORD) {
+          return error('invalid_credentials', 'That is not your password.', 401)
         }
-        if (state.guides.some((guide) => guide.categoryId === category.id)) {
-          return error('conflict', 'Move the guides in this category somewhere else first.', 409)
+        /* Recursive, as the real one is: the section, its sub-sections, and
+           every guide and page filed in any of them. A fake that removed one
+           row would let a screen claim it had deleted a section while its
+           guides were still listed. */
+        const doomed = new Set<string>([category.id])
+        for (let added = true; added; ) {
+          added = false
+          for (const candidate of state.categories) {
+            if (candidate.parentId && doomed.has(candidate.parentId) && !doomed.has(candidate.id)) {
+              doomed.add(candidate.id)
+              added = true
+            }
+          }
         }
-        if (state.pages.some((page) => page.categoryId === category.id)) {
-          return error('conflict', "Move or delete this category's wiki pages first.", 409)
-        }
-        state.categories = state.categories.filter((c) => c.id !== category.id)
+        state.guides = state.guides.filter((guide) => !doomed.has(guide.categoryId ?? ''))
+        state.pages = state.pages.filter((page) => !doomed.has(page.categoryId ?? ''))
+        state.categories = state.categories.filter((c) => !doomed.has(c.id))
         return noContent()
       }
     }
@@ -637,7 +660,7 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
 
     if (path === '/auth/login' && method === 'POST') {
       const credentials = body as { email: string; password: string }
-      if (credentials.password !== 'correct-horse-battery') {
+      if (credentials.password !== KNOWN_PASSWORD) {
         return error('invalid_credentials', 'Email or password is incorrect.', 401)
       }
       authenticated = true

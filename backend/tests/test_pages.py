@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from ulid import ULID
 
-from .conftest import create_page, instant, page_document_from, upload_media
+from .conftest import TEST_PASSWORD, create_page, instant, page_document_from, upload_media
 
 
 def published_page(client, title: str = "Immersion Oil", **kwargs) -> dict:
@@ -567,16 +567,20 @@ def test_the_landing_endpoint_of_an_unknown_category_is_not_found(author):
     assert author.get(f"/api/categories/{ULID()}/page").status_code == 404
 
 
-def test_deleting_a_category_that_still_holds_a_wiki_page_conflicts(admin, author, category):
-    """The page would otherwise be left pointing at a category that no longer
-    exists, which is a landing nothing renders and nothing can find."""
-    create_page(author, "Immersion Oil", category_id=category.id)
+def test_deleting_a_category_takes_its_wiki_pages_with_it(admin, author, category):
+    """A page left behind would point at a category that no longer exists, which
+    is a landing nothing renders and nothing can find.
 
-    response = admin.delete(f"/api/categories/{category.id}")
+    That used to be prevented by refusing the deletion. It is prevented by
+    carrying out the whole of it instead: the section, its sub-sections, its
+    guides and its pages. The administrator's password is what guards it.
+    """
+    page = create_page(author, "Immersion Oil", category_id=category.id)
 
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "conflict"
-    assert "page" in response.json()["error"]["message"].lower()
+    response = admin.delete(f"/api/categories/{category.id}", json={"password": TEST_PASSWORD})
+
+    assert response.status_code == 204
+    assert admin.get(f"/api/pages/{page['id']}").status_code == 404
 
 
 def test_pages_read_without_a_session_and_are_not_writable_without_one(anon):

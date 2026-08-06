@@ -57,6 +57,7 @@ export function CategoryPage() {
   const { can } = useAuth()
   const [deleting, setDeleting] = useState(false)
   const [removing, setRemoving] = useState(false)
+  const [password, setPassword] = useState('')
   const [createError, setCreateError] = useState<unknown>(null)
 
   const { data, error, loading, reload } = useAsync(
@@ -114,7 +115,7 @@ export function CategoryPage() {
     setRemoving(true)
     setCreateError(null)
     try {
-      await api.deleteCategory(data.category.id)
+      await api.deleteCategory(data.category.id, password)
       navigate('/')
     } catch (cause) {
       setCreateError(cause)
@@ -182,8 +183,17 @@ export function CategoryPage() {
           above a page of procedures says sections are what this screen is for
           when they are not. Splitting a full section is the categories screen's
           job, which is where the whole tree is visible at once. */}
-      {(!isLeaf || (can('admin') && isBare)) && (
-        <SectionGrid categories={children} parentId={category.id} onChanged={reload} />
+      {(!isLeaf || (can('admin') && isBare && category.parentId === null)) && (
+        <SectionGrid
+          categories={children}
+          parentId={category.id}
+          /* Only a top-level section may be given sub-sections. The tree is two
+             deep — a section holds sub-sections, a sub-section holds the guides
+             and the wikis — and the server refuses a third level, so the tile
+             that would ask for one is not drawn inside a sub-section. */
+          canAdd={category.parentId === null}
+          onChanged={reload}
+        />
       )}
 
       {isLeaf && (
@@ -256,25 +266,60 @@ export function CategoryPage() {
           belongs to them. */}
 
       {deleting && (
-        <Modal title={`Delete ${category.name}?`} onClose={() => setDeleting(false)}>
+        <Modal
+          title={`Delete ${category.name}?`}
+          onClose={() => {
+            setDeleting(false)
+            setPassword('')
+          }}
+        >
           <ErrorAlert error={createError} />
           <p>
-            The section and its picture go. Anything inside it has to be moved first — the server
-            refuses while it still holds guides, wiki pages or sections of its own, and says which.
+            <strong>Everything inside it goes as well</strong> — its sub-sections, and every guide and
+            wiki page filed in any of them. They are deleted, not archived: this is the one place
+            in Reticle where content does not come back.
           </p>
-          <div className="page-actions">
-            <button
-              className="button button--danger"
-              type="button"
-              disabled={removing}
-              onClick={() => void removeSection()}
-            >
-              {removing ? 'Deleting…' : 'Delete section'}
-            </button>
-            <button className="button" type="button" onClick={() => setDeleting(false)}>
-              Cancel
-            </button>
-          </div>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              void removeSection()
+            }}
+          >
+            <div className="field">
+              <label className="field__label" htmlFor="delete-section-password">
+                Your password
+              </label>
+              <input
+                id="delete-section-password"
+                className="input"
+                type="password"
+                autoComplete="off"
+                required
+                autoFocus
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </div>
+            <div className="page-actions">
+              <button
+                className="button button--danger"
+                type="submit"
+                disabled={removing || password === ''}
+              >
+                {removing ? 'Deleting…' : 'Delete section'}
+              </button>
+              <button
+                className="button"
+                type="button"
+                onClick={() => {
+                  setDeleting(false)
+                  setPassword('')
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
     </>

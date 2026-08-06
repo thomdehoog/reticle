@@ -3,7 +3,13 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { Route, Routes } from 'react-router'
 
-import { categoryFixture, createFakeServer, guideFixture, pageFixture } from '../test/fakeServer'
+import {
+  KNOWN_PASSWORD,
+  categoryFixture,
+  createFakeServer,
+  guideFixture,
+  pageFixture,
+} from '../test/fakeServer'
 import { renderWithApp } from '../test/harness'
 import { CategoriesPage } from './CategoriesPage'
 
@@ -153,13 +159,23 @@ describe('CategoriesPage', () => {
     renderCategories(server)
 
     await user.click(await screen.findByRole('button', { name: 'Delete Electron Microscopy' }))
+    await user.type(screen.getByLabelText('Your password'), KNOWN_PASSWORD)
     await user.click(screen.getByRole('button', { name: 'Delete category' }))
 
     await waitFor(() => expect(server.state.categories).toHaveLength(1))
     expect(server.state.categories[0].id).toBe('c-light')
   })
 
-  it('repeats the server’s reason when the category still holds guides', async () => {
+  /**
+   * Deleting a category takes its contents with it.
+   *
+   * It used to refuse while anything was still filed under it, which made the
+   * button unable to do what it said and left emptying a section as a manual
+   * chore. The password is what stands in the way instead — so these assert the
+   * destruction, because a cascade that quietly stopped half way would look
+   * exactly like success.
+   */
+  it('deletes the guides filed in the category as well', async () => {
     const server = createFakeServer({
       categories: twoCategories(),
       guides: [guideFixture({ categoryId: 'c-em' })],
@@ -168,15 +184,14 @@ describe('CategoriesPage', () => {
     renderCategories(server)
 
     await user.click(await screen.findByRole('button', { name: 'Delete Electron Microscopy' }))
+    await user.type(screen.getByLabelText('Your password'), KNOWN_PASSWORD)
     await user.click(screen.getByRole('button', { name: 'Delete category' }))
 
-    expect(
-      await screen.findByText('Move the guides in this category somewhere else first.'),
-    ).toBeInTheDocument()
-    expect(server.state.categories).toHaveLength(2)
+    await waitFor(() => expect(server.state.categories).toHaveLength(1))
+    expect(server.state.guides).toEqual([])
   })
 
-  it('repeats the server’s reason when a wiki page is still filed there', async () => {
+  it('deletes the wiki pages filed there as well', async () => {
     const server = createFakeServer({
       categories: twoCategories(),
       guides: [],
@@ -186,10 +201,27 @@ describe('CategoriesPage', () => {
     renderCategories(server)
 
     await user.click(await screen.findByRole('button', { name: 'Delete Electron Microscopy' }))
+    await user.type(screen.getByLabelText('Your password'), KNOWN_PASSWORD)
     await user.click(screen.getByRole('button', { name: 'Delete category' }))
 
-    expect(
-      await screen.findByText("Move or delete this category's wiki pages first."),
-    ).toBeInTheDocument()
+    await waitFor(() => expect(server.state.pages).toEqual([]))
+    expect(server.state.categories).toHaveLength(1)
+  })
+
+  it('refuses when the password is wrong, and keeps everything', async () => {
+    const server = createFakeServer({
+      categories: twoCategories(),
+      guides: [guideFixture({ categoryId: 'c-em' })],
+    })
+    const user = userEvent.setup()
+    renderCategories(server)
+
+    await user.click(await screen.findByRole('button', { name: 'Delete Electron Microscopy' }))
+    await user.type(screen.getByLabelText('Your password'), 'not-my-password')
+    await user.click(screen.getByRole('button', { name: 'Delete category' }))
+
+    expect(await screen.findByText('That is not your password.')).toBeInTheDocument()
+    expect(server.state.categories).toHaveLength(2)
+    expect(server.state.guides).toHaveLength(1)
   })
 })

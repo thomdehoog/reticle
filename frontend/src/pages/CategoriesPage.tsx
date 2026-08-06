@@ -255,6 +255,7 @@ export function CategoriesPage() {
   /* Kept apart from `actionError` so the refusal appears in the dialog the
      admin is looking at, and only there. */
   const [deleteError, setDeleteError] = useState<unknown>(null)
+  const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
 
   const categories = data ?? []
@@ -306,8 +307,9 @@ export function CategoriesPage() {
     setBusy(true)
     setDeleteError(null)
     try {
-      await api.deleteCategory(category.id)
+      await api.deleteCategory(category.id, password)
       setConfirming(null)
+      setPassword('')
       reload()
     } catch (cause) {
       /* The server counts what is still inside and says so; repeating its own
@@ -446,25 +448,62 @@ export function CategoriesPage() {
       )}
 
       {confirming && (
-        <Modal title={`Delete ${confirming.name}?`} onClose={() => setConfirming(null)}>
+        <Modal
+          title={`Delete ${confirming.name}?`}
+          onClose={() => {
+            setConfirming(null)
+            setPassword('')
+          }}
+        >
           <ErrorAlert error={deleteError} />
           <p>
-            Deleting a category cannot be undone. It only works while the category is empty — the
-            server refuses if any guide, wiki page or sub-category is still filed under it.
+            Deleting a category cannot be undone, and <strong>everything under it goes too</strong> — its
+            sub-categories, and every guide and wiki page filed in any of them.
           </p>
-          <div className="page-actions">
-            <button
-              className="button button--danger"
-              type="button"
-              disabled={busy}
-              onClick={() => void remove(confirming)}
-            >
-              {busy ? 'Deleting…' : 'Delete category'}
-            </button>
-            <button className="button" type="button" onClick={() => setConfirming(null)}>
-              Keep it
-            </button>
-          </div>
+          {/* The same password the tiles and the banner ask for. Every route to
+              this deletion asks, because the server asks — a screen that did
+              not would simply be the one an administrator learned to use. */}
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              void remove(confirming)
+            }}
+          >
+            <div className="field">
+              <label className="field__label" htmlFor="delete-category-password">
+                Your password
+              </label>
+              <input
+                id="delete-category-password"
+                className="input"
+                type="password"
+                autoComplete="off"
+                required
+                autoFocus
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </div>
+            <div className="page-actions">
+              <button
+                className="button button--danger"
+                type="submit"
+                disabled={busy || password === ''}
+              >
+                {busy ? 'Deleting…' : 'Delete category'}
+              </button>
+              <button
+                className="button"
+                type="button"
+                onClick={() => {
+                  setConfirming(null)
+                  setPassword('')
+                }}
+              >
+                Keep it
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
     </>

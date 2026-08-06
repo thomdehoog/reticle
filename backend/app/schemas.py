@@ -336,6 +336,19 @@ class CategoryPatchIn(Wire):
     hero_media_id: str | None = None
 
 
+class CategoryDeleteIn(Wire):
+    """The administrator's own password, confirming they meant it.
+
+    Deleting a section is the one destructive act here that cannot be undone —
+    a guide or a page is archived and its rows are kept, and a section is not —
+    so it is the one that asks for a credential rather than a click. Required
+    rather than optional: an absent password is a caller that has not been asked
+    the question, which is exactly the case this exists to refuse.
+    """
+
+    password: str = Field(min_length=1)
+
+
 class GuideCreateIn(Wire):
     title: str = Field(min_length=1, max_length=240)
     category_id: str

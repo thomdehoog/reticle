@@ -19,12 +19,14 @@ from ..auth import AdminUser, DbDep, MaybeUser, client_address
 from ..models import PUBLISHED, Category, Guide, Media, Page
 from ..schemas import (
     CategoryCreateIn,
+    CategoryDeleteIn,
     CategoryOut,
     CategoryPatchIn,
     PageOut,
     category_out,
     page_out,
 )
+from ..security import verify_password
 from ..slugs import unique_slug
 from ..visibility import sees_unpublished
 
@@ -80,6 +82,67 @@ def _assert_no_cycle(db: DbSession, category: Category, parent_id: str) -> None:
         cursor = db.get(Category, cursor.parent_id) if cursor.parent_id else None
 
 
+def _assert_two_levels(db: DbSession, parent_id: str, moving: Category | None = None) -> None:
+    """The tree is a section and its sub-sections, and stops there.
+
+    Three levels is not a shape this site can draw. The rail's path is Home, a
+    section, a sub-section; a section with sub-sections lists them and a section
+    without them lists its guides — so a sub-sub-section would be a level with
+    no screen of its own, reachable only by URL, and the guides inside it would
+    appear in no listing at all.
+
+    Two rules, and both are the same rule from the two ends:
+
+    - the proposed parent must itself be top-level, or the new child sits at the
+      third level;
+    - a category that already has children may not become somebody's child,
+      because its children would.
+
+    ZMB's tree is exactly two deep already, so this refuses shapes nobody has
+    rather than rejecting anything that exists.
+    """
+    parent = db.get(Category, parent_id)
+    if parent is not None and parent.parent_id is not None:
+        raise errors.validation_failed(
+            "A section holds sub-sections, and a sub-section holds guides — so a sub-section "
+            "cannot hold another one."
+        )
+
+    if moving is not None:
+        children = db.scalar(
+            select(func.count()).select_from(Category).where(Category.parent_id == moving.id)
+        )
+        if children:
+            raise errors.validation_failed(
+                "Move the sub-sections out of this one first: putting it inside another section "
+                "would make them a third level."
+            )
+
+
+def _with_descendants(db: DbSession, root: Category) -> list[Category]:
+    """The section and everything filed under it, parents before children.
+
+    Written as a walk rather than as "the section and its children", because the
+    depth rule is enforced at the other end and a delete that quietly assumed
+    two levels would leave rows behind the day that rule changed. Returned in
+    order so the caller can delete the list backwards and never break a foreign
+    key.
+    """
+    ordered: list[Category] = []
+    frontier = [root]
+    while frontier:
+        current = frontier.pop(0)
+        ordered.append(current)
+        frontier.extend(
+            db.scalars(
+                select(Category)
+                .where(Category.parent_id == current.id)
+                .order_by(Category.order_index)
+            )
+        )
+    return ordered
+
+
 def _landing_heroes(db: DbDep) -> dict[str, str]:
     """Each section's landing-page picture, by section.
 
@@ -130,8 +193,10 @@ def create_category(
     if not name:
         raise errors.validation_failed("A category needs a name.")
 
-    if payload.parent_id is not None and db.get(Category, payload.parent_id) is None:
-        raise errors.validation_failed("That parent category does not exist.")
+    if payload.parent_id is not None:
+        if db.get(Category, payload.parent_id) is None:
+            raise errors.validation_failed("That parent category does not exist.")
+        _assert_two_levels(db, payload.parent_id)
 
     category = Category(
         slug=unique_slug(name, lambda candidate: _slug_taken(db, candidate), fallback="category"),
@@ -184,6 +249,7 @@ def patch_category(
             if db.get(Category, payload.parent_id) is None:
                 raise errors.validation_failed("That parent category does not exist.")
             _assert_no_cycle(db, category, payload.parent_id)
+            _assert_two_levels(db, payload.parent_id, moving=category)
             category.parent_id = payload.parent_id
 
     if "order_index" in changed and payload.order_index is not None:
@@ -209,25 +275,67 @@ def patch_category(
 
 
 @router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-def delete_category(category_id: str, request: Request, db: DbDep, user: AdminUser) -> Response:
+def delete_category(
+    category_id: str,
+    payload: CategoryDeleteIn,
+    request: Request,
+    db: DbDep,
+    user: AdminUser,
+) -> Response:
+    """Remove a section, once the caller has proved they are still themselves.
+
+    **The password is checked here and not only in the dialog.** A confirmation
+    an administrator types into a modal is a guard against the hand, and this
+    endpoint is reachable without the modal — so a check that lived in the
+    browser would stop the mis-click and nothing else. It is the same shape as
+    changing one's own password in ``users``: the current password, verified
+    against the stored hash, and a wrong one is ``invalid_credentials`` rather
+    than a validation error, because it is a credential that was wrong.
+
+    **It takes everything underneath with it.** Sub-sections, every guide filed
+    in any of them, and every wiki page including the landing pages. It used to
+    refuse while a section still held anything, which made deleting one a chore
+    of emptying it by hand first and meant the button could not do what it said.
+    It does what it says now, and the password is what stands in the way instead.
+
+    This is the one place in Reticle where content is destroyed rather than
+    archived. A guide deleted on its own is marked ``archived`` and its rows
+    stay; a guide inside a deleted section is gone, with its steps, its
+    annotations and its revisions. Media rows are left alone — a photograph may
+    be used by a guide in another section, and an orphaned upload wastes disk
+    where a missing one breaks a page that still exists.
+    """
+    if not verify_password(user.password_hash, payload.password):
+        audit.record(
+            db,
+            action="category.delete_refused",
+            entity_type="category",
+            entity_id=category_id,
+            actor=user,
+            ip_address=client_address(request),
+            detail={"reason": "password"},
+        )
+        db.commit()
+        raise errors.invalid_credentials("That is not your password.")
+
     category = _load(db, category_id)
+    doomed = _with_descendants(db, category)
+    ids = [row.id for row in doomed]
 
-    children = db.scalar(
-        select(func.count()).select_from(Category).where(Category.parent_id == category.id)
-    )
-    if children:
-        raise errors.conflict("Move or delete the sub-categories first.")
+    guides = list(db.scalars(select(Guide).where(Guide.category_id.in_(ids))))
+    pages = list(db.scalars(select(Page).where(Page.category_id.in_(ids))))
 
-    guides = db.scalar(
-        select(func.count()).select_from(Guide).where(Guide.category_id == category.id)
-    )
-    if guides:
-        raise errors.conflict("Move the guides in this category somewhere else first.")
+    for guide in guides:
+        db.delete(guide)
+    for page in pages:
+        db.delete(page)
+    # Children before parents: the foreign key points upwards.
+    for row in reversed(doomed):
+        db.delete(row)
 
-    pages = db.scalar(select(func.count()).select_from(Page).where(Page.category_id == category.id))
-    if pages:
-        raise errors.conflict("Move or delete this category's wiki pages first.")
-
+    # Counted, because this is the record of what was destroyed and the rows
+    # themselves are about to stop existing. "Deleted Electron Microscopy" is
+    # not an answer to "where did those eleven guides go".
     audit.record(
         db,
         action="category.delete",
@@ -235,8 +343,12 @@ def delete_category(category_id: str, request: Request, db: DbDep, user: AdminUs
         entity_id=category.id,
         actor=user,
         ip_address=client_address(request),
-        detail={"name": category.name},
+        detail={
+            "name": category.name,
+            "sections": [row.name for row in doomed],
+            "guides": len(guides),
+            "pages": len(pages),
+        },
     )
-    db.delete(category)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
