@@ -7,16 +7,17 @@
  * - with sub-sections under it, the sub-sections, as pictures;
  * - with none, it is the bottom of the tree, and it lists what it holds.
  *
- * The list at the bottom is in two parts, wikis and then guides, and each part
- * appears only if it has anything in it. The wikis are a plain list: they are
- * the written material a section carries beside its procedures, there are few
- * of them, and grouping half a dozen articles is furniture around nothing. The
- * guides are grouped by tag, because that is how a facility's procedures
- * actually divide — `Talos`, then start-up, then acquisition, then shutdown —
- * and because a guide belongs under every instrument it applies to.
+ * The list at the bottom is groups, and a group is rows pointing at an
+ * endpoint — a guide or a wiki, and a reader has no reason to care which. They
+ * are grouped by tag, because that is how a facility's material actually
+ * divides — `Talos`, then start-up, then acquisition, then shutdown — and
+ * because a guide belongs under every instrument it applies to.
  *
- * Reading before doing is why the wikis come first: they answer "which of these
- * do I want", and the guides answer "how".
+ * The wikis were one lump of their own at the top until a page could carry a
+ * tag, which was not a decision about how to arrange them so much as the only
+ * thing possible at the time. The article about the Nikon belongs beside the
+ * procedures for it, and reading-before-doing survives inside each group, where
+ * the wikis come first.
  *
  * That is the whole page. It used to be five things at once — a banner, the
  * landing page's prose, tiles, quick links, a plain list of guides as a
@@ -45,7 +46,13 @@ import { GuideRow, GuideRows, PageRow } from '../components/BrowseCards'
 import { SectionGrid } from '../components/SectionGrid'
 import { IconEdit } from '../components/icons'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
-import { GROUP_ANCHORS, groupAnchor, groupGuides, groupHeading } from '../domain/groups'
+import {
+  endpointKey,
+  groupAnchor,
+  groupDocuments,
+  groupHeading,
+  type Endpoint,
+} from '../domain/groups'
 import { browsableCategories, isEmptyToReaders } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
@@ -93,7 +100,6 @@ export function CategoryPage() {
     .filter((candidate) => candidate.parentId === category.id)
     .sort((a, b) => a.orderIndex - b.orderIndex)
   const isLeaf = children.length === 0
-  const grouped = groupGuides(guides)
   /* Nothing under it at all — no sections, no guides, no articles. The one
      state where an administrator is shown the tile that makes a section from
      inside a section, because it is the only thing this screen can offer. */
@@ -102,6 +108,7 @@ export function CategoryPage() {
      words are already in the banner above, so listing it here would be the
      page a reader is standing on offered as somewhere to go. */
   const articles = pages.filter((page) => !page.isLanding)
+  const grouped = groupDocuments(guides, articles)
 
   return (
     <>
@@ -177,41 +184,21 @@ export function CategoryPage() {
 
       {isLeaf && (
         <>
-          {/* Guides nobody has tagged yet, above the groups and under no
-              heading — a section part-tagged is an ordinary state, not one to
-              invent a name for. */}
+          {/* Nothing tagged yet, above the groups and under no heading — a
+              section part-tagged is an ordinary state, not one to invent a name
+              for. Both kinds land here, as they do in the groups. */}
           {grouped.loose.length > 0 && (
             <section className="section section--group">
               <GuideRows>
-                {grouped.loose.map((guide) => (
-                  <GuideRow key={guide.id} guide={guide} />
-                ))}
-              </GuideRows>
-            </section>
-          )}
-
-          {/* The articles, as a group like any other: same heading, same link,
-              same rows. It was briefly special — a heading that did not link,
-              on the reasoning that `/w` is the whole institute's index rather
-              than this section's articles. That reasoning made it the one group
-              on the page that behaved differently, which is a worse thing for a
-              reader to learn than a link whose destination is broader than they
-              expected. Every group heading goes somewhere; so does this one. */}
-          {articles.length > 0 && (
-            <section className="section section--group" id={GROUP_ANCHORS.wikis}>
-              <h3 className="section__title">
-                <Link to="/w">Wikis</Link>
-              </h3>
-              <GuideRows>
-                {articles.map((page) => (
-                  <PageRow key={page.id} page={page} />
+                {grouped.loose.map((endpoint) => (
+                  <EndpointRow key={endpointKey(endpoint)} endpoint={endpoint} />
                 ))}
               </GuideRows>
             </section>
           )}
 
           {/* The groups, under the tags that make them — `Talos`, then start-up,
-              acquisition, shutdown. A guide with several tags appears under
+              acquisition, shutdown. A document with several tags appears under
               each, which is what lets one LAS X guide sit under every
               instrument it applies to; that is the arrangement the corpus was
               written for rather than an accident of the grouping. */}
@@ -223,8 +210,8 @@ export function CategoryPage() {
                 </Link>
               </h3>
               <GuideRows>
-                {group.guides.map((guide) => (
-                  <GuideRow key={`${group.tag}-${guide.id}`} guide={guide} />
+                {group.items.map((endpoint) => (
+                  <EndpointRow key={`${group.tag}-${endpointKey(endpoint)}`} endpoint={endpoint} />
                 ))}
               </GuideRows>
             </section>
@@ -245,5 +232,20 @@ export function CategoryPage() {
           belongs to them. */}
 
     </>
+  )
+}
+
+/**
+ * One row, drawn as whichever kind of thing it points at.
+ *
+ * The union is narrowed here and nowhere else. Grouping, and the drag that
+ * changes a group, work on `Endpoint` alone — a guide and a wiki differ in how
+ * they are drawn and in nothing else the page cares about.
+ */
+function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
+  return endpoint.kind === 'guide' ? (
+    <GuideRow guide={endpoint.guide} />
+  ) : (
+    <PageRow page={endpoint.page} />
   )
 }

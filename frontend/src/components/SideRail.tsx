@@ -44,7 +44,7 @@ import { useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
-import { GROUP_ANCHORS, groupAnchor, groupGuides, groupHeading } from '../domain/groups'
+import { groupAnchor, groupDocuments, groupHeading } from '../domain/groups'
 import type { Category, GuideSummary, PageSummary } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 import { useBrowsableCategories } from '../hooks/useCategories'
@@ -100,30 +100,23 @@ function categoryPlace(category: Category): RailPlace {
  *
  * The landing page is left out because it is not something inside the category
  * — it is the category, and the heading above this list already leads there.
- * Guides nobody has tagged are left out too: the page shows them under no
+ * Documents nobody has tagged are left out too: the page shows them under no
  * heading, so there is no group name to list.
+ *
+ * There is no "Wikis" row any more. It was here while the page kept every
+ * article in one lump, and a page that could not be tagged had nowhere else to
+ * put them; now a wiki sits in the group its tag names, beside the guides that
+ * share it, and the rail lists the same groups the page draws.
  */
 function contentsPlaces(contents: CategoryContents, categorySlug: string): RailPlace[] {
   const here = `/c/${categorySlug}`
   const articles = contents.pages.filter((page) => !page.isLanding)
-  return [
-    ...(articles.length > 0
-      ? [
-          {
-            id: GROUP_ANCHORS.wikis,
-            slug: 'wikis',
-            name: 'Wikis',
-            to: `${here}#${GROUP_ANCHORS.wikis}`,
-          },
-        ]
-      : []),
-    ...groupGuides(contents.guides).groups.map((group) => ({
-      id: groupAnchor(group.tag),
-      slug: group.tag,
-      name: groupHeading(group.tag),
-      to: `${here}#${groupAnchor(group.tag)}`,
-    })),
-  ]
+  return groupDocuments(contents.guides, articles).groups.map((group) => ({
+    id: groupAnchor(group.tag),
+    slug: group.tag,
+    name: groupHeading(group.tag),
+    to: `${here}#${groupAnchor(group.tag)}`,
+  }))
 }
 
 /**

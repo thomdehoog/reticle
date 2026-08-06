@@ -338,13 +338,31 @@ describe('RailGroups', () => {
   it('lists a childless top-level category’s groups, not its guides', async () => {
     renderRail(flat(), '/c/electron-microscopy')
 
-    /* The groups the page draws, in the order it draws them: the wiki articles
-       first, then the tags. Not the documents — a ZMB section runs to a dozen
-       procedures and a column of all of them is a list nobody reads to the end. */
-    expect(await screen.findByRole('link', { name: 'Wikis' })).toBeInTheDocument()
-    expect(places()).toEqual(['Wikis', 'Grids'])
+    /* The groups the page draws, in the order it draws them. Not the documents
+       — a ZMB section runs to a dozen procedures and a column of all of them is
+       a list nobody reads to the end.
+
+       No "Wikis" row: that one existed while the page kept every article in a
+       lump of its own, and the fixture's untagged article is in no group at all
+       now, so there is no group name for the rail to list. */
+    expect(await screen.findByRole('link', { name: 'Grids' })).toBeInTheDocument()
+    expect(places()).toEqual(['Grids'])
+    expect(screen.queryByRole('link', { name: 'Wikis' })).not.toBeInTheDocument()
     expect(marked('content')).toBeNull()
     expect(marked('trail')).toBe('Electron Microscopy')
+  })
+
+  /* A tag carried only by wikis is a real group, and the rail lists the groups
+     the page draws whatever kind of thing is inside them. */
+  it('lists a group a wiki is the only member of', async () => {
+    const server = flat()
+    server.state.pages = server.state.pages.map((page) =>
+      page.id === 'w-fixation' ? { ...page, tags: ['fixation'] } : page,
+    )
+    renderRail(server, '/c/electron-microscopy')
+
+    expect(await screen.findByRole('link', { name: 'Fixation' })).toBeInTheDocument()
+    expect(places()).toEqual(['Fixation', 'Grids'])
   })
 
   it('points a group at that group on the section’s page', async () => {

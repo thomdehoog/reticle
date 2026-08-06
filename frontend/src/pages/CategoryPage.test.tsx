@@ -226,16 +226,88 @@ describe('CategoryPage', () => {
   })
 
   /**
-   * The bottom of the tree lists what it holds, in two parts.
+   * The bottom of the tree lists what it holds, as groups, and a group holds
+   * either kind of thing.
    *
-   * A list of groups, and the articles are one of them, called Wikis.
-   *
-   * There is no wiki half and no guide half. A group is a group whatever it
-   * holds, so dividing the page by content type and then grouping inside one of
-   * the halves would be two arrangements of the same section for a reader to
-   * reconcile.
+   * There is no wiki half and no guide half — and no "Wikis" group either. That
+   * lump existed because a page could not carry a tag, so every article in a
+   * section went into one heap regardless of what it was about. The article
+   * about the Talos belongs under `talos`, beside the procedures for it, which
+   * is what a reader who came looking for the Talos wants in front of them.
    */
-  it('gives the wiki articles a group of their own, among the tag groups', async () => {
+  it('gathers a wiki into the group its tag names, beside the guides', async () => {
+    const server = createFakeServer({
+      guides: [
+        guideFixture({
+          id: 'g-startup',
+          slug: 'talos-startup',
+          title: 'Talos start-up',
+          status: 'published',
+          tags: ['talos'],
+        }),
+      ],
+      pages: [
+        pageFixture({
+          id: 'w-oil',
+          slug: 'immersion-oil',
+          title: 'Immersion oil',
+          categoryId: 'c-light',
+          status: 'published',
+          tags: ['talos'],
+        }),
+      ],
+    })
+    renderCategory(server)
+
+    const talos = await screen.findByRole('heading', { name: 'Talos' })
+    const group = talos.closest('section')!
+    expect(within(group).getByRole('link', { name: /Immersion oil/ })).toHaveAttribute(
+      'href',
+      '/w/immersion-oil',
+    )
+    expect(within(group).getByRole('link', { name: /Talos start-up/ })).toBeInTheDocument()
+
+    /* Neither half survives, under any name. */
+    expect(screen.queryByRole('heading', { name: 'Wikis' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Guides' })).not.toBeInTheDocument()
+  })
+
+  /* Reading before doing, which used to be why the wikis were the first thing
+     on the page. Inside a group it is why they are its first rows. */
+  it('puts the wikis in a group above its guides', async () => {
+    const server = createFakeServer({
+      guides: [
+        guideFixture({
+          id: 'g-startup',
+          slug: 'talos-startup',
+          title: 'Talos start-up',
+          status: 'published',
+          tags: ['talos'],
+        }),
+      ],
+      pages: [
+        pageFixture({
+          id: 'w-oil',
+          slug: 'immersion-oil',
+          title: 'Immersion oil',
+          categoryId: 'c-light',
+          status: 'published',
+          tags: ['talos'],
+        }),
+      ],
+    })
+    renderCategory(server)
+
+    await screen.findByRole('heading', { name: 'Talos' })
+    const oil = screen.getByRole('link', { name: /Immersion oil/ })
+    const startup = screen.getByRole('link', { name: /Talos start-up/ })
+
+    expect(oil.compareDocumentPosition(startup)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
+  /* An untagged wiki has no group to go under, so it joins the untagged guides
+     above the groups rather than being dropped or given an invented heading. */
+  it('shows an untagged wiki above the groups, under no heading', async () => {
     const server = createFakeServer({
       guides: [
         guideFixture({
@@ -258,41 +330,11 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    const wikis = await screen.findByRole('heading', { name: 'Wikis' })
-    expect(screen.getByRole('link', { name: /Immersion oil/ })).toHaveAttribute(
-      'href',
-      '/w/immersion-oil',
-    )
+    const talos = await screen.findByRole('heading', { name: 'Talos' })
+    const oil = screen.getByRole('link', { name: /Immersion oil/ })
 
-    const talos = screen.getByRole('heading', { name: 'Talos' })
-    expect(wikis.compareDocumentPosition(talos)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-    expect(screen.getByRole('link', { name: /Talos start-up/ })).toBeInTheDocument()
-
-    /* No half above the groups saying which kind of thing follows. */
-    expect(screen.queryByRole('heading', { name: 'Guides' })).not.toBeInTheDocument()
-  })
-
-  /* Every other group heading is a link to that tag's page. This one is not:
-     `/w` is the whole institute's index, a different set from this section's
-     articles, and a heading that goes somewhere else is worse than one that
-     goes nowhere. */
-  it('links the Wikis heading like every other group', async () => {
-    const server = createFakeServer({
-      guides: [],
-      pages: [
-        pageFixture({
-          id: 'w-oil',
-          slug: 'immersion-oil',
-          title: 'Immersion oil',
-          categoryId: 'c-light',
-          status: 'published',
-        }),
-      ],
-    })
-    renderCategory(server)
-
-    const heading = await screen.findByRole('heading', { name: 'Wikis' })
-    expect(heading.querySelector('a')).toHaveAttribute('href', '/w')
+    expect(oil.compareDocumentPosition(talos)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(screen.queryByRole('heading', { name: 'Wikis' })).not.toBeInTheDocument()
   })
 
   it('shows a section that has only wikis without saying it is empty', async () => {
