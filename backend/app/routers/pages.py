@@ -25,7 +25,7 @@ from .. import audit, errors
 from ..auth import AdminUser, AuthorUser, DbDep, MaybeUser, client_address
 from ..db import escape_like, utcnow
 from ..documents import apply_page_document, next_updated_at, record_contribution
-from ..models import PUBLISHED, Category, Page, PageRevision, User
+from ..models import PUBLISHED, Category, Page, PageRevision, PageTag, Tag, User
 from ..schemas import (
     ContentStatus,
     PageCreateIn,
@@ -40,6 +40,7 @@ from ..schemas import (
 )
 from ..slugs import unique_slug
 from ..visibility import sees_unpublished
+from .guides import parse_tag_filter
 
 router = APIRouter(prefix="/api/pages", tags=["pages"])
 
@@ -97,6 +98,7 @@ def list_pages(
     # must say so rather than answer "no pages".
     status_filter: ContentStatus | None = Query(default=None, alias="status"),
     q: str | None = Query(default=None, max_length=200),
+    tags: str | None = Query(default=None, max_length=800),
 ) -> list[PageSummaryOut]:
     statement = select(Page)
 
@@ -109,6 +111,19 @@ def list_pages(
 
     if category_id is not None:
         statement = statement.where(Page.category_id == category_id)
+    # Split by the guide listing's own parser, and requiring *all* of the tags
+    # as that listing does. A tag page asks both endpoints the same question, so
+    # "all of them, not any of them" has to mean the same thing on each — or a
+    # two-tag heading gathers a different set of wikis than it does guides.
+    for slug in parse_tag_filter(tags):
+        member = (
+            select(PageTag.id)
+            .join(Tag, Tag.id == PageTag.tag_id)
+            .where(PageTag.page_id == Page.id, Tag.slug == slug)
+            .correlate(Page)
+            .exists()
+        )
+        statement = statement.where(member)
     if q:
         pattern = f"%{escape_like(q.strip())}%"
         statement = statement.where(

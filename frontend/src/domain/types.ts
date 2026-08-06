@@ -171,7 +171,8 @@ export interface Tag {
   id: string
   slug: string
   name: string
-  guideCount: number
+  /** Guides and wiki pages together: a tag names a group, and a group holds both. */
+  documentCount: number
 }
 
 export interface Guide {
@@ -260,6 +261,8 @@ export interface Page {
   /** Markdown. Rendered to React elements, never to raw HTML. */
   body: string
   heroMediaId: string | null
+  /** Slugs, as on a guide: what a page is grouped under on its section's page. */
+  tags: string[]
   status: ContentStatus
   author: UserRef
   lastEditedBy: UserRef
@@ -280,6 +283,7 @@ export interface PageSummary {
   isLanding: boolean
   status: ContentStatus
   heroImageUrl: string | null
+  tags: string[]
   updatedAt: string
   publishedAt: string | null
 }

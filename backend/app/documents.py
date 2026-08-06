@@ -44,6 +44,7 @@ from .models import (
     Media,
     Page,
     PageContributor,
+    PageTag,
     Step,
     StepMedia,
     Tag,
@@ -155,6 +156,7 @@ def apply_page_document(db: DbSession, page: Page, payload: PageDocumentIn, acto
     page.last_edited_by_id = actor.id
     page.updated_at = next_updated_at(page.updated_at)
 
+    _sync_tags(db, page, _validated_tags(payload.tags))
     record_contribution(db, page, actor)
 
 
@@ -231,14 +233,20 @@ def _validated_tags(requested: list[str]) -> list[str]:
     return ordered
 
 
-def _sync_tags(db: DbSession, guide: Guide, slugs: list[str]) -> None:
-    """Attach the guide to each tag, minting any tag that does not exist yet.
+def _sync_tags(db: DbSession, document: Guide | Page, slugs: list[str]) -> None:
+    """Attach a guide or a wiki page to each tag, minting any that is new.
 
     Authors are not administrators of a taxonomy; making them create a tag
     before they can use it is how a corpus ends up with none. The input suggests
     existing tags first, which keeps the vocabulary tidy without a gate.
+
+    One function for both kinds of document, because a tag means the same thing
+    on each: a group on a section's page is rows pointing at an endpoint, and
+    the endpoint is a guide or a wiki. Two copies of this would be two answers
+    to "may an author invent a tag here", and the second one would be found by a
+    reader.
     """
-    for link in list(guide.tag_links):
+    for link in list(document.tag_links):
         db.delete(link)
     db.flush()
 
@@ -253,7 +261,10 @@ def _sync_tags(db: DbSession, guide: Guide, slugs: list[str]) -> None:
             db.add(tag)
             db.flush()
             known[slug] = tag
-        db.add(GuideTag(guide_id=guide.id, tag_id=tag.id, order_index=index))
+        if isinstance(document, Guide):
+            db.add(GuideTag(guide_id=document.id, tag_id=tag.id, order_index=index))
+        else:
+            db.add(PageTag(page_id=document.id, tag_id=tag.id, order_index=index))
 
 
 def _validated_media(

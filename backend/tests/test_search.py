@@ -99,6 +99,7 @@ def test_a_page_hit_carries_the_page_summary_projection(author):
         "summary",
         "categoryId",
         "isLanding",
+        "tags",
         "status",
         "heroImageUrl",
         "updatedAt",

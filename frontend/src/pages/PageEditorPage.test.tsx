@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { Route, Routes } from 'react-router'
@@ -25,7 +25,10 @@ describe('PageEditorPage', () => {
     renderEditor(server)
 
     await user.click(await screen.findByRole('button', { name: 'Insert guide list' }))
-    await user.type(screen.getByLabelText('Add a tag'), 'stellaris{Enter}')
+    /* Scoped to the dialog: the page itself carries tags now, so the editor
+       behind it has a tag input of its own, and an unscoped query finds both. */
+    const dialog = within(screen.getByRole('dialog'))
+    await user.type(dialog.getByLabelText('Add a tag'), 'stellaris{Enter}')
     await user.type(screen.getByLabelText('Show at most (optional)'), '5')
     await user.click(screen.getByRole('button', { name: 'Insert' }))
 
@@ -42,7 +45,10 @@ describe('PageEditorPage', () => {
     renderEditor(server)
 
     await user.click(await screen.findByRole('button', { name: 'Insert guide list' }))
-    await user.type(screen.getByLabelText('Add a tag'), 'stellaris{Enter}')
+    /* Scoped to the dialog: the page itself carries tags now, so the editor
+       behind it has a tag input of its own, and an unscoped query finds both. */
+    const dialog = within(screen.getByRole('dialog'))
+    await user.type(dialog.getByLabelText('Add a tag'), 'stellaris{Enter}')
     await user.click(screen.getByRole('button', { name: 'Insert' }))
 
     await waitFor(

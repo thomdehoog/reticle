@@ -286,6 +286,9 @@ class Tag(Base):
     guide_links: Mapped[list[GuideTag]] = relationship(
         back_populates="tag", cascade="all, delete-orphan"
     )
+    page_links: Mapped[list[PageTag]] = relationship(
+        back_populates="tag", cascade="all, delete-orphan"
+    )
 
 
 class GuideTag(Base):
@@ -531,6 +534,11 @@ class Page(Base):
         cascade="all, delete-orphan",
         order_by="PageContributor.first_edited_at",
     )
+    tag_links: Mapped[list[PageTag]] = relationship(
+        back_populates="page",
+        cascade="all, delete-orphan",
+        order_by="PageTag.order_index",
+    )
     revisions: Mapped[list[PageRevision]] = relationship(
         back_populates="page",
         cascade="all, delete-orphan",
@@ -540,6 +548,37 @@ class Page(Base):
     @property
     def contributors(self) -> list[User]:
         return [link.user for link in self.contributor_links]
+
+    @property
+    def tag_slugs(self) -> list[str]:
+        return [link.tag.slug for link in self.tag_links]
+
+
+class PageTag(Base):
+    """Ordered membership of a wiki page in a tag, exactly as a guide has.
+
+    A section's page is a stack of groups, and a group is rows pointing at an
+    endpoint — which is a guide or a wiki, and the reader has no reason to care
+    which. Until this existed the two could not be mixed: guides fell under the
+    tags they carried and every wiki in the section landed in one lump called
+    "Wikis", not because that was a useful grouping but because a page had
+    nothing to be grouped by.
+
+    Deliberately the same shape as ``guide_tags``, down to the ordering column
+    and the unique constraint. Two ways of belonging to a tag is how the two
+    kinds of document start behaving differently again.
+    """
+
+    __tablename__ = "page_tags"
+    __table_args__ = (UniqueConstraint("page_id", "tag_id", name="uq_page_tag"),)
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
+    page_id: Mapped[str] = mapped_column(ForeignKey("pages.id", ondelete="CASCADE"), index=True)
+    tag_id: Mapped[str] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), index=True)
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
+
+    page: Mapped[Page] = relationship(back_populates="tag_links")
+    tag: Mapped[Tag] = relationship(back_populates="page_links", lazy="joined")
 
 
 class PageContributor(Base):

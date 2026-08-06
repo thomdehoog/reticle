@@ -21,7 +21,7 @@ from sqlalchemy import case, func, or_, select
 
 from ..auth import DbDep, MaybeUser
 from ..db import escape_like
-from ..models import PUBLISHED, Bullet, Guide, GuideTag, Page, Step, Tag
+from ..models import PUBLISHED, Bullet, Guide, GuideTag, Page, PageTag, Step, Tag
 from ..schemas import (
     GuideHitOut,
     PageHitOut,
@@ -48,28 +48,46 @@ institute's documentation on demand.
 
 @router.get("/tags", response_model=list[TagOut])
 def list_tags(db: DbDep, user: MaybeUser) -> list[TagOut]:
-    """Every tag that is actually on something the caller may see.
+    """Every tag that is actually on something the caller may see, and how much.
 
-    The count is computed against the same visibility rules as the guide list,
-    so a viewer is never shown a tag whose entire membership is drafts or staff
+    The count is computed against the same visibility rules as the listings, so
+    a viewer is never shown a tag whose entire membership is drafts or staff
     guides — following it would land them on an empty page and look like a
     broken link, and in the staff case the tag itself is the disclosure: a tag
     named after an internal procedure, with a count beside it.
+
+    **Wikis count as well as guides.** A tag names a group, and a group holds
+    both — so a tag carried only by wiki pages is a real group, and counting
+    guides alone made it vanish from the index and stop being suggested by the
+    tag input, while the group it names sat on a section's page in plain sight.
+    That is also why the number is no longer called a guide count: it never was
+    one, from the moment a page could carry a tag.
     """
-    countable = (
+    guides = (
         select(func.count(GuideTag.id))
         .select_from(GuideTag)
         .join(Guide, Guide.id == GuideTag.guide_id)
     )
-    countable = readable_guides(countable, user)
+    guides = readable_guides(guides, user)
     if not sees_unpublished(user):
-        countable = countable.where(Guide.status == PUBLISHED)
+        guides = guides.where(Guide.status == PUBLISHED)
     else:
-        countable = countable.where(Guide.status != "archived")
+        guides = guides.where(Guide.status != "archived")
 
-    guide_count = countable.where(GuideTag.tag_id == Tag.id).correlate(Tag).scalar_subquery()
+    pages = (
+        select(func.count(PageTag.id)).select_from(PageTag).join(Page, Page.id == PageTag.page_id)
+    )
+    if not sees_unpublished(user):
+        pages = pages.where(Page.status == PUBLISHED)
+    else:
+        pages = pages.where(Page.status != "archived")
 
-    rows = db.execute(select(Tag, guide_count.label("guide_count")).order_by(Tag.slug)).all()
+    held = (
+        guides.where(GuideTag.tag_id == Tag.id).correlate(Tag).scalar_subquery()
+        + pages.where(PageTag.tag_id == Tag.id).correlate(Tag).scalar_subquery()
+    )
+
+    rows = db.execute(select(Tag, held.label("document_count")).order_by(Tag.slug)).all()
     return [tag_out(tag, count) for tag, count in rows if count > 0]
 
 

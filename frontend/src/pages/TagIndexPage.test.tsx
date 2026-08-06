@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { Route, Routes } from 'react-router'
 
-import { createFakeServer, guideFixture } from '../test/fakeServer'
+import { createFakeServer, guideFixture, pageFixture } from '../test/fakeServer'
 import { renderWithApp } from '../test/harness'
 import { TagIndexPage } from './TagIndexPage'
 import { TagPage } from './TagPage'
@@ -72,5 +72,26 @@ describe('TagPage', () => {
 
     expect(await screen.findByRole('link', { name: /Stellaris startup/ })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Widefield startup/ })).not.toBeInTheDocument()
+  })
+
+  it('gathers the wikis carrying it as well as the guides', async () => {
+    /* A tag names a group and a group holds either kind. Listing guides alone
+       here would also make the number the tag index shows a lie, because that
+       one counts both. */
+    const server = createFakeServer({
+      guides: [
+        guideFixture({ id: 'g1', title: 'Stellaris startup', status: 'published', tags: ['stellaris'] }),
+      ],
+      pages: [
+        pageFixture({ id: 'w1', title: 'Immersion oil', status: 'published', tags: ['stellaris'] }),
+        pageFixture({ id: 'w2', slug: 'w2', title: 'Sample mounting', status: 'published' }),
+      ],
+    })
+    renderTags(server, '/t/stellaris')
+
+    expect(await screen.findByRole('link', { name: /Immersion oil/ })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Stellaris startup/ })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Sample mounting/ })).not.toBeInTheDocument()
+    expect(screen.getByText('2 documents carry this tag.')).toBeInTheDocument()
   })
 })

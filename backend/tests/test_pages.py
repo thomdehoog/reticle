@@ -56,6 +56,7 @@ def test_page_response_matches_the_domain_model_exactly(author, category):
         "summary",
         "categoryId",
         "isLanding",
+        "tags",
         "body",
         "heroMediaId",
         "status",
@@ -82,6 +83,7 @@ def test_page_summary_projection_matches_the_domain_model(author, category):
         "summary",
         "categoryId",
         "isLanding",
+        "tags",
         "status",
         "heroImageUrl",
         "updatedAt",
@@ -604,3 +606,91 @@ def test_an_unknown_page_status_is_refused_rather_than_answered_with_nothing(aut
         assert author.get("/api/pages", params={"status": wrong}).status_code == 422, wrong
 
     assert author.get("/api/pages", params={"status": "draft"}).status_code == 200
+
+
+def test_a_page_carries_tags_the_way_a_guide_does(author, category):
+    """A group on a section's page is rows pointing at an endpoint, and the
+    endpoint is a guide or a wiki. Until a page could be tagged, every wiki in a
+    section landed in one lump because there was nothing to group it by."""
+    created = create_page(author, "Immersion Oil", category_id=category.id)
+
+    saved = author.put(
+        f"/api/pages/{created['id']}",
+        json=page_document_from(created, tags=["thunder", "widefield"]),
+    ).json()
+
+    assert saved["tags"] == ["thunder", "widefield"]
+    assert author.get(f"/api/pages/{created['id']}").json()["tags"] == ["thunder", "widefield"]
+
+
+def test_a_page_tag_reaches_the_listing_a_section_is_built_from(author, category):
+    created = create_page(author, "Immersion Oil", category_id=category.id)
+    author.put(f"/api/pages/{created['id']}", json=page_document_from(created, tags=["thunder"]))
+
+    entry = next(p for p in author.get("/api/pages").json() if p["id"] == created["id"])
+
+    assert entry["tags"] == ["thunder"]
+
+
+def test_a_tag_an_author_invents_on_a_page_is_minted(author, category):
+    """The same rule as a guide's: an author is not the administrator of a
+    taxonomy, and making them create a tag first is how a corpus ends up with
+    none."""
+    created = create_page(author, "Immersion Oil", category_id=category.id)
+
+    saved = author.put(
+        f"/api/pages/{created['id']}", json=page_document_from(created, tags=["brand-new-tag"])
+    ).json()
+
+    assert saved["tags"] == ["brand-new-tag"]
+    assert "brand-new-tag" in {tag["slug"] for tag in author.get("/api/tags").json()}
+
+
+def test_a_page_tag_is_held_to_the_same_spelling_as_a_guide_tag(author, category):
+    created = create_page(author, "Immersion Oil", category_id=category.id)
+
+    response = author.put(
+        f"/api/pages/{created['id']}", json=page_document_from(created, tags=["Not A Slug"])
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+
+
+def test_taking_a_tag_off_a_page_removes_it(author, category):
+    created = create_page(author, "Immersion Oil", category_id=category.id)
+    once = author.put(
+        f"/api/pages/{created['id']}", json=page_document_from(created, tags=["thunder"])
+    ).json()
+
+    cleared = author.put(f"/api/pages/{once['id']}", json=page_document_from(once, tags=[])).json()
+
+    assert cleared["tags"] == []
+
+
+def test_a_page_can_be_asked_for_by_tag_as_a_guide_can(author, category):
+    """A tag page asks both listings the same question. Without this filter the
+    tag index could count a wiki and then send the reader to a screen that had no
+    way of finding it."""
+    tagged = create_page(author, "Immersion Oil", category_id=category.id)
+    author.put(f"/api/pages/{tagged['id']}", json=page_document_from(tagged, tags=["thunder"]))
+    create_page(author, "Something Else", category_id=category.id)
+
+    listed = author.get("/api/pages", params={"tags": "thunder"}).json()
+
+    assert [entry["title"] for entry in listed] == ["Immersion Oil"]
+
+
+def test_asking_a_page_listing_for_two_tags_requires_both(author, category):
+    """`all`, not `any` — the rule the guide listing follows, because one heading
+    on a section's page asking for two tags means the documents that are both."""
+    both = create_page(author, "Both", category_id=category.id)
+    author.put(
+        f"/api/pages/{both['id']}", json=page_document_from(both, tags=["thunder", "widefield"])
+    )
+    one = create_page(author, "Only One", category_id=category.id)
+    author.put(f"/api/pages/{one['id']}", json=page_document_from(one, tags=["thunder"]))
+
+    listed = author.get("/api/pages", params={"tags": "thunder,widefield"}).json()
+
+    assert [entry["title"] for entry in listed] == ["Both"]

@@ -49,7 +49,7 @@ export function TagIndexPage() {
           {tags.map((tag) => (
             <Link key={tag.id} className="tag tag--counted" to={`/t/${encodeURIComponent(tag.slug)}`}>
               {tag.name}
-              <span className="tag__count">{tag.guideCount}</span>
+              <span className="tag__count">{tag.documentCount}</span>
             </Link>
           ))}
         </div>

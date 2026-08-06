@@ -204,7 +204,7 @@ export function TagInput({ tags, onChange }: TagInputProps) {
                 }}
               >
                 <span>{tag.slug}</span>
-                <span className="tag-input__count">{tag.guideCount}</span>
+                <span className="tag-input__count">{tag.documentCount}</span>
               </button>
             </li>
           ))}

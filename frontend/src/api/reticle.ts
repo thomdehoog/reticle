@@ -42,6 +42,8 @@ export type PageQuery = {
   categoryId?: string
   status?: ContentStatus
   q?: string
+  /** Comma-separated slugs, as on a guide query, and meaning all of them. */
+  tags?: string
 }
 
 export interface RevisionSummary {

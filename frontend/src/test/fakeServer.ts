@@ -134,6 +134,7 @@ export function pageFixture(overrides: Partial<Page> = {}): Page {
     isLanding: false,
     body: '',
     heroMediaId: null,
+    tags: [],
     status: 'draft',
     author,
     lastEditedBy: author,
@@ -201,6 +202,7 @@ export function pageSummaryFixture(overrides: Partial<PageSummary> = {}): PageSu
     isLanding: page.isLanding,
     status: page.status,
     heroImageUrl: null,
+    tags: page.tags,
     updatedAt: page.updatedAt,
     publishedAt: page.publishedAt,
     ...overrides,
@@ -282,6 +284,7 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       isLanding: page.isLanding,
       status: page.status,
       heroImageUrl: page.heroMediaId ? `/api/media/${page.heroMediaId}` : null,
+      tags: page.tags,
       updatedAt: page.updatedAt,
       publishedAt: page.publishedAt,
     }
@@ -435,6 +438,11 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       const status = url.searchParams.get('status')
       if (categoryId) pages = pages.filter((page) => page.categoryId === categoryId)
       if (status) pages = pages.filter((page) => page.status === status)
+      /* All of the tags, not any of them — the rule the guide listing follows. */
+      const wanted = (url.searchParams.get('tags') ?? '').split(',').filter(Boolean)
+      if (wanted.length > 0) {
+        pages = pages.filter((page) => wanted.every((slug) => page.tags.includes(slug)))
+      }
       return json(pages.map(summarisePage))
     }
 
@@ -621,12 +629,14 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
   function handleDiscovery(path: string, method: string, url: URL): Response | null {
     if (path === '/tags' && method === 'GET') {
       const counts = new Map<string, number>()
-      for (const guide of visible(state.guides)) {
-        for (const tag of guide.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+      /* Both kinds: a tag carried only by a wiki is still a group, and counting
+         guides alone hid it from the index and from the tag input's suggestions. */
+      for (const document of [...visible(state.guides), ...visible(state.pages)]) {
+        for (const tag of document.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1)
       }
       const tags: Tag[] = [...counts.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([slug, guideCount]) => ({ id: `t-${slug}`, slug, name: slug, guideCount }))
+        .map(([slug, documentCount]) => ({ id: `t-${slug}`, slug, name: slug, documentCount }))
       return json(tags)
     }
 

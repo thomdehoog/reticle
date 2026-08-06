@@ -188,7 +188,7 @@ def test_the_tag_index_does_not_offer_a_viewer_a_tag_only_staff_guides_carry(vie
 
 
 def test_the_tag_index_counts_only_what_a_viewer_can_open(viewer, staff_guide, open_guide):
-    counts = {tag["slug"]: tag["guideCount"] for tag in viewer.get("/api/tags").json()}
+    counts = {tag["slug"]: tag["documentCount"] for tag in viewer.get("/api/tags").json()}
 
     assert counts == {"internal": 1}
 

@@ -156,16 +156,16 @@ def test_the_tag_list_matches_the_domain_model_exactly(author, category):
 
     entry = author.get("/api/tags").json()[0]
 
-    assert set(entry) == {"id", "slug", "name", "guideCount"}
+    assert set(entry) == {"id", "slug", "name", "documentCount"}
     assert entry["slug"] == "confocal"
-    assert entry["guideCount"] == 1
+    assert entry["documentCount"] == 1
 
 
 def test_the_tag_list_counts_the_guides_behind_each_tag(author, category):
     tagged_guide(author, category.id, ["confocal", "startup"], title="One")
     tagged_guide(author, category.id, ["confocal"], title="Two")
 
-    counts = {entry["slug"]: entry["guideCount"] for entry in author.get("/api/tags").json()}
+    counts = {entry["slug"]: entry["documentCount"] for entry in author.get("/api/tags").json()}
 
     assert counts == {"confocal": 2, "startup": 1}
 
@@ -194,8 +194,8 @@ def test_a_viewers_tag_counts_exclude_the_drafts_an_author_can_see(author, viewe
     tagged_guide(author, category.id, ["confocal"], title="Still A Draft")
     author.post(f"/api/guides/{published['id']}/publish")
 
-    assert author.get("/api/tags").json()[0]["guideCount"] == 2
-    assert viewer.get("/api/tags").json()[0]["guideCount"] == 1
+    assert author.get("/api/tags").json()[0]["documentCount"] == 2
+    assert viewer.get("/api/tags").json()[0]["documentCount"] == 1
 
 
 def test_a_tag_left_with_only_archived_guides_disappears_from_the_list(author, admin, category):
@@ -292,5 +292,75 @@ def test_the_tag_list_is_public_and_counts_only_published_guides(anon, author, c
     response = anon.get("/api/tags")
 
     assert response.status_code == 200
-    counts = {tag["slug"]: tag["guideCount"] for tag in response.json()}
+    counts = {tag["slug"]: tag["documentCount"] for tag in response.json()}
     assert counts.get("confocal") == 1
+
+
+def test_a_tag_carried_only_by_a_wiki_is_still_in_the_index(author, category):
+    """A tag names a group and a group holds both kinds. Counting guides alone
+    hid a wiki-only tag from the index and stopped the tag input suggesting it,
+    while the group it names sat on a section's page in plain sight."""
+    created = author.post(
+        "/api/pages", json={"title": "Immersion oil", "categoryId": category.id}
+    ).json()
+    author.put(
+        f"/api/pages/{created['id']}",
+        json={
+            "title": created["title"],
+            "summary": "",
+            "body": "",
+            "categoryId": category.id,
+            "isLanding": False,
+            "heroMediaId": None,
+            "tags": ["thunder"],
+            "updatedAt": created["updatedAt"],
+        },
+    )
+
+    counts = {entry["slug"]: entry["documentCount"] for entry in author.get("/api/tags").json()}
+
+    assert counts == {"thunder": 1}
+
+
+def test_the_index_counts_a_tag_across_both_kinds_of_document(author, category):
+    tagged_guide(author, category.id, ["thunder"], title="A guide")
+    created = author.post("/api/pages", json={"title": "A wiki", "categoryId": category.id}).json()
+    author.put(
+        f"/api/pages/{created['id']}",
+        json={
+            "title": created["title"],
+            "summary": "",
+            "body": "",
+            "categoryId": category.id,
+            "isLanding": False,
+            "heroMediaId": None,
+            "tags": ["thunder"],
+            "updatedAt": created["updatedAt"],
+        },
+    )
+
+    counts = {entry["slug"]: entry["documentCount"] for entry in author.get("/api/tags").json()}
+
+    assert counts == {"thunder": 2}
+
+
+def test_a_draft_wiki_does_not_put_a_tag_in_a_viewers_index(viewer, author, category):
+    """The same floor the guide side has: a tag whose whole membership is
+    unpublished must not appear to a reader, or following it lands them on an
+    empty page and looks like a broken link."""
+    created = author.post("/api/pages", json={"title": "A wiki", "categoryId": category.id}).json()
+    author.put(
+        f"/api/pages/{created['id']}",
+        json={
+            "title": created["title"],
+            "summary": "",
+            "body": "",
+            "categoryId": category.id,
+            "isLanding": False,
+            "heroMediaId": None,
+            "tags": ["thunder"],
+            "updatedAt": created["updatedAt"],
+        },
+    )
+
+    assert viewer.get("/api/tags").json() == []

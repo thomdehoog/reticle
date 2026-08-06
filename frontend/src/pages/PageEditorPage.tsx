@@ -469,6 +469,11 @@ export function PageEditorPage() {
         {/* An empty category list is not "no categories", it is a failed
             request — and a page silently becomes a standalone article. */}
         <ErrorAlert error={categoriesError} />
+
+        {/* The same control the guide editor has, doing the same job: the tags
+            are what put this page into a group on its section's screen, beside
+            the guides carrying the same one. Nobody writes a section page. */}
+        <TagInput tags={page.tags} onChange={(tags) => mutate((current) => ({ ...current, tags }))} />
       </div>
 
       <div className="editor">

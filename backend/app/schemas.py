@@ -176,7 +176,8 @@ class TagOut(Wire):
     id: str
     slug: str
     name: str
-    guide_count: int
+    document_count: int
+    """Guides and wiki pages together — a tag names a group, and a group holds both."""
 
 
 class BulletOut(Wire):
@@ -269,6 +270,7 @@ class PageOut(Wire):
     is_landing: bool
     body: str
     hero_media_id: str | None
+    tags: list[str]
     status: ContentStatus
     author: UserRefOut
     last_edited_by: UserRefOut
@@ -287,6 +289,7 @@ class PageSummaryOut(Wire):
     summary: str
     category_id: str | None
     is_landing: bool
+    tags: list[str]
     status: ContentStatus
     hero_image_url: str | None
     updated_at: Instant
@@ -501,6 +504,12 @@ class PageDocumentIn(Document):
     is_landing: bool = False
     body: str = Field(default="", max_length=MAX_PAGE_BODY_CHARS)
     hero_media_id: str | None = None
+    tags: list[str] = Field(default_factory=list, max_length=MAX_TAGS_PER_GUIDE)
+    """Which groups this page appears in, exactly as a guide's tags do.
+
+    Same ceiling as a guide's, because it is the same field on the other kind of
+    document and a group holds both.
+    """
     updated_at: datetime
 
 
@@ -552,8 +561,8 @@ def media_out(media: models.Media) -> MediaOut:
     )
 
 
-def tag_out(tag: models.Tag, guide_count: int) -> TagOut:
-    return TagOut(id=tag.id, slug=tag.slug, name=tag.name, guide_count=guide_count)
+def tag_out(tag: models.Tag, document_count: int) -> TagOut:
+    return TagOut(id=tag.id, slug=tag.slug, name=tag.name, document_count=document_count)
 
 
 def bullet_out(bullet: models.Bullet) -> BulletOut:
@@ -681,6 +690,7 @@ def page_out(page: models.Page) -> PageOut:
         summary=page.summary,
         category_id=page.category_id,
         is_landing=page.is_landing,
+        tags=page.tag_slugs,
         body=page.body,
         hero_media_id=page.hero_media_id,
         status=page.status,
@@ -703,6 +713,7 @@ def page_summary_out(page: models.Page) -> PageSummaryOut:
         summary=page.summary,
         category_id=page.category_id,
         is_landing=page.is_landing,
+        tags=page.tag_slugs,
         status=page.status,
         hero_image_url=media_url(page.hero_media_id) if page.hero_media_id else None,
         updated_at=page.updated_at,
