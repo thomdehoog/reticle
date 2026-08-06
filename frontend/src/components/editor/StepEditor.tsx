@@ -63,8 +63,8 @@ export function StepEditor({
 }: StepEditorProps) {
   const [draggable, setDraggable] = useState(false)
 
-  /* The author sees the same numbers the reader will, on the pictures and on
-     the bullets, so the pairing can be checked while it is being made. */
+  /* The author sees the same numbers the reader will — on the pictures, which
+     is now the only place either of them appears. */
   const shapeNumbers = numberShapeColors(step)
 
   /* What the card's controls call the thing they act on. An Info or Pinned
@@ -227,7 +227,6 @@ export function StepEditor({
             <BulletEditor
               key={bullet.id}
               bullet={bullet}
-              shapeNumber={shapeNumbers[bullet.color]}
               autoFocus={bullet.id === focusBulletId}
               onChange={(updated) => replaceBullet(index, updated)}
               onSplit={() => splitAt(index)}

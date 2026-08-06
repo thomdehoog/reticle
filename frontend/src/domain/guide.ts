@@ -178,12 +178,13 @@ export function indentBullet(bullet: Bullet, delta: number): Bullet {
 /**
  * Which number each shape colour carries within a step.
  *
- * A bullet is tied to a shape on the picture by colour and nothing else, and
- * colour is a channel some readers do not have: orange and yellow here are one
- * colour under deuteranopia, every colour is one colour on the greyscale
- * photocopy taped to an instrument, and a screen reader is told nothing at all.
- * So each shape is numbered and the bullets it belongs to carry the same
- * number, and the pairing survives without it.
+ * Drawn on the picture, beside the shape. It once had a partner in the text —
+ * every bullet of that colour showed the same digit — which is the form the
+ * pairing took when it had to survive a greyscale print and a screen reader.
+ * The bullets carry a colour and nothing else now, so this numbers the picture
+ * alone: it tells a reader that the two red rectangles over there are one mark
+ * and the yellow arrow is another, which is worth saying on a screenshot busy
+ * enough to need three.
  *
  * A colour keeps one number however many shapes are drawn in it — two red
  * rectangles are both "1", because both are what the red bullet is pointing at.

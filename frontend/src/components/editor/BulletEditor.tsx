@@ -47,8 +47,6 @@ const ICON_CHOICES: {
 
 interface BulletEditorProps {
   bullet: Bullet
-  /** The shape on this step's pictures that this bullet's colour belongs to. */
-  shapeNumber?: number
   autoFocus: boolean
   onChange: (bullet: Bullet) => void
   onSplit: () => void
@@ -73,7 +71,6 @@ interface BulletEditorProps {
  */
 export function BulletEditor({
   bullet,
-  shapeNumber,
   autoFocus,
   onChange,
   onSplit,
@@ -135,7 +132,7 @@ export function BulletEditor({
           onClick={() => setPickerOpen((open) => !open)}
           style={{ marginLeft: `${bullet.level * 1.25}rem` }}
         >
-          <BulletPreview bullet={bullet} shapeNumber={shapeNumber} />
+          <BulletPreview bullet={bullet} />
         </button>
 
         {pickerOpen && (
@@ -194,9 +191,12 @@ export function BulletEditor({
   )
 }
 
-function BulletPreview({ bullet, shapeNumber }: { bullet: Bullet; shapeNumber?: number }) {
-  if (shapeNumber !== undefined) return <span className="bullet__number">{shapeNumber}</span>
-
+/* What the author is about to see the reader see: the flag icon, or a dot in
+   the bullet's colour. It showed a shape number when the bullet's colour was
+   drawn on one of the step's pictures, and does not any more — the reader's
+   bullet carries no number, and an editor that previews one would be showing
+   the author something that will not be there. */
+function BulletPreview({ bullet }: { bullet: Bullet }) {
   const choice = ICON_CHOICES.find((candidate) => candidate.value === bullet.icon)
   if (choice?.Icon) return <choice.Icon size={16} />
   return <span className="bullet__dot" />

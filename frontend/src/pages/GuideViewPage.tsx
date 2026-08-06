@@ -126,10 +126,20 @@ export function GuideViewPage() {
         {` · printed ${new Date().toLocaleDateString()}`}
       </div>
 
+      {/* The title and nothing under it.
+
+          A guide arrived with two bodies of prose above its first step — the
+          summary here, and the introduction below the meta row — saying the
+          same thing twice at two different sizes. The summary is written for
+          the places a guide is *listed*: it is what a tile, a search result and
+          a group carry, and it earns its keep there. On the guide itself it
+          only pushed the one row a reader checks first — which version, how
+          old, whose — a paragraph further down the page. So the guide keeps one
+          area for prose, and it is the introduction, which is the one an author
+          writes for somebody who has already arrived. */}
       <div className="page-header">
         <div className="page-header__text">
           <h1>{guide.title}</h1>
-          {guide.summary && <p className="page-header__sub">{guide.summary}</p>}
         </div>
       </div>
 

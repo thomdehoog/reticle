@@ -842,10 +842,18 @@ a:hover {
    `text-wrap: balance` is what stops "Analysis" being left alone on a line of
    its own. A facility's name is the one string here that no amount of column
    width makes safe — this one runs to six words — so the fix is to let the
-   browser even the lines out rather than to guess a width that fits it. */
+   browser even the lines out rather than to guess a width that fits it.
+
+   Set at the size the navigation rows are, rather than below them: whose
+   installation this is was the smallest thing in the frame, which is a strange
+   rank for the one line naming the building. It stays subordinate through
+   colour and through not being a link, and it is an existing step of the scale
+   rather than a new one invented for one string. Two lines survive it with
+   room to spare — balanced, this name does not reach a third until about
+   20px — so the shape the size changes is the reading, not the wrap. */
 .rail__facility {
   padding: 0.45rem 1.1rem 1rem;
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   line-height: 1.35;
   text-wrap: balance;
   color: #9db4d8;
@@ -1524,13 +1532,26 @@ a:hover {
  * in. What was uncapped is the picture.
  */
 
+/* The row sits close under the title, because it is the first thing a reader
+   checks — which version, how old, whose — and a paragraph's gap above it read
+   as a separator between two parts of the page rather than as a title and its
+   own stamp.
+
+   One rule owns that space. `.page-header` carries a bottom margin for every
+   other screen and contributes nothing inside a guide, so the gap is this one
+   number instead of two that collapse into whichever happens to be larger —
+   which is how it survived being tuned before. */
+.guide > .page-header {
+  margin-bottom: 0;
+}
+
 .guide__meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem 1.5rem;
   padding: 0.7rem 0;
-  margin: 0.9rem 0 1.25rem;
+  margin: 0.5rem 0 1.25rem;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   font-size: 0.92rem;
@@ -2020,31 +2041,6 @@ a:hover {
   border-radius: 50%;
   background: var(--marker-ink);
   box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85);
-}
-
-/**
- * The number the shape on the picture carries, repeated here.
- *
- * Colour on its own does not pair a bullet with its shape: orange and yellow
- * are the same colour to a deuteranope, every colour is the same on a greyscale
- * printout, and a screen reader is told nothing at all. The digit is small
- * enough to stay out of the way of somebody reading normally and decisive for
- * everyone else.
- */
-.bullet__number {
-  display: grid;
-  place-items: center;
-  width: 1.3rem;
-  height: 1.3rem;
-  border-radius: 50%;
-  background: var(--marker-ink);
-  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85);
-  color: #ffffff;
-  font-size: 0.78rem;
-  font-weight: 700;
-  line-height: 1;
-  print-color-adjust: exact;
-  -webkit-print-color-adjust: exact;
 }
 
 .bullet__text {
