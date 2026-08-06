@@ -47,7 +47,7 @@ import { SectionGrid } from '../components/SectionGrid'
 import { IconEdit, IconTrash } from '../components/icons'
 import { EmptyState, ErrorAlert, Modal, Spinner } from '../components/ui'
 import { GROUP_ANCHORS, groupAnchor, groupGuides, groupHeading } from '../domain/groups'
-import { browsableCategories } from '../hooks/useCategories'
+import { browsableCategories, isEmptyToReaders } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
 export function CategoryPage() {
@@ -93,7 +93,9 @@ export function CategoryPage() {
   if (!data?.category) return <EmptyState>That category does not exist.</EmptyState>
 
   const { category, categories, guides, landing, pages } = data
-  const children = browsableCategories(categories, data.publishedGuides, data.publishedPages)
+  const children = browsableCategories(categories, data.publishedGuides, data.publishedPages, {
+    keepEmpty: can('admin'),
+  })
     .filter((candidate) => candidate.parentId === category.id)
     .sort((a, b) => a.orderIndex - b.orderIndex)
   const isLeaf = children.length === 0
@@ -187,6 +189,15 @@ export function CategoryPage() {
         <SectionGrid
           categories={children}
           parentId={category.id}
+          emptyIds={
+            new Set(
+              children
+                .filter((child) =>
+                  isEmptyToReaders(child, categories, data.publishedGuides, data.publishedPages),
+                )
+                .map((child) => child.id),
+            )
+          }
           /* Only a top-level section may be given sub-sections. The tree is two
              deep — a section holds sub-sections, a sub-section holds the guides
              and the wikis — and the server refuses a third level, so the tile

@@ -43,11 +43,20 @@ export function CategoryTile({
   category,
   onDelete,
   draggable = false,
+  emptyToReaders = false,
 }: {
   category: Category
   /** Given only to an administrator; its absence is what hides the controls. */
   onDelete?: (category: Category) => void
   draggable?: boolean
+  /**
+   * Nothing published under it, so a reader is not shown this tile at all.
+   *
+   * Only an administrator ever sees one of these, and only because a section
+   * they have just made would otherwise vanish. The mark is the honest half of
+   * that: the tile is here, and it is not yet anybody else's.
+   */
+  emptyToReaders?: boolean
 }) {
   return (
     <div className={`tile-holder${draggable ? ' tile-holder--draggable' : ''}`}>
@@ -57,6 +66,7 @@ export function CategoryTile({
           <span className="tile__name">{category.name}</span>
         </span>
         {category.isHidden && <span className="tile__flag">Hidden</span>}
+        {!category.isHidden && emptyToReaders && <span className="tile__flag">Empty</span>}
       </Link>
 
       {onDelete && (

@@ -23,7 +23,7 @@ import { GuideCard, TileGrid } from '../components/BrowseCards'
 import { QuickLinks } from '../components/QuickLinks'
 import { SectionGrid } from '../components/SectionGrid'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
-import { browsableCategories, buildCategoryTree } from '../hooks/useCategories'
+import { browsableCategories, buildCategoryTree, isEmptyToReaders } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
 export function HomePage() {
@@ -56,9 +56,20 @@ export function HomePage() {
   if (!data) return null
 
   const roots = buildCategoryTree(
-    browsableCategories(data.categories, data.publishedGuides, data.publishedPages),
+    browsableCategories(data.categories, data.publishedGuides, data.publishedPages, {
+      keepEmpty: can('admin'),
+    }),
   )
   const myDrafts = data.mine.filter((guide) => guide.status !== 'published')
+  /* Which of the tiles above a reader would not be shown. Empty for anybody but
+     an administrator, who is the only one given such a tile at all. */
+  const emptyToReaders = new Set(
+    roots
+      .filter((category) =>
+        isEmptyToReaders(category, data.categories, data.publishedGuides, data.publishedPages),
+      )
+      .map((category) => category.id),
+  )
 
   return (
     <>
@@ -87,7 +98,7 @@ export function HomePage() {
       {roots.length === 0 && !can('admin') ? (
         <EmptyState>No categories yet.</EmptyState>
       ) : (
-        <SectionGrid categories={roots} onChanged={reload} />
+        <SectionGrid categories={roots} emptyIds={emptyToReaders} onChanged={reload} />
       )}
 
       <QuickLinks />

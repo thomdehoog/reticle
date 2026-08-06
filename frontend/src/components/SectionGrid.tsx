@@ -40,6 +40,7 @@ export function SectionGrid({
   categories,
   parentId = null,
   canAdd = true,
+  emptyIds,
   onChanged,
 }: {
   categories: Category[]
@@ -52,6 +53,12 @@ export function SectionGrid({
    * third level, so offering the tile would be offering a 422.
    */
   canAdd?: boolean
+  /**
+   * Which of these a reader would not be shown, because nothing is published
+   * under them. Only an administrator is given any, and only so that a section
+   * just made does not vanish; the tile wears a mark saying so.
+   */
+  emptyIds?: Set<string>
   /** Called after an order change or a deletion, to re-read the tree. */
   onChanged: () => void
 }) {
@@ -184,6 +191,7 @@ export function SectionGrid({
               category={category}
               draggable={admin}
               onDelete={admin ? setConfirming : undefined}
+              emptyToReaders={admin && emptyIds?.has(category.id)}
             />
           </div>
         ))}

@@ -15,7 +15,7 @@
  * screen is how a category quietly stops being editable.
  */
 
-import { useApi } from '../auth/AuthContext'
+import { useApi, useAuth } from '../auth/AuthContext'
 import type { Category } from '../domain/types'
 import { useAsync } from './useAsync'
 
@@ -106,18 +106,46 @@ export function countDocumentsByCategory(
  *
  * Neither kind is secret, and this is not a permission: the URL works, the
  * guides stay published, search and tags find them, and the admin screen and
- * both editors' pickers list every category there is. So it filters the browse
- * surfaces, and it filters them for authors too — one tree that everybody sees
- * the same way, rather than a private one in which an author cannot tell what a
- * reader is being offered. The first published guide brings the category back.
+ * both editors' pickers list every category there is. The first published guide
+ * brings the category back.
+ *
+ * **An administrator keeps the empty ones.** That is a change of mind, and the
+ * reasoning it replaces was good: one tree that everybody sees the same way,
+ * rather than a private one in which an author cannot tell what a reader is
+ * being offered. It held while categories only ever arrived from the seeder or
+ * from the migration, already full. Now that one can be made from the front
+ * page, the first thing that happens after making it is that it disappears —
+ * no tile on the section it was added to, and a rail that cannot say where you
+ * are, because the section you are standing in is not in the list the path is
+ * built from. A control whose result vanishes is worse than a tree with two
+ * views of it.
+ *
+ * So the divergence is admitted rather than hidden: an empty section is drawn
+ * for an administrator wearing a mark that says a reader cannot see it yet.
+ * Hidden categories stay hidden for everyone — those are deliberate, there are
+ * a dozen of them, and they are reached by tag on purpose.
  */
 export function browsableCategories(
   categories: Category[],
   publishedGuides: { categoryId: string }[],
   publishedPages: { categoryId: string | null }[],
+  { keepEmpty = false }: { keepEmpty?: boolean } = {},
 ): Category[] {
   const held = countDocumentsByCategory(categories, [...publishedGuides, ...publishedPages])
-  return categories.filter((category) => !category.isHidden && held(category.id) > 0)
+  return categories.filter(
+    (category) => !category.isHidden && (keepEmpty || held(category.id) > 0),
+  )
+}
+
+/** Whether a reader would be shown this section, given what is published. */
+export function isEmptyToReaders(
+  category: Category,
+  categories: Category[],
+  publishedGuides: { categoryId: string }[],
+  publishedPages: { categoryId: string | null }[],
+): boolean {
+  const held = countDocumentsByCategory(categories, [...publishedGuides, ...publishedPages])
+  return held(category.id) === 0
 }
 
 /**
@@ -130,14 +158,16 @@ export function browsableCategories(
  */
 export function useBrowsableCategories() {
   const api = useApi()
+  const { can } = useAuth()
+  const keepEmpty = can('admin')
   return useAsync(async () => {
     const [categories, guides, pages] = await Promise.all([
       api.listCategories(),
       api.listGuides({ status: 'published' }),
       api.listPages({ status: 'published' }),
     ])
-    return browsableCategories(categories, guides, pages)
-  }, [api])
+    return browsableCategories(categories, guides, pages, { keepEmpty })
+  }, [api, keepEmpty])
 }
 
 /**
