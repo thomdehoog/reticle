@@ -96,6 +96,16 @@
      the shape on the screenshot and the point describing it. */
   --content-max: 1440px;
   --rail-width: 236px;
+
+  /* How large a step's picture is allowed to get, and how wide the lane of
+     thumbnails beside it is.
+     A step image is usually a screenshot of an acquisition dialog, and it stops
+     becoming more legible long before it stops becoming larger: past this it is
+     a photograph taller than the screen with the instruction about it pushed
+     below the fold. The words under it take the width of both, so this also
+     sets the measure a bullet is read at. */
+  --step-image-max: 34rem;
+  --step-thumb-width: 7.5rem;
 }
 
 /*
@@ -1793,10 +1803,16 @@ a:hover {
   grid-column: 2;
   margin-top: 0.5rem;
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-  grid-template-rows: auto 1fr;
-  gap: 0 1.4rem;
+  /* The picture, then a lane for the thumbnails beside it. The picture's column
+     is capped rather than given a share of the width: a photograph twice the
+     height of the text beside it is a step nobody can read in one screen, and a
+     screenshot of a dialog stops being more legible long before it stops
+     getting bigger. */
+  grid-template-columns: minmax(0, var(--step-image-max)) auto;
+  grid-template-rows: auto auto;
+  gap: 0 0.9rem;
   align-items: start;
+  justify-content: start;
 }
 
 .step__body > .step__stage,
@@ -1808,17 +1824,27 @@ a:hover {
 
 .step__body > .step__thumbs,
 .editor-step__body > .media-strip {
-  grid-column: 1;
-  grid-row: 2;
-  margin-top: 0.5rem;
+  grid-column: 2;
+  grid-row: 1;
+  margin-top: 0;
   margin-bottom: 0;
   min-width: 0;
 }
 
+/*
+ * The words run under both, and as wide as both.
+ *
+ * They used to sit in a column beside the picture, which gave a bullet about
+ * half the width of the step and set a long instruction wrapping four times
+ * next to a photograph with white space under it. Underneath, a bullet has the
+ * whole measure, and the picture and its thumbnails read as one thing that the
+ * text is about.
+ */
 .step__body > .bullets,
 .editor-step__body > .editor-step__points {
-  grid-column: 2;
-  grid-row: 1 / 3;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin-top: 0.9rem;
 }
 
 /* A reader's step with no pictures at all gives its whole width to the points.
@@ -1891,11 +1917,22 @@ a:hover {
  * or more, all the same width, filled from the left so the strip's leading edge
  * stays against the picture's whether there are two of them or five.
  */
+/*
+ * A lane of thumbnails standing beside the picture.
+ *
+ * They were a row underneath it, which put them between the photograph and the
+ * words about it — the one place on the step where nothing should come between
+ * the two. Beside it they are out of that path, and the step reads picture,
+ * then text, with the other pictures parked to one side.
+ *
+ * A step holds at most four, so a single column never runs past the height of
+ * the picture it belongs to.
+ */
 .step__thumbs {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
+  grid-template-columns: var(--step-thumb-width);
   gap: 0.5rem;
-  margin-top: 0.6rem;
+  margin-top: 0;
 }
 
 /**
@@ -3471,6 +3508,19 @@ a:hover {
   .step__body > .bullets {
     grid-column: 1;
     grid-row: auto;
+  }
+
+  /* Beside the picture the thumbnails are a single column; under it they are a
+     row again, because a narrow strip down the middle of a phone would waste
+     the width the stacking just bought. */
+  .step__body > .step__thumbs {
+    grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
+  }
+
+  /* The words already have the whole width here, so they need no gap of their
+     own on top of the stack's. */
+  .step__body > .bullets {
+    margin-top: 0;
   }
 
 
