@@ -4107,6 +4107,20 @@ a:hover {
 }
 
 /*
+ * The group a dragged row would land in.
+ *
+ * The row is already drawn inside it — the arrangement is the preview — so this
+ * only has to say which panel answered for the move. A ring on the panel rather
+ * than a line at an insertion point, because there is no insertion point: a
+ * group is a set, and where a row sits inside one is decided by the grouping
+ * and not by where the pointer was let go.
+ */
+.section--group-target {
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 2px var(--brand-100);
+}
+
+/*
  * Every bar the same size, in every group, at every window width.
  *
  * A fixed track rather than `minmax(19rem, 1fr)`: the `1fr` is what let a bar
@@ -4151,6 +4165,12 @@ a:hover {
   min-height: 4.4rem;
   background: var(--surface);
   border-color: var(--border);
+}
+
+/* Whoever may rearrange the section is told so by the pointer, on the bars and
+   nowhere else: a row that cannot be dragged must not offer to be. */
+.section--group .guide-row[draggable='true'] {
+  cursor: grab;
 }
 
 /* Two lines, not three. The bar is wide enough that a third line is rare, and

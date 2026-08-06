@@ -20,6 +20,18 @@ import { Thumbnail } from './Thumbnail'
 import { StatusBadge } from './ui'
 
 /**
+ * What a section's page hands a row to make it draggable between groups.
+ *
+ * Named and narrow rather than an open bag of anchor attributes: a row is a
+ * link, and the only thing another screen is allowed to add to it is the drag.
+ */
+export type RowDrag = {
+  draggable?: boolean
+  onDragStart?: (event: React.DragEvent) => void
+  onDragEnd?: (event: React.DragEvent) => void
+}
+
+/**
  * A section: the picture and its name.
  *
  * No count under it. "12 guides" never decided which section somebody opened —
@@ -160,9 +172,19 @@ export function GuideCard({ guide, to }: { guide: GuideSummary; to?: string }) {
  * a description of a photograph between the reader and the name of the
  * procedure.
  */
-export function GuideRow({ guide, to }: { guide: GuideSummary; to?: string }) {
+/**
+ * `dragging` is whatever makes the row draggable on a section's page — the
+ * handlers and the flag, spread straight onto the link. A row is a link first:
+ * the drag is an affordance the section page adds to it, not a second kind of
+ * row, so it stays one component and one set of styles.
+ */
+export function GuideRow({
+  guide,
+  to,
+  ...dragging
+}: { guide: GuideSummary; to?: string } & RowDrag) {
   return (
-    <Link className="guide-row" to={to ?? `/g/${guide.slug}`}>
+    <Link className="guide-row" to={to ?? `/g/${guide.slug}`} {...dragging}>
       <span className="guide-row__main">
         <span className="guide-row__title">{guide.title}</span>
         <span className="guide-row__meta">
@@ -191,9 +213,9 @@ export function GuideRows({ children }: { children: React.ReactNode }) {
  * It says nothing about being a landing page: a section's own front page is
  * not listed inside that section, so the only pages here are its articles.
  */
-export function PageRow({ page }: { page: PageSummary }) {
+export function PageRow({ page, ...dragging }: { page: PageSummary } & RowDrag) {
   return (
-    <Link className="guide-row" to={`/w/${page.slug}`}>
+    <Link className="guide-row" to={`/w/${page.slug}`} {...dragging}>
       <span className="guide-row__main">
         <span className="guide-row__title">{page.title}</span>
         <span className="guide-row__meta">

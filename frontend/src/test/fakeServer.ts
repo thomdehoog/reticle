@@ -399,6 +399,23 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       }
     }
 
+    /* Moving a document between the groups on a section's page. Its own route
+       on the server too, and for the same reason: the section page holds
+       summaries, so a whole-document save would mean fetching the guide in full
+       to change one list. */
+    const retag = path.match(/^\/guides\/([^/]+)\/tags$/)
+    if (retag && method === 'PUT') {
+      const guide = state.guides.find((g) => g.id === retag[1])
+      if (!guide) return error('not_found', 'No such guide.', 404)
+      const incoming = body as { tags: string[]; updatedAt: string }
+      if (incoming.updatedAt !== guide.updatedAt) {
+        return error('conflict', 'Someone else saved this guide first.', 409)
+      }
+      const updated: Guide = { ...guide, tags: incoming.tags, updatedAt: nextTimestamp() }
+      state.guides = state.guides.map((g) => (g.id === guide.id ? updated : g))
+      return json(updated)
+    }
+
     const lifecycle = path.match(/^\/guides\/([^/]+)\/(publish|unpublish)$/)
     if (lifecycle && method === 'POST') {
       const guide = state.guides.find((g) => g.id === lifecycle[1])
@@ -491,6 +508,19 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
         state.pages = state.pages.map((p) => (p.id === page.id ? { ...p, status: 'archived' } : p))
         return noContent()
       }
+    }
+
+    const retag = path.match(/^\/pages\/([^/]+)\/tags$/)
+    if (retag && method === 'PUT') {
+      const page = state.pages.find((p) => p.id === retag[1])
+      if (!page) return error('not_found', 'No such page.', 404)
+      const incoming = body as { tags: string[]; updatedAt: string }
+      if (incoming.updatedAt !== page.updatedAt) {
+        return error('conflict', 'Someone else saved this page first.', 409)
+      }
+      const updated: Page = { ...page, tags: incoming.tags, updatedAt: nextTimestamp() }
+      state.pages = state.pages.map((p) => (p.id === page.id ? updated : p))
+      return json(updated)
     }
 
     const lifecycle = path.match(/^\/pages\/([^/]+)\/(publish|unpublish)$/)

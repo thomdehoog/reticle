@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session as DbSession
 from .. import audit, errors
 from ..auth import AdminUser, AuthorUser, DbDep, MaybeUser, client_address
 from ..db import escape_like, utcnow
-from ..documents import apply_page_document, next_updated_at, record_contribution
+from ..documents import apply_page_document, apply_tags, next_updated_at, record_contribution
 from ..models import PUBLISHED, Category, Page, PageRevision, PageTag, Tag, User
 from ..schemas import (
     ContentStatus,
@@ -33,6 +33,7 @@ from ..schemas import (
     PageOut,
     PageSummaryOut,
     RevisionSummaryOut,
+    TagsIn,
     page_document,
     page_out,
     page_summary_out,
@@ -208,6 +209,30 @@ def save_page(
         actor=user,
         ip_address=client_address(request),
         detail={"bodyChars": len(payload.body)},
+    )
+    db.commit()
+    return page_out(page)
+
+
+@router.put("/{page_id}/tags", response_model=PageOut)
+def set_page_tags(
+    page_id: str,
+    payload: TagsIn,
+    request: Request,
+    db: DbDep,
+    user: AuthorUser,
+) -> PageOut:
+    """The wiki half of the drag: see ``guides.set_guide_tags``."""
+    page = _load_editable(db, page_id)
+    apply_tags(db, page, payload.tags, payload.updated_at)
+    audit.record(
+        db,
+        action="page.retag",
+        entity_type="page",
+        entity_id=page.id,
+        actor=user,
+        ip_address=client_address(request),
+        detail={"tags": payload.tags},
     )
     db.commit()
     return page_out(page)

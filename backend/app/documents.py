@@ -160,6 +160,26 @@ def apply_page_document(db: DbSession, page: Page, payload: PageDocumentIn, acto
     record_contribution(db, page, actor)
 
 
+def apply_tags(db: DbSession, record: Guide | Page, tags: list[str], seen: datetime) -> None:
+    """Put a document into a set of groups, and change nothing else about it.
+
+    A section's page is arranged by dragging a row from one group into another,
+    and that is a statement about the section rather than about the document: the
+    prose, the steps and the pictures are untouched, and whoever did it did not
+    write anything. So this moves the timestamp — the concurrency token has to
+    advance, or the next drag would be answered with a stale copy — and it does
+    not touch the contributor ledger or ``last_edited_by``. Those two are the
+    guide's byline, and a name on it that never wrote a word of it is worse than
+    a byline one edit out of date.
+
+    Author rights, not administrator: this reaches exactly what the tag field in
+    the document editor reaches, by a shorter route.
+    """
+    assert_not_stale(record, seen, noun="guide" if isinstance(record, Guide) else "page")
+    _sync_tags(db, record, _validated_tags(tags))
+    record.updated_at = next_updated_at(record.updated_at)
+
+
 def _assert_landing_is_free(db: DbSession, category_id: str | None, page_id: str) -> None:
     clash = db.scalars(
         select(Page).where(

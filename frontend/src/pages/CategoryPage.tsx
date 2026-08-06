@@ -42,17 +42,11 @@ import { Link, useParams } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { Banner } from '../components/Banner'
-import { GuideRow, GuideRows, PageRow } from '../components/BrowseCards'
 import { SectionGrid } from '../components/SectionGrid'
+import { SectionGroups } from '../components/SectionGroups'
 import { IconEdit } from '../components/icons'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
-import {
-  endpointKey,
-  groupAnchor,
-  groupDocuments,
-  groupHeading,
-  type Endpoint,
-} from '../domain/groups'
+import { groupDocuments } from '../domain/groups'
 import { browsableCategories, isEmptyToReaders } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
@@ -184,38 +178,17 @@ export function CategoryPage() {
 
       {isLeaf && (
         <>
-          {/* Nothing tagged yet, above the groups and under no heading — a
-              section part-tagged is an ordinary state, not one to invent a name
-              for. Both kinds land here, as they do in the groups. */}
-          {grouped.loose.length > 0 && (
-            <section className="section section--group">
-              <GuideRows>
-                {grouped.loose.map((endpoint) => (
-                  <EndpointRow key={endpointKey(endpoint)} endpoint={endpoint} />
-                ))}
-              </GuideRows>
-            </section>
-          )}
-
           {/* The groups, under the tags that make them — `Talos`, then start-up,
               acquisition, shutdown. A document with several tags appears under
               each, which is what lets one LAS X guide sit under every
               instrument it applies to; that is the arrangement the corpus was
-              written for rather than an accident of the grouping. */}
-          {grouped.groups.map((group) => (
-            <section className="section section--group" key={group.tag} id={groupAnchor(group.tag)}>
-              <h3 className="section__title">
-                <Link to={`/t/${encodeURIComponent(group.tag)}`}>
-                  {groupHeading(group.tag)}
-                </Link>
-              </h3>
-              <GuideRows>
-                {group.items.map((endpoint) => (
-                  <EndpointRow key={`${group.tag}-${endpointKey(endpoint)}`} endpoint={endpoint} />
-                ))}
-              </GuideRows>
-            </section>
-          ))}
+              written for rather than an accident of the grouping.
+
+              Which group a row is in is dragged rather than written, and the
+              component that draws them owns that, because the preview during a
+              drag is a different arrangement of the same data and this screen
+              has no business holding two. */}
+          <SectionGroups grouped={grouped} onChanged={reload} />
 
           {guides.length === 0 && articles.length === 0 && (
             <EmptyState>Nothing in this section yet.</EmptyState>
@@ -232,20 +205,5 @@ export function CategoryPage() {
           belongs to them. */}
 
     </>
-  )
-}
-
-/**
- * One row, drawn as whichever kind of thing it points at.
- *
- * The union is narrowed here and nowhere else. Grouping, and the drag that
- * changes a group, work on `Endpoint` alone — a guide and a wiki differ in how
- * they are drawn and in nothing else the page cares about.
- */
-function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
-  return endpoint.kind === 'guide' ? (
-    <GuideRow guide={endpoint.guide} />
-  ) : (
-    <PageRow page={endpoint.page} />
   )
 }

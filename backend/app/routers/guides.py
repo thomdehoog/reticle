@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session as DbSession
 from .. import audit, errors
 from ..auth import AdminUser, AuthorUser, DbDep, MaybeUser, client_address
 from ..db import escape_like, utcnow
-from ..documents import apply_document, next_updated_at, record_contribution
+from ..documents import apply_document, apply_tags, next_updated_at, record_contribution
 from ..models import (
     PUBLISHED,
     Bullet,
@@ -40,6 +40,7 @@ from ..schemas import (
     GuideOut,
     GuideSummaryOut,
     RevisionSummaryOut,
+    TagsIn,
     guide_document,
     guide_out,
     guide_summary_out,
@@ -300,6 +301,36 @@ def save_guide(
         actor=user,
         ip_address=client_address(request),
         detail={"stepCount": len(payload.steps)},
+    )
+    db.commit()
+    return guide_out(guide)
+
+
+@router.put("/{guide_id}/tags", response_model=GuideOut)
+def set_guide_tags(
+    guide_id: str,
+    payload: TagsIn,
+    request: Request,
+    db: DbDep,
+    user: AuthorUser,
+) -> GuideOut:
+    """Move a guide between the groups on a section's page.
+
+    Its own route rather than a whole-document save, because the editor holds a
+    guide's steps and pictures and a section's page holds neither: making the
+    drag round-trip the document would mean fetching it in full to change one
+    list, and any bug in that round trip is a bug that eats somebody's work.
+    """
+    guide = _load_editable(db, guide_id)
+    apply_tags(db, guide, payload.tags, payload.updated_at)
+    audit.record(
+        db,
+        action="guide.retag",
+        entity_type="guide",
+        entity_id=guide.id,
+        actor=user,
+        ip_address=client_address(request),
+        detail={"tags": payload.tags},
     )
     db.commit()
     return guide_out(guide)

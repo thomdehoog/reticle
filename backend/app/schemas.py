@@ -489,6 +489,19 @@ class GuideDocumentIn(Document):
     updated_at: datetime
 
 
+class TagsIn(Document):
+    """Which groups a document is in, and nothing else about it.
+
+    What a drag on a section's page sends. ``updated_at`` is as mandatory here as
+    on a whole-document save: the row being dragged carries the tags the reader
+    could see, and if the document changed underneath them the move they meant is
+    not the move this would make.
+    """
+
+    tags: list[str] = Field(default_factory=list, max_length=MAX_TAGS_PER_GUIDE)
+    updated_at: datetime
+
+
 class PageCreateIn(Wire):
     title: str = Field(min_length=1, max_length=240)
     category_id: str | None = None

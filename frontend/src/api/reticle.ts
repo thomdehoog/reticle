@@ -162,6 +162,20 @@ export class ReticleApi {
     return this.http.put<Guide>(`/guides/${guide.id}`, guide)
   }
 
+  /**
+   * Move a guide between the groups on a section's page.
+   *
+   * Its own call rather than a `saveGuide` with the tags changed: this screen
+   * holds summaries, so a whole-document save would mean fetching the guide in
+   * full — every step, every picture — to change one list, and then writing all
+   * of it back. `updatedAt` is the row's own, so a drag against a guide that
+   * changed underneath the reader is refused rather than applied to something
+   * they never saw.
+   */
+  setGuideTags(id: string, tags: string[], updatedAt: string): Promise<Guide> {
+    return this.http.put<Guide>(`/guides/${id}/tags`, { tags, updatedAt })
+  }
+
   publishGuide(id: string): Promise<Guide> {
     return this.http.post<Guide>(`/guides/${id}/publish`)
   }
@@ -205,6 +219,11 @@ export class ReticleApi {
 
   savePage(page: Page): Promise<Page> {
     return this.http.put<Page>(`/pages/${page.id}`, page)
+  }
+
+  /** The wiki half of the drag; see `setGuideTags`. */
+  setPageTags(id: string, tags: string[], updatedAt: string): Promise<Page> {
+    return this.http.put<Page>(`/pages/${id}/tags`, { tags, updatedAt })
   }
 
   publishPage(id: string): Promise<Page> {
