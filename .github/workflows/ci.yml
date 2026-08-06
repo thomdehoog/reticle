@@ -442,6 +442,7 @@ jobs:
               .github/workflows/nginx-ci.conf > ci-nginx/site.conf
 
           cat > ci-nginx/nginx.conf <<CONF
+          user $(id -un) $(id -gn);
           worker_processes 1;
           error_log $PWD/ci-nginx/logs/error.log;
           pid $PWD/ci-nginx/nginx.pid;
@@ -458,7 +459,20 @@ jobs:
           }
           CONF
 
-          # nginx workers run as www-data and have to read the build.
+          # The workers read the build, and the build belongs to the runner.
+          #
+          # They ran as www-data, and `chmod -R a+rX` on the build was supposed
+          # to be enough. It is not: reaching a file means traversing every
+          # directory above it, and those are the runner's home and the work
+          # tree — paths this workflow does not own and should not be widening.
+          # nginx answered every request with 403 and the log said `stat()
+          # ".../frontend/dist/" failed (13: Permission denied)` on the
+          # directory that had just been made world-readable, which is what a
+          # missing `x` on an ancestor looks like.
+          #
+          # Running the workers as the user that owns the tree removes the
+          # question. `user` is only honoured when the master starts as root,
+          # which it does here, under sudo.
           chmod -R a+rX "$PWD/frontend/dist" "$PWD/ci-nginx"
 
           sudo nginx -t -c "$PWD/ci-nginx/nginx.conf"
