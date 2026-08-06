@@ -23,17 +23,44 @@ def author_account(make_user):
     return make_user("admin@zmb.uzh.ch", role="admin")
 
 
+class LentSession:
+    """The test's own session, lent to the importer with ``close`` disarmed.
+
+    ``main`` closes its session in a ``finally``, and this session belongs to the
+    fixtures — closing it would take the assertions after the call with it.
+
+    It is a wrapper rather than ``monkeypatch.setattr(db_session, "close", ...)``,
+    which is what it replaces, and the difference is a deadlock. That patch was
+    installed on the *fixture's own* session object, and pytest tears `cli` down
+    before `db_session`, so `db_session`'s finalizer called the disarmed `close`
+    and the session was never closed at all. Its connection stayed checked out of
+    the pool for the rest of the run, idle in a transaction, still holding the
+    categories a dry run had written and not committed — and the next test to
+    insert a category with one of those slugs waited on it until the job was
+    killed. `--cov` made it reliable enough to catch.
+
+    Disarming `close` on a wrapper leaves the real session untouched, so the
+    fixture that owns it can still close it.
+    """
+
+    def __init__(self, session):
+        self._session = session
+
+    def __getattr__(self, name):
+        return getattr(self._session, name)
+
+    def close(self) -> None:
+        """Deliberately nothing: the fixture that owns the session closes it."""
+
+
 @pytest.fixture()
 def cli(monkeypatch, db_session, media_root):
     """Run ``main`` against the test database and a scripted API."""
 
     def _run(argv: list[str], client: FakeDozuki):
         monkeypatch.setattr(run_module, "init_db", lambda: None)
-        monkeypatch.setattr(run_module, "SessionLocal", lambda: db_session)
+        monkeypatch.setattr(run_module, "SessionLocal", lambda: LentSession(db_session))
         monkeypatch.setattr(run_module, "DozukiClient", lambda *args, **kwargs: client)
-        # The session is shared with the fixtures, so closing it would take the
-        # assertions with it.
-        monkeypatch.setattr(db_session, "close", lambda: None)
         return run_module.main(argv)
 
     return _run
