@@ -206,3 +206,72 @@ describe('arranging a section by dragging', () => {
     expect(row).not.toHaveAttribute('draggable', 'true')
   })
 })
+
+/**
+ * Stacking the groups themselves.
+ *
+ * Two drags share one element here — a row dropped on a panel joins its group,
+ * a panel dropped on a panel takes its place — so what these check hardest is
+ * that neither can be mistaken for the other.
+ */
+describe('stacking a section’s groups', () => {
+  /** The heading order down the page, which is the arrangement under test. */
+  function stack() {
+    return screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)
+  }
+
+  it('drags a group up the page and writes the whole order down', async () => {
+    const server = twoGroups()
+    renderSection(server)
+
+    await screen.findByRole('heading', { name: 'Talos' })
+    expect(stack()).toEqual(['Nikon', 'Talos'])
+
+    const dataTransfer = transfer()
+    const lifted = group('Talos')
+    fireEvent.dragStart(lifted, { dataTransfer, target: lifted })
+    fireEvent.dragEnter(group('Nikon'), { dataTransfer })
+    expect(stack()).toEqual(['Talos', 'Nikon'])
+
+    fireEvent.dragEnd(lifted, { dataTransfer, target: lifted })
+    await waitFor(() => expect(server.state.categories[0].tagOrder).toEqual(['talos', 'nikon']))
+  })
+
+  /**
+   * The panel is draggable and the rows inside it are too, so a row's
+   * `dragstart` bubbles up to the panel's handler. If that were taken for a
+   * lift, dragging any row would restack the page as a side effect of moving
+   * it.
+   */
+  it('does not take a row’s drag for a group being lifted', async () => {
+    const server = twoGroups()
+    renderSection(server)
+
+    await screen.findByRole('heading', { name: 'Nikon' })
+    /* Both events fired on the row, which is where a browser fires them. Each
+       bubbles to the panel's handlers, and it is the panel deciding they were
+       not meant for it that this is about — so the row is left where it is,
+       and the only thing that could have happened is a write of the order. */
+    const dataTransfer = transfer()
+    const row = screen.getByRole('link', { name: /Talos start-up/ })
+    fireEvent.dragStart(row, { dataTransfer })
+    fireEvent.dragEnd(row, { dataTransfer })
+
+    expect(server.requests.filter((request) => request.path.endsWith('/tag-order'))).toEqual([])
+    expect(server.state.categories[0].tagOrder).toEqual([])
+  })
+
+  it('does not offer the lift to an author', async () => {
+    const server = twoGroups()
+    server.state.user = { ...server.state.user, role: 'author' }
+    renderSection(server)
+
+    const heading = await screen.findByRole('heading', { name: 'Talos' })
+    expect(heading.closest('section')).not.toHaveAttribute('draggable', 'true')
+    /* And still offers them the row, which is the right they do have. */
+    expect(screen.getByRole('link', { name: /Talos start-up/ })).toHaveAttribute(
+      'draggable',
+      'true',
+    )
+  })
+})

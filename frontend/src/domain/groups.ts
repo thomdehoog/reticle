@@ -97,8 +97,17 @@ export function groupAnchor(tag: string): string {
  * The pages passed in are the section's articles — the landing page is the
  * section rather than something inside it, and the caller drops it before
  * getting here for the same reason it is not drawn as a row.
+ *
+ * `order` is the section's own running order, the groups an administrator has
+ * placed. Anything not in it follows, alphabetically — which is where a group
+ * nobody has placed belongs: at the bottom, rather than appearing in the middle
+ * of an arrangement somebody made.
  */
-export function groupDocuments(guides: GuideSummary[], pages: PageSummary[]): Grouped {
+export function groupDocuments(
+  guides: GuideSummary[],
+  pages: PageSummary[],
+  order: string[] = [],
+): Grouped {
   const endpoints: Endpoint[] = [
     ...pages.map(
       (page): Endpoint => ({ kind: 'wiki', id: page.id, tags: page.tags, page }),
@@ -123,12 +132,23 @@ export function groupDocuments(guides: GuideSummary[], pages: PageSummary[]): Gr
     }
   }
 
-  /* Alphabetical, because there is no order in the data to respect and an
-     arrangement that changes with whichever guide happened to be imported
-     first is one a reader cannot learn. */
+  /* Placed groups first, in the order they were placed; the rest alphabetically
+     after them. Alphabetical alone is nobody's running order — start-up,
+     acquisition, shutdown is the sequence somebody works in, and sorting it
+     gives `acquisition, shutdown, start-up` — but it is the right fallback,
+     because an arrangement that changed with whichever guide happened to be
+     imported first is one a reader cannot learn. */
+  const placed = new Map(order.map((tag, index) => [tag, index]))
   const groups = [...byTag.entries()]
     .map(([tag, items]) => ({ tag, items }))
-    .sort((a, b) => a.tag.localeCompare(b.tag))
+    .sort((a, b) => {
+      const first = placed.get(a.tag)
+      const second = placed.get(b.tag)
+      if (first !== undefined && second !== undefined) return first - second
+      if (first !== undefined) return -1
+      if (second !== undefined) return 1
+      return a.tag.localeCompare(b.tag)
+    })
 
   return { loose, groups }
 }

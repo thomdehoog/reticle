@@ -20,6 +20,9 @@ def test_any_authenticated_role_can_list_categories(viewer, category):
             "isHidden": False,
             "heroMediaId": None,
             "imageUrl": None,
+            # Empty until an administrator stacks this section's groups, and the
+            # page falls back to alphabetical meanwhile.
+            "tagOrder": [],
         }
     ]
 

@@ -142,12 +142,18 @@ class CategoryOut(Wire):
     is_hidden: bool
     hero_media_id: str | None
     image_url: str | None
+    tag_order: list[str]
     """What the browse screens are built from.
 
     Navigation here is meant to be looked at rather than read: somebody heading
     for the confocal recognises the instrument long before they finish reading
     its name. A section with no picture yet falls back to a drawn placeholder on
-    the client, never to a broken image."""
+    the client, never to a broken image.
+
+    ``tag_order`` is the groups this section stacks first, in the order it stacks
+    them — only the ones an administrator has placed. Everything else sorts
+    alphabetically after them, which is where a new group belongs: at the bottom,
+    rather than in the middle of an arrangement somebody made."""
 
 
 class AnnotationOut(Wire):
@@ -489,6 +495,17 @@ class GuideDocumentIn(Document):
     updated_at: datetime
 
 
+class TagOrderIn(Wire):
+    """The order a section stacks its groups in, whole.
+
+    Bounded by the same ceiling as a document's tags for the same reason: this
+    writes one row per entry, and nothing stops a caller sending a hundred
+    thousand of them.
+    """
+
+    tags: list[str] = Field(default_factory=list, max_length=MAX_TAGS_PER_GUIDE)
+
+
 class TagsIn(Document):
     """Which groups a document is in, and nothing else about it.
 
@@ -639,6 +656,7 @@ def category_out(category: models.Category, landing_hero_id: str | None = None) 
         is_hidden=category.is_hidden,
         hero_media_id=category.hero_media_id,
         image_url=media_url(hero) if hero else None,
+        tag_order=category.ordered_tags,
     )
 
 

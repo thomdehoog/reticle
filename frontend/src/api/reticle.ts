@@ -127,6 +127,17 @@ export class ReticleApi {
     return this.http.patch<Category>(`/categories/${id}`, changes)
   }
 
+  /**
+   * Stack this section's groups in the order given.
+   *
+   * The whole order, not the one group that moved: an index is a position and
+   * not a weight, so writing one and leaving the rest would put two groups on
+   * the same number and let the tie decide which came first.
+   */
+  setTagOrder(id: string, tags: string[]): Promise<Category> {
+    return this.http.put<Category>(`/categories/${id}/tag-order`, { tags })
+  }
+
   /** The password is the administrator's own, and the server checks it. */
   deleteCategory(id: string, password: string): Promise<void> {
     return this.http.delete<void>(`/categories/${id}`, { password })

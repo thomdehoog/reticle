@@ -102,7 +102,7 @@ export function CategoryPage() {
      words are already in the banner above, so listing it here would be the
      page a reader is standing on offered as somewhere to go. */
   const articles = pages.filter((page) => !page.isLanding)
-  const grouped = groupDocuments(guides, articles)
+  const grouped = groupDocuments(guides, articles, category.tagOrder)
 
   return (
     <>
@@ -188,7 +188,7 @@ export function CategoryPage() {
               component that draws them owns that, because the preview during a
               drag is a different arrangement of the same data and this screen
               has no business holding two. */}
-          <SectionGroups grouped={grouped} onChanged={reload} />
+          <SectionGroups grouped={grouped} categoryId={category.id} onChanged={reload} />
 
           {guides.length === 0 && articles.length === 0 && (
             <EmptyState>Nothing in this section yet.</EmptyState>

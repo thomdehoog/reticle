@@ -304,6 +304,14 @@ export interface Category {
   /** The picture the section is browsed by. */
   heroMediaId: string | null
   imageUrl: string | null
+  /**
+   * The groups this section stacks first, in the order it stacks them.
+   *
+   * Only the tags an administrator has placed. Everything else sorts
+   * alphabetically after them, so a group nobody has placed appears at the
+   * bottom rather than in the middle of an arrangement somebody made.
+   */
+  tagOrder: string[]
 }
 
 export interface User {

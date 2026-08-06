@@ -16,13 +16,14 @@ from sqlalchemy.orm import Session as DbSession
 
 from .. import audit, errors
 from ..auth import AdminUser, DbDep, MaybeUser, client_address
-from ..models import PUBLISHED, Category, Guide, Media, Page
+from ..models import PUBLISHED, Category, CategoryTagOrder, Guide, Media, Page, Tag
 from ..schemas import (
     CategoryCreateIn,
     CategoryDeleteIn,
     CategoryOut,
     CategoryPatchIn,
     PageOut,
+    TagOrderIn,
     category_out,
     page_out,
 )
@@ -269,6 +270,66 @@ def patch_category(
         actor=user,
         ip_address=client_address(request),
         detail={"fields": sorted(changed)},
+    )
+    db.commit()
+    return category_out(category)
+
+
+@router.put("/{category_id}/tag-order", response_model=CategoryOut)
+def set_tag_order(
+    category_id: str,
+    payload: TagOrderIn,
+    request: Request,
+    db: DbDep,
+    user: AdminUser,
+) -> CategoryOut:
+    """Stack this section's groups in the order given.
+
+    The whole order at once, not one group's new position: the index is a
+    position rather than a weight, so writing one and leaving the rest would put
+    two groups on the same number and let the tie decide which came first.
+
+    Administrator, where moving a row between groups is author. The difference is
+    what is being changed: a row's group is a fact about the document and is
+    reachable from its own editor, while the running order of a section's page is
+    the section's, and every reader gets it.
+
+    Tags that do not exist are refused rather than minted. This names groups, and
+    a group with nothing in it is not one — an order that could invent them would
+    let a typo add a heading no document could ever be under.
+    """
+    category = _load(db, category_id)
+
+    slugs: list[str] = []
+    for slug in payload.tags:
+        if slug not in slugs:
+            slugs.append(slug)
+
+    found = {tag.slug: tag for tag in db.scalars(select(Tag).where(Tag.slug.in_(slugs)))}
+    missing = [slug for slug in slugs if slug not in found]
+    if missing:
+        raise errors.validation_failed(f"No such tag: {', '.join(missing)}.")
+
+    # Cleared and flushed before the new rows are added, not replaced in one
+    # assignment. `delete-orphan` would issue the inserts first and the deletes
+    # after, and every tag that is in both the old order and the new one collides
+    # with itself on `uq_category_tag_order` — so re-stacking the same groups was
+    # the one case that failed.
+    category.tag_order.clear()
+    db.flush()
+    category.tag_order = [
+        CategoryTagOrder(category_id=category.id, tag_id=found[slug].id, order_index=index)
+        for index, slug in enumerate(slugs)
+    ]
+
+    audit.record(
+        db,
+        action="category.reorder_tags",
+        entity_type="category",
+        entity_id=category.id,
+        actor=user,
+        ip_address=client_address(request),
+        detail={"tags": slugs},
     )
     db.commit()
     return category_out(category)

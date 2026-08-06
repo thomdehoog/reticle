@@ -4120,6 +4120,19 @@ a:hover {
   box-shadow: 0 0 0 2px var(--brand-100);
 }
 
+/* The group being carried up or down the stack. Faded rather than hidden: it is
+   drawn in the place it would land, so it has to be recognisable there. */
+.section--group-lifted {
+  opacity: 0.6;
+}
+
+/* An administrator may restack the page, and the heading is where to take hold
+   of a group — the bars inside it are draggable in their own right, and the
+   browser hands the drag to the innermost one. */
+.section--group[draggable='true'] > .section__title {
+  cursor: grab;
+}
+
 /*
  * Every bar the same size, in every group, at every window width.
  *

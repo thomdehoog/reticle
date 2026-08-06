@@ -303,6 +303,7 @@ RETURNS_A_GUIDE = frozenset(
         "/api/guides",
         "/api/guides/{key}",
         "/api/guides/{guide_id}",
+        "/api/guides/{guide_id}/tags",
         "/api/guides/{guide_id}/publish",
         "/api/guides/{guide_id}/unpublish",
         "/api/search",

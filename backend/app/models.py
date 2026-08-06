@@ -204,6 +204,51 @@ class Category(Base):
     children: Mapped[list[Category]] = relationship(back_populates="parent")
     parent: Mapped[Category | None] = relationship(back_populates="children", remote_side=[id])
     guides: Mapped[list[Guide]] = relationship(back_populates="category")
+    tag_order: Mapped[list[CategoryTagOrder]] = relationship(
+        back_populates="category",
+        cascade="all, delete-orphan",
+        order_by="CategoryTagOrder.order_index",
+    )
+
+    @property
+    def ordered_tags(self) -> list[str]:
+        """The groups this section stacks first, in the order it stacks them."""
+        return [link.tag.slug for link in self.tag_order]
+
+
+class CategoryTagOrder(Base):
+    """The order a section stacks its groups in.
+
+    A section's page is a stack of groups and a group is a tag, so the order of
+    the groups is an order of tags — and it belongs to the section rather than to
+    the tags, because ``Talos`` comes first in the electron-microscopy section
+    and means nothing in the light-microscopy one. Alphabetical is the fallback,
+    and it is nobody's idea of a running order: start-up, acquisition, shutdown
+    is the sequence somebody works in, and ``acquisition, shutdown, start-up`` is
+    what sorting it gives you.
+
+    Only the tags an administrator has actually placed have rows here. Anything
+    else — a tag invented since, or one never dragged — sorts alphabetically
+    after them, so a new group appears at the bottom rather than in the middle of
+    an arrangement somebody made.
+
+    The cascade is the reason this is a table rather than a list of slugs on the
+    category: a tag that stops existing leaves the order it was in, without
+    anything having to remember to tidy up after it.
+    """
+
+    __tablename__ = "category_tag_order"
+    __table_args__ = (UniqueConstraint("category_id", "tag_id", name="uq_category_tag_order"),)
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
+    category_id: Mapped[str] = mapped_column(
+        ForeignKey("categories.id", ondelete="CASCADE"), index=True
+    )
+    tag_id: Mapped[str] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), index=True)
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
+
+    category: Mapped[Category] = relationship(back_populates="tag_order")
+    tag: Mapped[Tag] = relationship(lazy="joined")
 
 
 class Guide(Base):

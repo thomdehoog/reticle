@@ -159,6 +159,7 @@ export function categoryFixture(overrides: Partial<Category> = {}): Category {
     isHidden: false,
     heroMediaId: null,
     imageUrl: null,
+    tagOrder: [],
     ...overrides,
   }
 }
@@ -572,6 +573,17 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       })
       state.categories.push(created)
       return json(created, 201)
+    }
+
+    const tagOrder = path.match(/^\/categories\/([^/]+)\/tag-order$/)
+    if (tagOrder && method === 'PUT') {
+      if (state.user.role !== 'admin') return error('forbidden', 'Admins only.', 403)
+      const category = state.categories.find((c) => c.id === tagOrder[1])
+      if (!category) return error('not_found', 'No such category.', 404)
+      const wanted = (body as { tags: string[] }).tags
+      const updated: Category = { ...category, tagOrder: [...new Set(wanted)] }
+      state.categories = state.categories.map((c) => (c.id === category.id ? updated : c))
+      return json(updated)
     }
 
     const landing = path.match(/^\/categories\/([^/]+)\/page$/)

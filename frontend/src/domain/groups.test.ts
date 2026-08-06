@@ -114,6 +114,47 @@ describe('groupDocuments', () => {
     expect(groups.map((group) => group.tag)).toEqual(['confocal'])
   })
 
+  /**
+   * Alphabetical is nobody's running order. Start-up, acquisition, shutdown is
+   * the sequence somebody works in, and sorting it gives `acquisition,
+   * shutdown, start-up` — which is why a section carries an order of its own.
+   */
+  it('stacks the groups a section has placed, in the order it placed them', () => {
+    const { groups } = groupDocuments(
+      [
+        guide('Shutting down', ['shutdown']),
+        guide('Acquiring', ['acquisition']),
+        guide('Starting up', ['startup']),
+      ],
+      [],
+      ['startup', 'acquisition', 'shutdown'],
+    )
+
+    expect(groups.map((group) => group.tag)).toEqual(['startup', 'acquisition', 'shutdown'])
+  })
+
+  /* A group nobody has placed belongs at the bottom, not in the middle of an
+     arrangement somebody made — which is where sorting the whole list would put
+     a tag beginning with `a`. */
+  it('puts a group nobody placed after the ones somebody did', () => {
+    const { groups } = groupDocuments(
+      [guide('Starting up', ['startup']), guide('New', ['aardvark'])],
+      [],
+      ['startup'],
+    )
+
+    expect(groups.map((group) => group.tag)).toEqual(['startup', 'aardvark'])
+  })
+
+  /* An order naming a group this section does not have is not an error and not
+     a gap: sections share tags, and one that has been emptied here still has
+     its place recorded. */
+  it('ignores a placed group that is not in this section', () => {
+    const { groups } = groupDocuments([guide('Starting up', ['startup'])], [], ['gone', 'startup'])
+
+    expect(groups.map((group) => group.tag)).toEqual(['startup'])
+  })
+
   it('has nothing to say about an empty section', () => {
     expect(groupDocuments([], [])).toEqual({ loose: [], groups: [] })
   })

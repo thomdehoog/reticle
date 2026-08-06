@@ -36,20 +36,53 @@ import { endpointKey, groupAnchor, groupHeading, type Endpoint, type Grouped } f
 import { GuideRow, GuideRows, PageRow, type RowDrag } from './BrowseCards'
 import { ErrorAlert } from './ui'
 
-export function SectionGroups({ grouped, onChanged }: { grouped: Grouped; onChanged: () => void }) {
+export function SectionGroups({
+  grouped,
+  categoryId,
+  onChanged,
+}: {
+  grouped: Grouped
+  /** The section these groups belong to, which is what owns their order. */
+  categoryId: string
+  onChanged: () => void
+}) {
   const api = useApi()
   const { can } = useAuth()
   /* The right the server asks for, which is the right to change the document's
      tags — the same one the tag field in its editor needs. Not `admin`: this
      reaches nothing that screen does not already reach. */
   const canArrange = can('author')
+  /* Restacking the page is the section's, and every reader gets it — so it is
+     the same rank as making and deleting one. */
+  const canReorder = can('admin')
 
   const [dragging, setDragging] = useState<{ endpoint: Endpoint; from: string | null } | null>(null)
+  /** The group being dragged up or down, as opposed to a row being dragged into one. */
+  const [lifted, setLifted] = useState<string | null>(null)
   /** The group the pointer is over, once it is somewhere the row is not already. */
   const [over, setOver] = useState<string | null>(null)
   const [failure, setFailure] = useState<unknown>(null)
 
-  const shown = over && dragging ? withMoved(grouped, dragging.endpoint, dragging.from, over) : grouped
+  /**
+   * The stack as it stands on screen, which during a drag is ahead of the
+   * server. A group moves as soon as the pointer is over the place it would
+   * land, so what is shown while the mouse is still down is the result of
+   * letting go.
+   */
+  const [order, setOrder] = useState(grouped.groups.map((group) => group.tag))
+  /* Adjusted during render rather than in an effect, as the section grid's is:
+     an effect would paint the stale order first and then correct it. */
+  const [rendered, setRendered] = useState(grouped)
+  if (rendered !== grouped) {
+    setRendered(grouped)
+    setOrder(grouped.groups.map((group) => group.tag))
+  }
+
+  const stacked = {
+    loose: grouped.loose,
+    groups: [...grouped.groups].sort((a, b) => order.indexOf(a.tag) - order.indexOf(b.tag)),
+  }
+  const shown = over && dragging ? withMoved(stacked, dragging.endpoint, dragging.from, over) : stacked
 
   /**
    * Send the arrangement the page is already showing.
@@ -72,6 +105,37 @@ export function SectionGroups({ grouped, onChanged }: { grouped: Grouped; onChan
          has not — a second drag of the same row would carry the old one and be
          refused as stale. Re-reading is what makes two drags in a row work. */
       onChanged()
+    } catch (cause) {
+      setFailure(cause)
+      onChanged()
+    }
+  }
+
+  /** Move the lifted group to where `target` currently sits, on screen only. */
+  function previewLift(target: string) {
+    setOrder((current) => {
+      const from = current.indexOf(lifted!)
+      const to = current.indexOf(target)
+      if (from < 0 || to < 0 || from === to) return current
+      const next = [...current]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }
+
+  /**
+   * Write down the stack the page is already showing.
+   *
+   * The whole order, not the one group that moved: the index is a position and
+   * not a weight, so writing one and leaving the rest would put two groups on
+   * the same number. `onChanged` only on failure, where the screen is showing an
+   * arrangement the server refused.
+   */
+  async function commitOrder() {
+    setFailure(null)
+    try {
+      await api.setTagOrder(categoryId, order)
     } catch (cause) {
       setFailure(cause)
       onChanged()
@@ -101,25 +165,58 @@ export function SectionGroups({ grouped, onChanged }: { grouped: Grouped; onChan
     }
   }
 
+  /**
+   * The panel, which is two drop targets wearing one element.
+   *
+   * A row dropped here joins this group; a group dropped here takes this one's
+   * place in the stack. Which of the two is happening is not read off the event
+   * — it is whichever drag is in progress, and only one ever is.
+   *
+   * The panel is draggable so that grabbing it anywhere but a row lifts the
+   * group. The browser starts the drag from the innermost draggable element, so
+   * a row still moves as a row; `dragStart` bubbles up here from it, which is
+   * what the target check is for.
+   */
   function groupProps(tag: string) {
-    if (!canArrange) return {}
+    if (!canArrange && !canReorder) return {}
     return {
+      draggable: canReorder,
+      onDragStart: (event: React.DragEvent) => {
+        if (event.target !== event.currentTarget) return
+        setLifted(tag)
+        event.dataTransfer.effectAllowed = 'move'
+        /* Firefox will not start a drag without data on it. */
+        event.dataTransfer.setData('text/plain', tag)
+      },
+      onDragEnd: (event: React.DragEvent) => {
+        if (event.target !== event.currentTarget) return
+        setLifted(null)
+        void commitOrder()
+      },
       /* `dragEnter` and not `dragOver`: entering fires once per group crossed,
-         where `dragOver` fires every few pixels. */
+         where `dragOver` fires every few pixels and would move the same group
+         over and over while the pointer sat still. */
       onDragEnter: () => {
         if (dragging) setOver(tag)
+        else if (lifted && lifted !== tag) previewLift(tag)
       },
       onDragOver: (event: React.DragEvent) => {
-        if (!dragging) return
-        /* Both are needed before a drop is allowed to happen here at all. */
+        if (!dragging && !lifted) return
+        /* Both are needed before a drop is allowed to happen here at all, which
+           is what makes `dragEnd` mean "let go here" rather than "cancelled". */
         event.preventDefault()
         event.dataTransfer.dropEffect = 'move'
       },
-      /* Leaving the group takes the preview with it, so a drag abandoned
+      /* Leaving the group takes the row preview with it, so a drag abandoned
          somewhere else does not leave the page showing a move that never
          happened. Guarded on where the pointer went: this fires on the way
          *into* every row inside the group as well, because the event bubbles,
-         and clearing on those would undo the preview the moment it was made. */
+         and clearing on those would undo the preview the moment it was made.
+
+         A lifted group is not cleared here. Its preview is the stack itself,
+         which has nowhere to revert to mid-drag, and `dragEnd` fires on the
+         panel — an element that is moved rather than replaced, so unlike a row
+         it is still there to receive it. */
       onDragLeave: (event: React.DragEvent) => {
         const to = event.relatedTarget
         if (to instanceof Node && event.currentTarget.contains(to)) return
@@ -154,7 +251,13 @@ export function SectionGroups({ grouped, onChanged }: { grouped: Grouped; onChan
 
       {shown.groups.map((group) => (
         <section
-          className={`section section--group${over === group.tag ? ' section--group-target' : ''}`}
+          className={[
+            'section section--group',
+            over === group.tag ? 'section--group-target' : '',
+            lifted === group.tag ? 'section--group-lifted' : '',
+          ]
+            .join(' ')
+            .trim()}
           key={group.tag}
           id={groupAnchor(group.tag)}
           {...groupProps(group.tag)}
