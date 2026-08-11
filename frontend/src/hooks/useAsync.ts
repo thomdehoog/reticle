@@ -14,7 +14,7 @@
  * arrive too late are thrown away.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 interface AsyncState<T> {
   data: T | null
@@ -49,6 +49,9 @@ const PENDING: Outcome<never> = { data: null, error: null, loading: true }
 export function useAsync<T>(loader: () => Promise<T>, deps: unknown[]): AsyncState<T> {
   const [outcome, setOutcome] = useState<Outcome<T>>(PENDING)
   const [nonce, setNonce] = useState(0)
+  /* What the last request was for, so a re-run can tell the two refreshes
+     apart: new inputs, or the same inputs asked again. */
+  const lastDeps = useRef(deps)
 
   const reload = useCallback(() => setNonce((value) => value + 1), [])
 
@@ -62,10 +65,23 @@ export function useAsync<T>(loader: () => Promise<T>, deps: unknown[]): AsyncSta
     // the new heading, which reads as wrong data rather than as loading. One
     // extra render is a cheaper problem than that.
     //
-    // It is also skipped when already pending, which is the common case on
-    // mount and costs nothing when it applies.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setOutcome((previous) => (previous === PENDING ? previous : PENDING))
+    // Only when the inputs changed, though. A `reload()` of the same inputs
+    // is the opposite case: the data on screen IS the current page — an
+    // author just edited something on it — and blanking it swaps the whole
+    // screen for a spinner and back, a flicker on every in-place edit. The
+    // stale copy stays up while the fresh one is on its way, exactly as the
+    // rail holds its answer across a navigation.
+    //
+    // The reset is also skipped when already pending, which is the common
+    // case on mount and costs nothing when it applies.
+    const depsChanged =
+      deps.length !== lastDeps.current.length ||
+      deps.some((value, index) => !Object.is(value, lastDeps.current[index]))
+    lastDeps.current = deps
+    if (depsChanged) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setOutcome((previous) => (previous === PENDING ? previous : PENDING))
+    }
 
     loader()
       .then((result) => {

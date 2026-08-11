@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import type { User } from '../domain/types'
@@ -154,15 +154,21 @@ describe('HomePage', () => {
 
     await screen.findByRole('heading', { name: 'Guides' })
 
-    const listings = server.requests
-      .filter((request) => request.path.startsWith('/guides') || request.path.startsWith('/pages'))
-      .map((request) => request.path)
-      .sort()
-    expect(listings).toEqual([
-      '/guides?quickLink=true',
-      '/guides?status=published',
-      '/pages?status=published',
-    ])
+    /* Inside waitFor because the quick-links block asks in its own mount
+       effect, which can still be flushing when the heading lands. The pin is
+       unchanged: exactly these three, so a drafts listing appearing for a
+       viewer fails it just as before. */
+    await waitFor(() => {
+      const listings = server.requests
+        .filter((request) => request.path.startsWith('/guides') || request.path.startsWith('/pages'))
+        .map((request) => request.path)
+        .sort()
+      expect(listings).toEqual([
+        '/guides?quickLink=true',
+        '/guides?status=published',
+        '/pages?status=published',
+      ])
+    })
   })
 
   /* The procedures people arrive asking for, which no category name would have
