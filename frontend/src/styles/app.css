@@ -730,6 +730,126 @@ a:hover {
   resize: vertical;
 }
 
+/* The quiet bar under a section's banner: the one place a group is made. */
+.section-bar {
+  display: flex;
+  justify-content: flex-start;
+  margin: 0.85rem 0 0.25rem;
+}
+
+/* A group's head is the panel's title strip — the sunken band across the top
+   that makes a group a titled panel. The heading sits on the left as it always
+   did; the tools whisper on the right, an author's furniture on a reader's
+   page. The strip took the bare heading's place, so the panel rules that used
+   to dress the heading dress the strip. */
+.section--group > .section__head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.45rem 0.7rem 0.45rem 1.15rem;
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border);
+}
+
+.section--group .section__head .section__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--ink-800);
+}
+
+/* The name and the pencil that renames it, one cluster on the strip's left.
+   The name's line box is exactly the button's height, so the two read as one
+   aligned pair rather than a word with a taller control leaning on it. */
+.section__name {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.section__name .section__title {
+  font-size: 1rem;
+  line-height: 1.75rem;
+}
+
+.section__name .button,
+.section__tools {
+  opacity: 0.55;
+  transition: opacity 0.14s ease;
+}
+
+.section__tools {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.25rem;
+}
+
+.section--group:hover .section__name .button,
+.section--group:focus-within .section__name .button,
+.section--group:hover .section__tools,
+.section--group:focus-within .section__tools {
+  opacity: 1;
+}
+
+/* The heading as a text box, sized like the strip title it stands in for. */
+.section__rename {
+  flex: 1 1 auto;
+  max-width: 20rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.section__empty {
+  margin: 0;
+  padding: 1rem 1.15rem 1.15rem;
+  font-size: 0.9rem;
+  color: var(--ink-400);
+}
+
+/* A row and the controls a section page hangs beside it. The controls appear
+   when the hand or the focus arrives; a reader scanning titles never sees
+   them. */
+.guide-row-holder {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+.guide-row-holder .guide-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.guide-row__actions {
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  display: flex;
+  gap: 0.25rem;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 0.12s ease;
+}
+
+.guide-row-holder:hover .guide-row__actions,
+.guide-row-holder:focus-within .guide-row__actions {
+  opacity: 1;
+}
+
+/* One quiet word on an article's row — the whole visual difference between
+   the two kinds of document a group holds. Quiet through colour and
+   letterform, never through size: 0.75rem is the 12px floor a dark room can
+   still be read at, and the stylesheet's own test holds every rule to it. */
+.guide-row__kind {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink-400);
+  text-transform: uppercase;
+}
+
 /* The guide picker's results: a short list a click chooses from. */
 .guide-picker {
   max-height: 40vh;
@@ -4191,15 +4311,8 @@ a:hover {
   box-shadow: var(--shadow-sm);
 }
 
-.section--group > .section__title {
-  margin: 0;
-  padding: 0.8rem 1.15rem;
-  background: var(--surface-sunken);
-  border-bottom: 1px solid var(--border);
-  font-size: 0.95rem;
-  font-weight: 650;
-  color: var(--ink-800);
-}
+/* The bare-heading form of the strip lives with `.section__head` now — every
+   group's title arrives wrapped with its tools, and the strip is the wrapper. */
 
 /*
  * The group a dragged row would land in.
@@ -4221,10 +4334,10 @@ a:hover {
   opacity: 0.6;
 }
 
-/* An administrator may restack the page, and the heading is where to take hold
-   of a group — the bars inside it are draggable in their own right, and the
-   browser hands the drag to the innermost one. */
-.section--group[draggable='true'] > .section__title {
+/* An administrator may restack the page, and the title strip is where to take
+   hold of a group — the bars inside it are draggable in their own right, and
+   the browser hands the drag to the innermost one. */
+.section--group[draggable='true'] > .section__head {
   cursor: grab;
 }
 

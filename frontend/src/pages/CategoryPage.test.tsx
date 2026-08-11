@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { Route, Routes } from 'react-router'
 
@@ -109,7 +110,7 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    expect(await screen.findByRole('link', { name: /Confocal startup/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /^Confocal startup/ })).toBeInTheDocument()
   })
 
   /**
@@ -151,7 +152,7 @@ describe('CategoryPage', () => {
       'href',
       '/c/confocal',
     )
-    expect(screen.queryByRole('link', { name: /Confocal startup/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^Confocal startup/ })).not.toBeInTheDocument()
   })
 
   /* A category with nothing under it is already the bottom of the tree, so it
@@ -162,7 +163,7 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    expect(await screen.findByRole('link', { name: /Confocal startup/ })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: /^Confocal startup/ })).toHaveAttribute(
       'href',
       '/g/confocal-startup',
     )
@@ -222,7 +223,7 @@ describe('CategoryPage', () => {
        URL is the identity, and only one of them may change. */
     expect(await screen.findByRole('heading', { name: 'Stellaris' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Stellaris' })).toHaveAttribute('href', '/t/stellaris')
-    expect(screen.getByRole('link', { name: /Confocal startup/ })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^Confocal startup/ })).toBeInTheDocument()
   })
 
   /**
@@ -261,11 +262,11 @@ describe('CategoryPage', () => {
 
     const talos = await screen.findByRole('heading', { name: 'Talos' })
     const group = talos.closest('section')!
-    expect(within(group).getByRole('link', { name: /Immersion oil/ })).toHaveAttribute(
+    expect(within(group).getByRole('link', { name: /^Immersion oil/ })).toHaveAttribute(
       'href',
       '/w/immersion-oil',
     )
-    expect(within(group).getByRole('link', { name: /Talos start-up/ })).toBeInTheDocument()
+    expect(within(group).getByRole('link', { name: /^Talos start-up/ })).toBeInTheDocument()
 
     /* Neither half survives, under any name. */
     expect(screen.queryByRole('heading', { name: 'Wikis' })).not.toBeInTheDocument()
@@ -299,8 +300,8 @@ describe('CategoryPage', () => {
     renderCategory(server)
 
     await screen.findByRole('heading', { name: 'Talos' })
-    const oil = screen.getByRole('link', { name: /Immersion oil/ })
-    const startup = screen.getByRole('link', { name: /Talos start-up/ })
+    const oil = screen.getByRole('link', { name: /^Immersion oil/ })
+    const startup = screen.getByRole('link', { name: /^Talos start-up/ })
 
     expect(oil.compareDocumentPosition(startup)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
@@ -331,7 +332,7 @@ describe('CategoryPage', () => {
     renderCategory(server)
 
     const talos = await screen.findByRole('heading', { name: 'Talos' })
-    const oil = screen.getByRole('link', { name: /Immersion oil/ })
+    const oil = screen.getByRole('link', { name: /^Immersion oil/ })
 
     expect(oil.compareDocumentPosition(talos)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     expect(screen.queryByRole('heading', { name: 'Wikis' })).not.toBeInTheDocument()
@@ -352,7 +353,7 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    expect(await screen.findByRole('link', { name: /Immersion oil/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /^Immersion oil/ })).toBeInTheDocument()
     expect(screen.queryByText('Nothing in this section yet.')).not.toBeInTheDocument()
   })
 
@@ -381,7 +382,7 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    expect(await screen.findByRole('link', { name: /Immersion oil/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /^Immersion oil/ })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /^Light Microscopy/ })).not.toBeInTheDocument()
   })
 
@@ -418,7 +419,7 @@ describe('CategoryPage', () => {
     })
     renderCategory(server)
 
-    await screen.findByRole('link', { name: /Confocal startup/ })
+    await screen.findByRole('link', { name: /^Confocal startup/ })
     expect(screen.queryByText('Book the instrument first.')).not.toBeInTheDocument()
     expect(
       screen.queryByRole('heading', { name: 'From the landing page' }),
@@ -589,7 +590,7 @@ describe('CategoryPage', () => {
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Tag-only guides' })).toBeInTheDocument(),
     )
-    expect(screen.getByRole('link', { name: /LAS X basics/ })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^LAS X basics/ })).toBeInTheDocument()
   })
 
   /**
@@ -609,8 +610,10 @@ describe('CategoryPage', () => {
       expect(screen.getByRole('heading', { name: 'CryoEM' })).toBeInTheDocument(),
     )
     /* Both halves empty, which is the only case that says nothing is here —
-       a section with wikis and no guides, or the reverse, is ordinary. */
-    expect(screen.getByText('Nothing in this section yet.')).toBeInTheDocument()
+       a section with wikis and no guides, or the reverse, is ordinary. The
+       sentence now carries the way out of the emptiness for an author, so it
+       is matched by its opening rather than as the whole of the text. */
+    expect(screen.getByText(/Nothing in this section yet\./)).toBeInTheDocument()
     /* And an administrator is offered the thing to do about it. A section with
        no sub-sections is exactly where one gets added, so the tile that makes
        one is drawn even though there is no grid of them to sit beside. */
@@ -618,5 +621,76 @@ describe('CategoryPage', () => {
       'href',
       '/categories/new?parent=c-cryo',
     )
+  })
+})
+
+/**
+ * Making a group from the section itself.
+ *
+ * One click, no dialog: the group appears with its name selected and ready to
+ * be typed over — making and naming are one gesture. A group is still nothing
+ * but a tag worn by documents, so the newcomer lives on screen alone until
+ * its first document makes it real; the server deliberately refuses a
+ * heading nothing is under, and nothing is sent for one.
+ */
+describe('adding a group from the section', () => {
+  it('offers Add group to an author, and not to a reader', async () => {
+    const server = createFakeServer({
+      categories: [categoryFixture()],
+      guides: [guideFixture({ status: 'published' })],
+    })
+    renderCategory(server)
+    expect(await screen.findByRole('button', { name: /Add group/ })).toBeInTheDocument()
+
+    server.state.user.role = 'viewer'
+    renderCategory(server)
+    await screen.findAllByRole('heading', { level: 1, name: 'Light Microscopy' })
+    expect(screen.queryAllByRole('button', { name: /Add group/ })).toHaveLength(1)
+  })
+
+  it('makes the group on the spot, name selected and ready to be typed over', async () => {
+    const server = createFakeServer({
+      categories: [categoryFixture()],
+      guides: [],
+    })
+    const user = userEvent.setup()
+    renderCategory(server)
+
+    await user.click(await screen.findByRole('button', { name: /Add group/ }))
+
+    /* No dialog: the heading itself is the text box, already editing. */
+    const field = screen.getByRole('textbox', { name: 'Group name' })
+    expect(field).toHaveValue('New-group')
+    await user.keyboard('Alignment{Enter}')
+
+    expect(await screen.findByRole('heading', { name: 'Alignment' })).toBeInTheDocument()
+    expect(screen.getByText('Nothing in this group yet.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add a guide to Alignment' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add a wiki to Alignment' })).toBeInTheDocument()
+    /* Nothing was written: an empty group has no server-side existence. */
+    expect(server.requests.filter((request) => request.method !== 'GET')).toEqual([])
+  })
+
+  it('makes the empty group real with its first document', async () => {
+    const server = createFakeServer({
+      categories: [categoryFixture()],
+      guides: [],
+    })
+    const user = userEvent.setup()
+    renderCategory(server)
+
+    await user.click(await screen.findByRole('button', { name: /Add group/ }))
+    await user.keyboard('{Enter}')
+    await user.click(await screen.findByRole('button', { name: 'Add a guide to New-group' }))
+
+    /* Born a draft, in this section, wearing the group's tag. */
+    await waitFor(() => {
+      const made = server.state.guides.find((g) => g.title === 'New guide')
+      expect(made?.tags).toEqual(['new-group'])
+      expect(made?.categoryId).toBe('c-light')
+      expect(made?.status).toBe('draft')
+    })
+    /* And the reloaded section draws it as a row where it was made. */
+    expect(await screen.findByRole('link', { name: /^New guide/ })).toBeInTheDocument()
   })
 })

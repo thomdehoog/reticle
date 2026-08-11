@@ -14,6 +14,7 @@
  */
 
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { Route, Routes } from 'react-router'
 
@@ -79,7 +80,7 @@ describe('arranging a section by dragging', () => {
     renderSection(server)
 
     await screen.findByRole('heading', { name: 'Nikon' })
-    drag(screen.getByRole('link', { name: /Talos start-up/ }), group('Nikon'))
+    drag(screen.getByRole('link', { name: /^Talos start-up/ }), group('Nikon'))
 
     await waitFor(() =>
       expect(server.state.guides.find((guide) => guide.id === 'g-talos')!.tags).toEqual(['nikon']),
@@ -102,7 +103,7 @@ describe('arranging a section by dragging', () => {
     renderSection(server)
 
     await screen.findByRole('heading', { name: 'Nikon' })
-    drag(screen.getByRole('link', { name: /Immersion oil/ }), group('Nikon'))
+    drag(screen.getByRole('link', { name: /^Immersion oil/ }), group('Nikon'))
 
     await waitFor(() =>
       expect(server.state.pages.find((page) => page.id === 'w-oil')!.tags).toEqual(['nikon']),
@@ -125,7 +126,7 @@ describe('arranging a section by dragging', () => {
     await screen.findByRole('heading', { name: 'Nikon' })
     /* The row is on the page twice, once per group it is in — which is the
        behaviour under test, so the drag has to say which of the two it grabbed. */
-    drag(within(group('Talos')).getByRole('link', { name: /Talos start-up/ }), group('Nikon'))
+    drag(within(group('Talos')).getByRole('link', { name: /^Talos start-up/ }), group('Nikon'))
 
     await waitFor(() =>
       expect(server.state.guides.find((guide) => guide.id === 'g-talos')!.tags).toEqual([
@@ -149,7 +150,7 @@ describe('arranging a section by dragging', () => {
     renderSection(server)
 
     await screen.findByRole('heading', { name: 'Nikon' })
-    drag(screen.getByRole('link', { name: /Not tagged yet/ }), group('Nikon'))
+    drag(screen.getByRole('link', { name: /^Not tagged yet/ }), group('Nikon'))
 
     await waitFor(() =>
       expect(server.state.guides.find((guide) => guide.id === 'g-loose')!.tags).toEqual(['nikon']),
@@ -162,10 +163,10 @@ describe('arranging a section by dragging', () => {
 
     await screen.findByRole('heading', { name: 'Nikon' })
     const dataTransfer = transfer()
-    fireEvent.dragStart(screen.getByRole('link', { name: /Talos start-up/ }), { dataTransfer })
+    fireEvent.dragStart(screen.getByRole('link', { name: /^Talos start-up/ }), { dataTransfer })
     fireEvent.dragEnter(group('Nikon'), { dataTransfer })
 
-    expect(within(group('Nikon')).getByRole('link', { name: /Talos start-up/ })).toBeInTheDocument()
+    expect(within(group('Nikon')).getByRole('link', { name: /^Talos start-up/ })).toBeInTheDocument()
     /* Nothing sent: the arrangement is the preview, and only letting go writes. */
     expect(server.state.guides.find((guide) => guide.id === 'g-talos')!.tags).toEqual(['talos'])
   })
@@ -176,12 +177,12 @@ describe('arranging a section by dragging', () => {
 
     await screen.findByRole('heading', { name: 'Nikon' })
     const dataTransfer = transfer()
-    fireEvent.dragStart(screen.getByRole('link', { name: /Talos start-up/ }), { dataTransfer })
+    fireEvent.dragStart(screen.getByRole('link', { name: /^Talos start-up/ }), { dataTransfer })
     fireEvent.dragEnter(group('Nikon'), { dataTransfer })
     fireEvent.dragLeave(group('Nikon'), { dataTransfer, relatedTarget: document.body })
 
-    expect(within(group('Talos')).getByRole('link', { name: /Talos start-up/ })).toBeInTheDocument()
-    expect(within(group('Nikon')).queryByRole('link', { name: /Talos start-up/ })).toBeNull()
+    expect(within(group('Talos')).getByRole('link', { name: /^Talos start-up/ })).toBeInTheDocument()
+    expect(within(group('Nikon')).queryByRole('link', { name: /^Talos start-up/ })).toBeNull()
   })
 
   /* Dropping a row back where it started is not a move, and sending it would
@@ -192,7 +193,7 @@ describe('arranging a section by dragging', () => {
 
     await screen.findByRole('heading', { name: 'Talos' })
     server.requests.length = 0
-    drag(screen.getByRole('link', { name: /Talos start-up/ }), group('Talos'))
+    drag(screen.getByRole('link', { name: /^Talos start-up/ }), group('Talos'))
 
     expect(server.requests.filter((request) => request.method === 'PUT')).toEqual([])
   })
@@ -202,7 +203,7 @@ describe('arranging a section by dragging', () => {
     server.state.user = { ...server.state.user, role: 'viewer' }
     renderSection(server)
 
-    const row = await screen.findByRole('link', { name: /Talos start-up/ })
+    const row = await screen.findByRole('link', { name: /^Talos start-up/ })
     expect(row).not.toHaveAttribute('draggable', 'true')
   })
 })
@@ -253,7 +254,7 @@ describe('stacking a section’s groups', () => {
        not meant for it that this is about — so the row is left where it is,
        and the only thing that could have happened is a write of the order. */
     const dataTransfer = transfer()
-    const row = screen.getByRole('link', { name: /Talos start-up/ })
+    const row = screen.getByRole('link', { name: /^Talos start-up/ })
     fireEvent.dragStart(row, { dataTransfer })
     fireEvent.dragEnd(row, { dataTransfer })
 
@@ -269,9 +270,170 @@ describe('stacking a section’s groups', () => {
     const heading = await screen.findByRole('heading', { name: 'Talos' })
     expect(heading.closest('section')).not.toHaveAttribute('draggable', 'true')
     /* And still offers them the row, which is the right they do have. */
-    expect(screen.getByRole('link', { name: /Talos start-up/ })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /^Talos start-up/ })).toHaveAttribute(
       'draggable',
       'true',
     )
+  })
+})
+
+/**
+ * Working a group where it is drawn.
+ *
+ * The section page is where the idea arrives — rename this heading, add the
+ * missing shutdown procedure, retire the stale one — and each of these used
+ * to mean a detour through another screen. All of it still reduces to the
+ * same primitives the rest of the app uses: a rename is retagging the rows,
+ * a per-group creation is a creation plus a tag, an archive is the same
+ * archive the editor offers.
+ */
+describe('working a group where it is drawn', () => {
+  function nikonWithArticle() {
+    const server = twoGroups()
+    server.state.pages.push(
+      pageFixture({
+        id: 'w-nikon',
+        slug: 'about-the-nikon',
+        title: 'About the Nikon',
+        categoryId: 'c-light',
+        status: 'published',
+        tags: ['nikon'],
+      }),
+    )
+    return server
+  }
+
+  /* One quiet word. The rows stay the same furniture — a reader comparing the
+     two kinds should not meet two designs — but "which is the background
+     reading" should not require opening it. */
+  it('tells an article row apart, quietly', async () => {
+    renderSection(nikonWithArticle())
+
+    const article = await screen.findByRole('link', { name: /^About the Nikon/ })
+    expect(within(article).getByText('Article')).toBeInTheDocument()
+    const guide = screen.getByRole('link', { name: /^Nikon start-up/ })
+    expect(within(guide).queryByText('Article')).not.toBeInTheDocument()
+  })
+
+  it('renames a group by editing its heading in place', async () => {
+    const user = userEvent.setup()
+    const server = nikonWithArticle()
+    renderSection(server)
+    await screen.findByRole('heading', { name: 'Nikon' })
+
+    await user.click(screen.getByRole('button', { name: 'Rename Nikon' }))
+    const field = screen.getByRole('textbox', { name: 'Group name' })
+    await user.clear(field)
+    await user.type(field, 'Eclipse{Enter}')
+
+    /* Every row of the group, wiki and guide alike, now wears the new tag —
+       that is all a rename is. */
+    await waitFor(() =>
+      expect(server.state.guides.find((g) => g.id === 'g-nikon')!.tags).toEqual(['eclipse']),
+    )
+    expect(server.state.pages.find((p) => p.id === 'w-nikon')!.tags).toEqual(['eclipse'])
+    expect(await screen.findByRole('heading', { name: 'Eclipse' })).toBeInTheDocument()
+  })
+
+  /* A group an administrator has placed must not fall back to the bottom of
+     the stack because its name changed. */
+  it('keeps a renamed group in the place the section gave it', async () => {
+    const user = userEvent.setup()
+    const server = twoGroups()
+    server.state.categories = server.state.categories.map((c) =>
+      c.id === 'c-light' ? { ...c, tagOrder: ['nikon', 'talos'] } : c,
+    )
+    renderSection(server)
+    await screen.findByRole('heading', { name: 'Nikon' })
+
+    await user.click(screen.getByRole('button', { name: 'Rename Nikon' }))
+    const field = screen.getByRole('textbox', { name: 'Group name' })
+    await user.clear(field)
+    await user.type(field, 'Eclipse{Enter}')
+
+    await waitFor(() =>
+      expect(server.state.categories.find((c) => c.id === 'c-light')!.tagOrder).toEqual([
+        'eclipse',
+        'talos',
+      ]),
+    )
+  })
+
+  /* No dialog and no navigation: the document simply appears in the group as
+     a draft row, and opening it is how it gets written. */
+  it('starts a guide in the group with one click', async () => {
+    const user = userEvent.setup()
+    const server = twoGroups()
+    renderSection(server)
+    await screen.findByRole('heading', { name: 'Nikon' })
+
+    await user.click(screen.getByRole('button', { name: 'Add a guide to Nikon' }))
+
+    await waitFor(() => {
+      const made = server.state.guides.find((g) => g.title === 'New guide')
+      expect(made?.categoryId).toBe('c-light')
+      expect(made?.tags).toEqual(['nikon'])
+      expect(made?.status).toBe('draft')
+    })
+    expect(
+      await within(group('Nikon')).findByRole('link', { name: /^New guide/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('starts a page in the group with one click', async () => {
+    const user = userEvent.setup()
+    const server = twoGroups()
+    renderSection(server)
+    await screen.findByRole('heading', { name: 'Nikon' })
+
+    await user.click(screen.getByRole('button', { name: 'Add a wiki to Nikon' }))
+
+    await waitFor(() => {
+      const made = server.state.pages.find((p) => p.title === 'New page')
+      expect(made?.categoryId).toBe('c-light')
+      expect(made?.tags).toEqual(['nikon'])
+    })
+    expect(
+      await within(group('Nikon')).findByRole('link', { name: /^New page/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('edits a row from where it is listed', async () => {
+    renderSection(twoGroups())
+    await screen.findByRole('heading', { name: 'Nikon' })
+
+    expect(screen.getByRole('link', { name: 'Edit Nikon start-up' })).toHaveAttribute(
+      'href',
+      '/g/g-nikon/edit',
+    )
+  })
+
+  it('archives a row after asking', async () => {
+    const user = userEvent.setup()
+    const server = twoGroups()
+    renderSection(server)
+    await screen.findByRole('heading', { name: 'Nikon' })
+
+    await user.click(screen.getByRole('button', { name: 'Archive Nikon start-up' }))
+    await user.click(screen.getByRole('button', { name: 'Archive guide' }))
+
+    await waitFor(() =>
+      expect(server.state.guides.find((g) => g.id === 'g-nikon')!.status).toBe('archived'),
+    )
+  })
+
+  /* The same split the editor's lifecycle row makes: any author may edit,
+     archiving is an administrator's call — the server refuses it anyway, and a
+     button that always fails is a lie. */
+  it('offers no archive to an author', async () => {
+    const server = twoGroups()
+    server.state.user.role = 'author'
+    renderSection(server)
+    await screen.findByRole('heading', { name: 'Nikon' })
+
+    expect(screen.getByRole('link', { name: 'Edit Nikon start-up' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Archive Nikon start-up' }),
+    ).not.toBeInTheDocument()
   })
 })

@@ -38,15 +38,16 @@
  * It is simply not this screen any more.
  */
 
+import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { Banner } from '../components/Banner'
 import { SectionGrid } from '../components/SectionGrid'
 import { SectionGroups } from '../components/SectionGroups'
-import { IconEdit } from '../components/icons'
+import { IconEdit, IconPlus } from '../components/icons'
 import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
-import { groupDocuments } from '../domain/groups'
+import { groupDocuments, type Grouped } from '../domain/groups'
 import { browsableCategories, isEmptyToReaders } from '../hooks/useCategories'
 import { useAsync } from '../hooks/useAsync'
 
@@ -54,6 +55,16 @@ export function CategoryPage() {
   const { slug = '' } = useParams()
   const api = useApi()
   const { can } = useAuth()
+  /**
+   * Groups made before they hold anything. A group is a tag worn by documents
+   * and the server deliberately refuses a heading nothing is under — so a
+   * group made here lives on screen only, until the first document created
+   * inside it (or dragged into it) makes it real. Reloading recomputes the
+   * real groups; whichever of these has become one drops out of the list.
+   */
+  const [pendingGroups, setPendingGroups] = useState<string[]>([])
+  /** The group just made, so its name opens ready to be typed over. */
+  const [justMade, setJustMade] = useState<string | null>(null)
 
   const { data, error, loading, reload } = useAsync(
     async () => {
@@ -103,6 +114,16 @@ export function CategoryPage() {
      page a reader is standing on offered as somewhere to go. */
   const articles = pages.filter((page) => !page.isLanding)
   const grouped = groupDocuments(guides, articles, category.tagOrder)
+  /* The made-but-still-empty groups, drawn after the real ones. One that has
+     since gained a document arrives from the grouping itself and drops out
+     of the pending list rather than appearing twice. */
+  const stillPending = pendingGroups.filter(
+    (tag) => !grouped.groups.some((group) => group.tag === tag),
+  )
+  const shownGrouped: Grouped = {
+    ...grouped,
+    groups: [...grouped.groups, ...stillPending.map((tag) => ({ tag, items: [] }))],
+  }
 
   return (
     <>
@@ -122,16 +143,15 @@ export function CategoryPage() {
         title={category.name}
         intro={category.description || landing?.summary}
         src={category.imageUrl}
-        /* Edit, and only edit. An administrator who has opened a section to
-           read it is exactly the one who wants to change its words, so that
-           belongs here — but deleting it is done from the grid, on the tile,
-           where the thing being destroyed is one of several and is visibly
-           still there afterwards. Offering it from inside the section means
-           answering for a page that no longer exists, and puts the most
-           destructive control in the room on the screen somebody is most often
-           merely reading. */
+        /* Edit, and only edit, and only at the top of the tree. An
+           administrator who has opened a section to read it is exactly the one
+           who wants to change its words, so that belongs here — but a
+           sub-section's banner stays clean: its words and picture are managed
+           from the level above, where it is one tile of several. Deleting is
+           done there too, where the thing being destroyed is visibly one of
+           many and still there afterwards. */
         actions={
-          can('admin') ? (
+          can('admin') && category.parentId === null ? (
             <Link
               className="banner__action"
               to={`/categories/${category.id}/edit`}
@@ -143,6 +163,33 @@ export function CategoryPage() {
           ) : null
         }
       />
+
+      {/* The making, in a quiet bar under the banner. One button, one job,
+          no dialog: the group simply appears, name selected and ready to be
+          typed over — the documents are added inside it, which is what its
+          own two buttons and the drag are for. Always present for an author
+          on a section that lists documents, so an empty section greets them
+          with the way out of the emptiness. */}
+      {can('author') && isLeaf && (
+        <div className="section-bar">
+          <button
+            type="button"
+            className="button button--sm"
+            onClick={() => {
+              /* Slug-shaped from birth: a tag is a slug and the server
+                 refuses any other shape, placeholder or not. */
+              const taken = new Set([...grouped.groups.map((group) => group.tag), ...pendingGroups])
+              let name = 'new-group'
+              for (let n = 2; taken.has(name); n += 1) name = `new-group-${n}`
+              setPendingGroups((current) => [...current, name])
+              setJustMade(name)
+            }}
+          >
+            <IconPlus size={15} />
+            Add group
+          </button>
+        </div>
+      )}
 
       {/* No heading over them: a row of pictures under a section's own name is
           not something a reader needs told is a list of sections.
@@ -188,10 +235,22 @@ export function CategoryPage() {
               component that draws them owns that, because the preview during a
               drag is a different arrangement of the same data and this screen
               has no business holding two. */}
-          <SectionGroups grouped={grouped} categoryId={category.id} onChanged={reload} />
+          <SectionGroups
+            grouped={shownGrouped}
+            categoryId={category.id}
+            placedTags={category.tagOrder}
+            justMade={justMade}
+            onPendingRenamed={(from, to) =>
+              setPendingGroups((current) => current.map((tag) => (tag === from ? to : tag)))
+            }
+            onChanged={reload}
+          />
 
-          {guides.length === 0 && articles.length === 0 && (
-            <EmptyState>Nothing in this section yet.</EmptyState>
+          {guides.length === 0 && articles.length === 0 && stillPending.length === 0 && (
+            <EmptyState>
+              Nothing in this section yet.
+              {can('author') && ' Use “Add group” above to start filling it.'}
+            </EmptyState>
           )}
         </>
       )}

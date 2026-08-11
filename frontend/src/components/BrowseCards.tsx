@@ -177,13 +177,19 @@ export function GuideCard({ guide, to }: { guide: GuideSummary; to?: string }) {
  * handlers and the flag, spread straight onto the link. A row is a link first:
  * the drag is an affordance the section page adds to it, not a second kind of
  * row, so it stays one component and one set of styles.
+ *
+ * `actions` are the controls a section page hangs beside its rows — edit, and
+ * for an administrator archive. They sit next to the link rather than inside
+ * it, because a button inside an anchor is two clicks fighting over one
+ * element; the holder keeps the pair one grid item.
  */
 export function GuideRow({
   guide,
   to,
+  actions,
   ...dragging
-}: { guide: GuideSummary; to?: string } & RowDrag) {
-  return (
+}: { guide: GuideSummary; to?: string; actions?: React.ReactNode } & RowDrag) {
+  const row = (
     <Link className="guide-row" to={to ?? `/g/${guide.slug}`} {...dragging}>
       <span className="guide-row__main">
         <span className="guide-row__title">{guide.title}</span>
@@ -193,6 +199,13 @@ export function GuideRow({
       </span>
       <Thumbnail seed={guide.title} src={guide.thumbnailUrl} className="guide-row__thumb" />
     </Link>
+  )
+  if (!actions) return row
+  return (
+    <div className="guide-row-holder">
+      {row}
+      <span className="guide-row__actions">{actions}</span>
+    </div>
   )
 }
 
@@ -205,25 +218,38 @@ export function GuideRows({ children }: { children: React.ReactNode }) {
  * A wiki page as a row, for the list of them on a section.
  *
  * The same row as a guide's rather than the card used on the wiki index,
- * because on a section the two lists sit one above the other and a reader
- * comparing them should be reading one kind of thing in two groups, not two
- * kinds of furniture. What the wiki list is *called* is what says which is
- * which; the rows do not need to differ to make that point.
+ * because inside a group the two kinds sit shoulder to shoulder and a reader
+ * comparing them should be reading one kind of thing, not two kinds of
+ * furniture. One quiet word in the meta line — "Article" — is the whole
+ * difference: which row is the background reading should not require opening
+ * it, and anything louder would make it furniture again.
  *
  * It says nothing about being a landing page: a section's own front page is
  * not listed inside that section, so the only pages here are its articles.
  */
-export function PageRow({ page, ...dragging }: { page: PageSummary } & RowDrag) {
-  return (
+export function PageRow({
+  page,
+  actions,
+  ...dragging
+}: { page: PageSummary; actions?: React.ReactNode } & RowDrag) {
+  const row = (
     <Link className="guide-row" to={`/w/${page.slug}`} {...dragging}>
       <span className="guide-row__main">
         <span className="guide-row__title">{page.title}</span>
         <span className="guide-row__meta">
+          <span className="guide-row__kind">Article</span>
           {page.status !== 'published' && <StatusBadge status={page.status} />}
         </span>
       </span>
       <Thumbnail seed={page.title} src={page.heroImageUrl} className="guide-row__thumb" />
     </Link>
+  )
+  if (!actions) return row
+  return (
+    <div className="guide-row-holder">
+      {row}
+      <span className="guide-row__actions">{actions}</span>
+    </div>
   )
 }
 

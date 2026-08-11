@@ -34,16 +34,30 @@ import { Link } from 'react-router'
 import { useApi, useAuth } from '../auth/AuthContext'
 import { endpointKey, groupAnchor, groupHeading, type Endpoint, type Grouped } from '../domain/groups'
 import { GuideRow, GuideRows, PageRow, type RowDrag } from './BrowseCards'
-import { ErrorAlert } from './ui'
+import { slugifyTag } from './editor/TagInput'
+import { IconEdit, IconTrash } from './icons'
+import { ErrorAlert, Modal } from './ui'
 
 export function SectionGroups({
   grouped,
   categoryId,
+  placedTags,
+  onPendingRenamed,
+  justMade,
   onChanged,
 }: {
   grouped: Grouped
   /** The section these groups belong to, which is what owns their order. */
   categoryId: string
+  /** The tags an administrator has placed (`category.tagOrder`), so a rename
+      can keep the group's position instead of dropping it to the bottom. */
+  placedTags: string[]
+  /** A still-empty group lives only in the caller's hands, so renaming one is
+      the caller's to record — there is nothing on the server to write. */
+  onPendingRenamed: (from: string, to: string) => void
+  /** The group the caller just made, whose name should open ready to be
+      typed over — making a group and naming it are one gesture. */
+  justMade?: string | null
   onChanged: () => void
 }) {
   const api = useApi()
@@ -62,6 +76,19 @@ export function SectionGroups({
   /** The group the pointer is over, once it is somewhere the row is not already. */
   const [over, setOver] = useState<string | null>(null)
   const [failure, setFailure] = useState<unknown>(null)
+  /** The heading being edited in place, and what it says right now. */
+  const [renaming, setRenaming] = useState<{ tag: string; value: string } | null>(null)
+  /** The row whose archiving is awaiting the administrator's second thought. */
+  const [archiving, setArchiving] = useState<Endpoint | null>(null)
+
+  /* Adjusted during render, as the stack order is: the caller has just made a
+     group, and its name opens in the editing state without a paint of the
+     plain heading in between. */
+  const [greeted, setGreeted] = useState<string | null>(null)
+  if ((justMade ?? null) !== greeted) {
+    setGreeted(justMade ?? null)
+    if (justMade) setRenaming({ tag: justMade, value: groupHeading(justMade) })
+  }
 
   /**
    * The stack as it stands on screen, which during a drag is ahead of the
@@ -109,6 +136,120 @@ export function SectionGroups({
       setFailure(cause)
       onChanged()
     }
+  }
+
+  /**
+   * The rename, which is nothing but retagging the rows.
+   *
+   * Enter commits; Escape or clicking away cancels — one path into the write,
+   * so a blur after Enter cannot send it twice. A group an administrator has
+   * placed keeps its place: the order is rewritten with the new name where
+   * the old one stood, because a heading must not sink to the bottom of the
+   * stack for being corrected. An empty group has nothing to write and is the
+   * caller's to rename.
+   */
+  async function commitRename(group: { tag: string; items: Endpoint[] }, value: string) {
+    setRenaming(null)
+    /* Through the same slugifier the tag input types with: a tag is a slug,
+       and the server refuses any other shape. */
+    const next = slugifyTag(value)
+    if (next === '' || next === group.tag) return
+    if (group.items.length === 0) {
+      onPendingRenamed(group.tag, next)
+      return
+    }
+    setFailure(null)
+    try {
+      await Promise.all(
+        group.items.map((endpoint) => {
+          const tags = endpoint.tags.map((tag) => (tag === group.tag ? next : tag))
+          return endpoint.kind === 'guide'
+            ? api.setGuideTags(endpoint.id, tags, endpoint.guide.updatedAt)
+            : api.setPageTags(endpoint.id, tags, endpoint.page.updatedAt)
+        }),
+      )
+      if (placedTags.includes(group.tag)) {
+        await api.setTagOrder(
+          categoryId,
+          placedTags.map((tag) => (tag === group.tag ? next : tag)),
+        )
+      }
+      onChanged()
+    } catch (cause) {
+      setFailure(cause)
+      onChanged()
+    }
+  }
+
+  /**
+   * A document born where the author is standing: in this section, wearing
+   * this group's tag, as a draft — no dialog, nothing asked. The row appears
+   * in the group and opening it is how it gets written; its title is edited
+   * there, which is also where every other fact about it lives.
+   */
+  async function createInGroup(tag: string, kind: 'guide' | 'page') {
+    setFailure(null)
+    try {
+      if (kind === 'guide') {
+        const guide = await api.createGuide('New guide', categoryId)
+        await api.setGuideTags(guide.id, [tag], guide.updatedAt)
+      } else {
+        const page = await api.createPage({ title: 'New page', categoryId, isLanding: false })
+        await api.setPageTags(page.id, [tag], page.updatedAt)
+      }
+      onChanged()
+    } catch (cause) {
+      setFailure(cause)
+      onChanged()
+    }
+  }
+
+  async function confirmArchive(endpoint: Endpoint) {
+    setArchiving(null)
+    setFailure(null)
+    try {
+      if (endpoint.kind === 'guide') {
+        await api.archiveGuide(endpoint.id)
+      } else {
+        await api.archivePage(endpoint.id)
+      }
+      onChanged()
+    } catch (cause) {
+      setFailure(cause)
+      onChanged()
+    }
+  }
+
+  /**
+   * What a section page hangs beside a row: the way into its editor for any
+   * author, and for an administrator the same archive the editor's lifecycle
+   * row offers — the server refuses an author's archive anyway, and a button
+   * that always fails is a lie.
+   */
+  function rowActions(endpoint: Endpoint) {
+    if (!canArrange) return undefined
+    const title = endpoint.kind === 'guide' ? endpoint.guide.title : endpoint.page.title
+    return (
+      <>
+        <Link
+          className="button button--sm"
+          aria-label={`Edit ${title}`}
+          to={endpoint.kind === 'guide' ? `/g/${endpoint.id}/edit` : `/w/${endpoint.id}/edit`}
+        >
+          <IconEdit size={14} />
+        </Link>
+        {canReorder && (
+          <button
+            type="button"
+            className="button button--sm"
+            aria-label={`Archive ${title}`}
+            onClick={() => setArchiving(endpoint)}
+          >
+            <IconTrash size={14} />
+          </button>
+        )}
+      </>
+    )
   }
 
   /** Move the lifted group to where `target` currently sits, on screen only. */
@@ -243,7 +384,12 @@ export function SectionGroups({
         <section className="section section--group">
           <GuideRows>
             {shown.loose.map((endpoint) => (
-              <EndpointRow key={endpointKey(endpoint)} endpoint={endpoint} {...rowProps(endpoint, null)} />
+              <EndpointRow
+                key={endpointKey(endpoint)}
+                endpoint={endpoint}
+                actions={rowActions(endpoint)}
+                {...rowProps(endpoint, null)}
+              />
             ))}
           </GuideRows>
         </section>
@@ -262,20 +408,111 @@ export function SectionGroups({
           id={groupAnchor(group.tag)}
           {...groupProps(group.tag)}
         >
-          <h3 className="section__title">
-            <Link to={`/t/${encodeURIComponent(group.tag)}`}>{groupHeading(group.tag)}</Link>
-          </h3>
-          <GuideRows>
-            {group.items.map((endpoint) => (
-              <EndpointRow
-                key={`${group.tag}-${endpointKey(endpoint)}`}
-                endpoint={endpoint}
-                {...rowProps(endpoint, group.tag)}
+          <div className="section__head">
+            {renaming?.tag === group.tag ? (
+              /* The heading as a text box, which is all a rename should feel
+                 like. Enter commits, Escape or clicking away cancels. */
+              <input
+                className="input section__rename"
+                aria-label="Group name"
+                autoFocus
+                /* Selected on arrival, so a just-made group's placeholder
+                   name is replaced by typing rather than deleted first. */
+                onFocus={(event) => event.target.select()}
+                value={renaming.value}
+                onChange={(event) => setRenaming({ tag: group.tag, value: event.target.value })}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void commitRename(group, renaming.value)
+                  if (event.key === 'Escape') setRenaming(null)
+                }}
+                onBlur={() => setRenaming(null)}
               />
-            ))}
-          </GuideRows>
+            ) : (
+              /* The pencil lives beside the name it renames — a control next
+                 to the thing it changes needs no explaining — while the two
+                 creations sit at the strip's far end. */
+              <span className="section__name">
+                <h3 className="section__title">
+                  <Link to={`/t/${encodeURIComponent(group.tag)}`}>{groupHeading(group.tag)}</Link>
+                </h3>
+                {/* Renaming a placed group retags other people's documents, so
+                    it is an administrator's; a still-empty group belongs to
+                    whoever just made it, and naming it is finishing the making. */}
+                {(canReorder || group.items.length === 0) && (
+                  <button
+                    type="button"
+                    className="button button--sm"
+                    aria-label={`Rename ${groupHeading(group.tag)}`}
+                    onClick={() => setRenaming({ tag: group.tag, value: groupHeading(group.tag) })}
+                  >
+                    <IconEdit size={14} />
+                  </button>
+                )}
+              </span>
+            )}
+            {canArrange && (
+              <span className="section__tools">
+                <button
+                  type="button"
+                  className="button button--sm"
+                  aria-label={`Add a guide to ${groupHeading(group.tag)}`}
+                  onClick={() => void createInGroup(group.tag, 'guide')}
+                >
+                  Add guide
+                </button>
+                <button
+                  type="button"
+                  className="button button--sm"
+                  aria-label={`Add a wiki to ${groupHeading(group.tag)}`}
+                  onClick={() => void createInGroup(group.tag, 'page')}
+                >
+                  Add wiki
+                </button>
+              </span>
+            )}
+          </div>
+          {group.items.length > 0 ? (
+            <GuideRows>
+              {group.items.map((endpoint) => (
+                <EndpointRow
+                  key={`${group.tag}-${endpointKey(endpoint)}`}
+                  endpoint={endpoint}
+                  actions={rowActions(endpoint)}
+                  {...rowProps(endpoint, group.tag)}
+                />
+              ))}
+            </GuideRows>
+          ) : (
+            /* A group just made, waiting for its first document — the two
+               buttons above are how one arrives, and a drag lands here too. */
+            <p className="section__empty">Nothing in this group yet.</p>
+          )}
         </section>
       ))}
+
+      {archiving && (
+        <Modal
+          title={`Archive ${archiving.kind === 'guide' ? archiving.guide.title : archiving.page.title}?`}
+          onClose={() => setArchiving(null)}
+        >
+          <p className="field__hint" style={{ marginBottom: '1rem' }}>
+            It disappears from every listing and search. Nothing is deleted — the content and its
+            history are kept.
+          </p>
+          <div className="page-actions">
+            <button
+              type="button"
+              className="button button--danger"
+              onClick={() => void confirmArchive(archiving)}
+            >
+              {archiving.kind === 'guide' ? 'Archive guide' : 'Archive page'}
+            </button>
+            <button type="button" className="button" onClick={() => setArchiving(null)}>
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      )}
     </>
   )
 }
@@ -315,10 +552,14 @@ function withMoved(grouped: Grouped, endpoint: Endpoint, from: string | null, to
  * `Endpoint` alone — a guide and a wiki differ in how they are drawn and in
  * nothing else this screen cares about.
  */
-function EndpointRow({ endpoint, ...dragging }: { endpoint: Endpoint } & RowDrag) {
+function EndpointRow({
+  endpoint,
+  actions,
+  ...dragging
+}: { endpoint: Endpoint; actions?: React.ReactNode } & RowDrag) {
   return endpoint.kind === 'guide' ? (
-    <GuideRow guide={endpoint.guide} {...dragging} />
+    <GuideRow guide={endpoint.guide} actions={actions} {...dragging} />
   ) : (
-    <PageRow page={endpoint.page} {...dragging} />
+    <PageRow page={endpoint.page} actions={actions} {...dragging} />
   )
 }
