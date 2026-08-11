@@ -103,6 +103,40 @@ describe('MarkdownBody without guide lists', () => {
   })
 })
 
+/**
+ * The rendered page's half of the agreement with the rail: `domain/toc.ts`
+ * names a page's sections, and every rendered heading must carry exactly the
+ * id the rail's link will ask the browser to find.
+ */
+describe('heading anchors', () => {
+  it('gives a heading the anchor the contents list names', () => {
+    renderWithApp(<MarkdownBody body="## Getting started" />, { fetchImpl: emptyApi() })
+
+    expect(screen.getByRole('heading', { name: 'Getting started' })).toHaveAttribute(
+      'id',
+      's-getting-started',
+    )
+  })
+
+  it('keeps duplicate headings separately addressable', () => {
+    renderWithApp(<MarkdownBody body={'## Shutdown\n\ntext\n\n## Shutdown'} />, {
+      fetchImpl: emptyApi(),
+    })
+
+    const [first, second] = screen.getAllByRole('heading', { name: 'Shutdown' })
+    expect(first).toHaveAttribute('id', 's-shutdown')
+    expect(second).toHaveAttribute('id', 's-shutdown-2')
+  })
+
+  /* Deeper headings render but are not places the rail offers, so they carry
+     no anchor — an id nothing points at is clutter waiting to collide. */
+  it('leaves a fourth-level heading without an anchor', () => {
+    renderWithApp(<MarkdownBody body="#### A nuance" />, { fetchImpl: emptyApi() })
+
+    expect(screen.getByRole('heading', { name: 'A nuance' })).not.toHaveAttribute('id')
+  })
+})
+
 describe('embedding one named guide', () => {
   /** Answers the guide fetch with a real guide, and everything else emptily. */
   function apiWithGuide() {

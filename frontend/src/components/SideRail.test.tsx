@@ -416,6 +416,58 @@ describe('RailGroups', () => {
     expect(places()).toEqual(['Grids'])
   })
 
+  /**
+   * Inside a long page, "what is here" is the page's own sections. The rail's
+   * content area answers with them — the same answer the section's groups are
+   * everywhere else — and each one lands the reader on that part of the page,
+   * through the same hash navigation the group links use.
+   */
+  it('lists a wiki page’s own sections while it is being read', async () => {
+    const server = flat()
+    server.state.pages = server.state.pages.map((page) =>
+      page.id === 'w-fixation'
+        ? {
+            ...page,
+            body: '## Aldehydes\n\nProse.\n\n### Glutaraldehyde\n\nProse.\n\n## Cryofixation',
+          }
+        : page,
+    )
+    renderRail(server, '/w/fixation')
+
+    expect(await screen.findByRole('link', { name: 'Aldehydes' })).toHaveAttribute(
+      'href',
+      '/w/fixation#s-aldehydes',
+    )
+    expect(places()).toEqual(['Aldehydes', 'Glutaraldehyde', 'Cryofixation'])
+    /* The way back out is still the path: the section is one row up, not lost. */
+    expect(trail()).toEqual(['Home', 'Electron Microscopy'])
+    expect(marked('content')).toBeNull()
+  })
+
+  /* A page with no headings has no sections to offer, and an empty column
+     would say the section around it holds nothing — it does. */
+  it('keeps the section’s groups for a page with no sections of its own', async () => {
+    renderRail(flat(), '/w/fixation')
+
+    await screen.findByRole('link', { name: 'Grids' })
+    expect(places()).toEqual(['Grids'])
+  })
+
+  /* The contents list is the reader's: a hash cannot land anywhere inside the
+     editing surface, and an author mid-edit asked for the section, not a map
+     of the draft. */
+  it('keeps the section’s groups while a page is being edited', async () => {
+    const server = flat()
+    server.state.pages = server.state.pages.map((page) =>
+      page.id === 'w-fixation' ? { ...page, body: '## Aldehydes\n\nProse.' } : page,
+    )
+    renderRail(server, '/w/w-fixation/edit')
+
+    await screen.findByRole('link', { name: 'Grids' })
+    expect(places()).toEqual(['Grids'])
+    expect(screen.queryByRole('link', { name: 'Aldehydes' })).not.toBeInTheDocument()
+  })
+
   it('goes back to the front for a wiki page that belongs to no section', async () => {
     const server = flat()
     server.state.pages.push(

@@ -45,6 +45,7 @@ import { Link, useLocation } from 'react-router'
 
 import { useApi, useAuth } from '../auth/AuthContext'
 import { groupAnchor, groupDocuments, groupHeading } from '../domain/groups'
+import { pageSections } from '../domain/toc'
 import type { Category, GuideSummary, PageSummary } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 import { useBrowsableCategories } from '../hooks/useCategories'
@@ -197,12 +198,22 @@ function categorySlug(pathname: string): string | null {
   return match ? decodeURIComponent(match[1]) : null
 }
 
-/** The guide or wiki page being read, so the rail can find its category. */
-function documentPath(pathname: string): { kind: 'guide' | 'page'; key: string } | null {
-  const guide = pathname.match(/^\/g\/([^/]+)/)
-  if (guide) return { kind: 'guide', key: decodeURIComponent(guide[1]) }
-  const page = pathname.match(/^\/w\/([^/]+)/)
-  if (page) return { kind: 'page', key: decodeURIComponent(page[1]) }
+/**
+ * The guide or wiki page being read, so the rail can find its category.
+ *
+ * Editing is told apart from reading because the two want different columns: a
+ * reader inside a long page gets the page's own sections, while an author gets
+ * the section's groups — a hash cannot land anywhere inside the editing
+ * surface, and an author mid-edit asked for the section, not a map of the
+ * draft.
+ */
+function documentPath(
+  pathname: string,
+): { kind: 'guide' | 'page'; key: string; editing: boolean } | null {
+  const guide = pathname.match(/^\/g\/([^/]+)(\/edit)?/)
+  if (guide) return { kind: 'guide', key: decodeURIComponent(guide[1]), editing: guide[2] !== undefined }
+  const page = pathname.match(/^\/w\/([^/]+)(\/edit)?/)
+  if (page) return { kind: 'page', key: decodeURIComponent(page[1]), editing: page[2] !== undefined }
   return null
 }
 
@@ -275,12 +286,26 @@ export function RailGroups() {
     /* A document that will not load is somewhere the rail cannot place, and the
        page beside it already says so; the column goes quietly back to the
        front's list rather than reporting the same failure twice. */
-    const document = await (here.kind === 'guide'
-      ? api.getGuide(here.key)
-      : api.getPage(here.key)
-    ).catch(() => null)
-    return { categoryId: document?.categoryId ?? null }
-  }, [api, here?.kind, here?.key])
+    if (here.kind === 'guide') {
+      const guide = await api.getGuide(here.key).catch(() => null)
+      return { categoryId: guide?.categoryId ?? null, sections: [] as RailPlace[] }
+    }
+    const page = await api.getPage(here.key).catch(() => null)
+    /* The fetch the category came from already carries the body, so the page's
+       sections cost no second request. Anchored to the slug whatever the URL
+       held — the editor reaches here by id, and an id-addressed hash link
+       would open the same page a second time under a different name. */
+    const sections =
+      page === null || here.editing
+        ? []
+        : pageSections(page.body).map((section) => ({
+            id: section.id,
+            slug: section.id,
+            name: section.text,
+            to: `/w/${page.slug}#${section.id}`,
+          }))
+    return { categoryId: page?.categoryId ?? null, sections }
+  }, [api, here?.kind, here?.key, here?.editing])
 
   /*
    * The section the reader is standing in, held across the moment a document
@@ -334,7 +359,11 @@ export function RailGroups() {
     return { guides, pages }
   }, [api, bottom])
 
-  const places = railPlaces(browsable ?? [], slug, contents)
+  /* Inside a long page, "what is here" is the page's own sections, and they
+     take the column. A page with none keeps the section's groups — an empty
+     area would say the section around it holds nothing, and it does not. */
+  const sections = within?.sections ?? []
+  const places = sections.length > 0 ? sections : railPlaces(browsable ?? [], slug, contents)
   const trail = railTrail(browsable ?? [], slug)
 
   /* The path marks a step only when that step is the address in the bar, which

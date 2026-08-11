@@ -20,13 +20,15 @@
  * the lists: see `hideGuideLists`.
  */
 
-import { Children, isValidElement, useMemo } from 'react'
+import { Children, isValidElement, useMemo, type ReactNode } from 'react'
 import type { Root, RootContent } from 'mdast'
 import ReactMarkdown from 'react-markdown'
 import { Link } from 'react-router'
 import remarkGfm from 'remark-gfm'
+import type { Position } from 'unist'
 
 import { useApi, useAuth } from '../auth/AuthContext'
+import { pageSections } from '../domain/toc'
 import type { Guide, GuideSummary } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 import { GuideRow, GuideRows } from './BrowseCards'
@@ -133,7 +135,7 @@ export function parseGuideListSpec(source: string): GuideListSpec {
  * what an author can read back to check; an id is a number nobody can verify by
  * looking at it.
  */
-function GuideEmbed({ source }: { source: string }) {
+export function GuideEmbed({ source }: { source: string }) {
   const api = useApi()
   const { can } = useAuth()
   const slug = source.trim().split('\n')[0].trim()
@@ -203,7 +205,7 @@ function asSummary(guide: Guide): GuideSummary {
   }
 }
 
-function GuideListEmbed({ source }: { source: string }) {
+export function GuideListEmbed({ source }: { source: string }) {
   const api = useApi()
   const spec = useMemo(() => parseGuideListSpec(source), [source])
   const tagKey = spec.tags.join(',')
@@ -305,6 +307,34 @@ export function MarkdownBody({
   wide?: boolean
   hideGuideLists?: boolean
 }) {
+  /*
+   * The id each heading will carry, keyed by the source line it starts on.
+   *
+   * `pageSections` is the same walk the rail performs over the same text, so
+   * the two cannot disagree on a section's name. The line is what pairs its
+   * answer to the elements react-markdown renders: the renderer hands each
+   * heading its source position, and positions survive the guide-list
+   * suppression above because that filter removes nodes without moving any.
+   */
+  const anchors = useMemo(
+    () => new Map(pageSections(body).map((section) => [section.line, section.id])),
+    [body],
+  )
+
+  function heading(tag: 'h1' | 'h2' | 'h3') {
+    return function AnchoredHeading({
+      node,
+      children,
+    }: {
+      node?: { position?: Position }
+      children?: ReactNode
+    }) {
+      const Tag = tag
+      const line = node?.position?.start.line
+      return <Tag id={line === undefined ? undefined : anchors.get(line)}>{children}</Tag>
+    }
+  }
+
   return (
     <div className={`markdown${wide ? ' markdown--wide' : ''}`}>
       <ReactMarkdown
@@ -312,6 +342,9 @@ export function MarkdownBody({
         components={{
           a: MarkdownLink,
           img: MarkdownImage,
+          h1: heading('h1'),
+          h2: heading('h2'),
+          h3: heading('h3'),
           /**
            * A guide list has to escape the code block it is written inside.
            *
