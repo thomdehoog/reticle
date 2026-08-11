@@ -220,7 +220,11 @@ function slugify(title: string, fallback: string): string {
 
 export function createFakeServer(initial: Partial<FakeServerState> = {}) {
   const state: FakeServerState = {
-    user: initial.user ?? ADMIN,
+    /* A copy, never the module's own ADMIN: a test that flips this server's
+       user to a viewer would otherwise rewrite the constant every later
+       `createFakeServer` in the same file starts from — and the poisoned
+       tests fail somewhere far from the mutation. */
+    user: { ...(initial.user ?? ADMIN) },
     users: initial.users ?? [initial.user ?? ADMIN],
     categories: initial.categories ?? [categoryFixture()],
     guides: initial.guides ?? [guideFixture()],
