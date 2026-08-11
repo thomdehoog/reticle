@@ -1,9 +1,9 @@
 /**
  * The sign-in screen.
  *
- * The only screen anybody can reach without an account, so it is also the only
- * place the facility's name is shown to someone who has not signed in - which is
- * why the application asks the server who it belongs to before anyone logs in.
+ * Reading is public, so this is not a gate in front of the site — it is one
+ * page inside it, reached by somebody who came to write. It renders in the
+ * shell like any other page rather than as a splash screen of its own.
  *
  * It never says whether an email address exists. "That did not work" is the same
  * answer for a wrong password and an unknown account, because a different answer

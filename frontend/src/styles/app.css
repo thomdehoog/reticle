@@ -1542,21 +1542,26 @@ a:hover {
 
 /* ------------------------------------------------------------------- login */
 
+/* A page inside the shell, not a splash screen. The sidebar and header around
+   this form already say whose site it is, so the form sits quietly on the page
+   background like any other card — a painted backdrop here would be a second,
+   competing frame. Sat high rather than centred: the shell's pane scrolls, so
+   a vertical centre would drift with content height, and a form this small
+   reads best where the eye starts. */
 .login {
   display: grid;
-  place-items: center;
-  min-height: 100vh;
-  padding: 1.5rem;
-  background: linear-gradient(160deg, var(--brand-900), #123a7d 55%, #17457f);
+  justify-items: center;
+  padding-top: clamp(2rem, 12vh, 7rem);
 }
 
 .login__panel {
   width: 100%;
   max-width: 400px;
   padding: 2rem;
-  background: var(--surface);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-sm);
 }
 
 .login__brand {
