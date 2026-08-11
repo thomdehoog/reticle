@@ -227,6 +227,143 @@ record('guide resolves on a fresh load', rereadTitle.trim() === TITLE)
 const draftBadge = await page.locator('.badge--draft').count()
 record('published guide shows no draft badge', draftBadge === 0)
 
+/* ----------------------------------------------------------------- the wiki.
+   The same job for a page: write it on the rendered surface — headings, bold,
+   a link to the guide published above, an embedded guide list — publish it,
+   and read it back. Then the two things only a real browser can prove: the
+   rail lists the page's sections and clicking one lands on it, and the
+   markdown the surface produced is clean when read back through the source
+   view. */
+
+const PAGE_TITLE = `E2E alignment notes ${RUN}`
+
+await page.getByRole('button', { name: /^Account:/ }).click()
+await page.getByRole('button', { name: 'New page' }).click()
+await page.getByLabel('Title').fill(PAGE_TITLE)
+await page.getByLabel('Category', { exact: true }).selectOption({ label: 'Light Microscopy' })
+await page.getByRole('button', { name: 'Create and start writing' }).click()
+
+await page.waitForSelector('.wiki-editor__surface', { timeout: 15000 })
+record('create page opens the rendered surface', true)
+
+/* Written the way a hand writes it: keyboard into the surface, styles from
+   the bar. Every control hands focus back to the surface when it is done, but
+   "when it is done" is a re-render away — keystrokes fired before then land
+   on the control, not in the page. The wait is the difference between this
+   script and a author's hand, which pauses without being told to. */
+const surface = page.locator('.wiki-editor__surface')
+
+async function typeInSurface(text) {
+  await page.waitForFunction(
+    () => document.activeElement !== null && document.activeElement.closest('.wiki-editor__surface') !== null,
+  )
+  await page.keyboard.type(text)
+}
+
+await surface.click()
+await typeInSurface('Written by the end-to-end test.')
+await page.keyboard.press('Enter')
+
+await page.getByRole('button', { name: 'Text style' }).click()
+await page.getByRole('button', { name: 'Heading', exact: true }).click()
+await typeInSurface('Preparation')
+await page.keyboard.press('Enter')
+await page.getByRole('button', { name: 'Text style' }).click()
+await page.getByRole('button', { name: 'Paragraph' }).click()
+await typeInSurface('Handle the objective with ')
+await page.keyboard.press('Control+b')
+await typeInSurface('care')
+await page.keyboard.press('Control+b')
+await typeInSurface(', then open ')
+
+await page.getByRole('button', { name: 'Link a guide' }).click()
+const picker = page.getByRole('dialog')
+await picker.getByLabel('Search guides').fill(TITLE)
+await picker.locator('.guide-picker__row', { hasText: TITLE }).click()
+record('guide link picked from search', true)
+await typeInSurface(' before starting.')
+
+await page.keyboard.press('Enter')
+await page.getByRole('button', { name: 'Text style' }).click()
+await page.getByRole('button', { name: 'Heading', exact: true }).click()
+await typeInSurface('Afterwards')
+await page.keyboard.press('Enter')
+
+await page.getByRole('button', { name: 'More' }).click()
+await page.getByRole('button', { name: 'Insert guide list' }).click()
+const listDialog = page.getByRole('dialog')
+await listDialog.getByLabel('Add a tag').fill(TAGS[0])
+await listDialog.getByLabel('Add a tag').press('Enter')
+await listDialog.getByRole('button', { name: 'Insert' }).click()
+await page.waitForSelector('.wiki-editor__embed', { timeout: 10000 })
+record('guide list embeds as a live block', true)
+
+await page.getByLabel('Summary').fill('Created by the end-to-end test.')
+await page.getByLabel('Add a tag').fill(`e2e-page-${RUN}`)
+await page.getByLabel('Add a tag').press('Enter')
+
+await page.waitForSelector('text=All changes saved', { timeout: 10000 })
+record('page autosave settles', true)
+await page.screenshot({ path: join(SHOTS, 'cms-3-wiki-editor.png'), fullPage: true })
+
+await page.getByRole('button', { name: 'Publish', exact: true }).click()
+await page.waitForURL(/\/w\/[^/]+$/, { timeout: 15000 })
+/* The URL turns before the reader's screen has replaced the editor; the
+   byline exists only on the reader. */
+await page.waitForSelector('.guide__credits', { timeout: 15000 })
+record('publish navigates to the published page', true, page.url())
+
+const pageHeading = await page.locator('h1').first().innerText()
+record('page title survived', pageHeading.trim() === PAGE_TITLE, pageHeading)
+
+const bolded = await page.locator('.markdown strong', { hasText: 'care' }).count()
+record('bold survived to the reader', bolded > 0)
+
+const guideLink = page.locator('.markdown a', { hasText: TITLE })
+const guideHref = (await guideLink.count()) > 0 ? await guideLink.first().getAttribute('href') : ''
+record('the guide link points at the guide', /^\/g\//.test(guideHref ?? ''), guideHref ?? 'absent')
+/* Exactly the guide's title: the sentence typed after the link must not have
+   been swallowed into it. */
+const linkText = (await guideLink.count()) > 0 ? (await guideLink.first().innerText()).trim() : ''
+record('the link carries the title and nothing more', linkText === TITLE, linkText)
+
+/* The embed fetches its rows after the page renders; give it the moment. */
+const embeddedRow = page.locator('.guidelist', { hasText: TITLE })
+await embeddedRow.first().waitFor({ timeout: 10000 }).catch(() => {})
+record('the guide list gathers the tagged guide', (await embeddedRow.count()) > 0)
+
+/* The rail's content area is the page's own sections now. */
+const railSections = await page.locator('.rail__places--content .rail__item').allInnerTexts()
+record(
+  'the rail lists the page’s sections',
+  railSections.includes('Preparation') && railSections.includes('Afterwards'),
+  railSections.join(', '),
+)
+
+/* And a section in the rail is a place: clicking it points the address at the
+   section's own anchor, and the anchor is really on the heading. The scroll
+   itself is not asserted — a page shorter than the window has nowhere to
+   scroll to, and this one is deliberately small. */
+await page.locator('.rail__places--content .rail__item', { hasText: 'Afterwards' }).click()
+await page.waitForFunction(
+  () => location.hash === '#s-afterwards' && document.getElementById('s-afterwards') !== null,
+  undefined,
+  { timeout: 10000 },
+)
+record('clicking a section lands on it', true, page.url())
+await page.screenshot({ path: join(SHOTS, 'cms-4-wiki-published.png'), fullPage: true })
+
+/* The proof the surface writes clean markdown: read the source back. */
+await page.getByRole('link', { name: 'Edit' }).click()
+await page.waitForSelector('.wiki-editor__surface', { timeout: 15000 })
+await page.getByRole('button', { name: 'More' }).click()
+await page.getByRole('button', { name: 'Edit markdown source' }).click()
+const source = await page.getByLabel('Page body markdown').inputValue()
+record('source holds the heading', source.includes('## Preparation'))
+record('source holds the bold', source.includes('**care**'))
+record('source links the guide by address', source.includes(`[${TITLE}](/g/`))
+record('source holds the guide-list fence', source.includes('```guidelist'))
+
 record('no console errors', consoleErrors.length === 0, consoleErrors.join(' | ').slice(0, 300))
 
 await context.close()

@@ -21,10 +21,11 @@ import { RevisionHistory } from '../components/editor/RevisionHistory'
 import { DesktopOnly } from '../components/editor/DesktopOnly'
 import { SaveConflict } from '../components/editor/SaveConflict'
 import { TagInput } from '../components/editor/TagInput'
+import { WikiEditor } from '../components/editor/WikiEditor'
 import { IconHistory } from '../components/icons'
 import { MarkdownBody } from '../components/MarkdownBody'
 import { Thumbnail } from '../components/Thumbnail'
-import { AutoTextarea, ErrorAlert, Modal, Spinner, StatusBadge } from '../components/ui'
+import { AutoTextarea, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
 import { mediaUrl, type Page } from '../domain/types'
 import { useAsync } from '../hooks/useAsync'
 import {
@@ -48,12 +49,15 @@ const SAVE_LABELS: Record<SaveState, string> = {
 /**
  * The wiki editor.
  *
- * Markdown with a toolbar and a live preview, rather than a WYSIWYG surface.
- * The trade is deliberate: a rich-text editor that stores HTML would put
- * arbitrary markup into the database and force a sanitiser to stand between
- * every author and every reader for ever. Here the stored form is text, the
- * renderer decides what may exist, and the preview means nobody has to imagine
- * the result.
+ * The body is written on a rendered surface — the page looking as it reads,
+ * with a bar of controls at its foot — and the stored form is still markdown
+ * text. That split is the deliberate part: an editor that stored HTML would
+ * put arbitrary markup into the database and force a sanitiser to stand
+ * between every author and every reader for ever, while here the surface's
+ * schema decides what can exist and the server never learns anything changed
+ * (`WikiEditor`, `wikiEditorKit`). The raw markdown stays reachable behind a
+ * toggle, because imported pages predate the surface and an escape hatch
+ * beats a dead end.
  */
 export function PageEditorPage() {
   const { id = '' } = useParams()
@@ -62,7 +66,6 @@ export function PageEditorPage() {
   const { data: categories, error: categoriesError } = useCategories()
   const { data: loaded, error: loadError, loading } = useAsync(() => api.getPage(id), [api, id])
 
-  const bodyRef = useRef<HTMLTextAreaElement>(null)
   const dirtyRef = useRef(false)
 
   const [page, setPage] = useState<Page | null>(null)
@@ -73,7 +76,8 @@ export function PageEditorPage() {
   /** Left by a save that failed after the editor had already closed. */
   const [failedSaveNote, setFailedSaveNote] = useState(() => readFailedSave(id))
   const [publishing, setPublishing] = useState(false)
-  const [insertingList, setInsertingList] = useState(false)
+  /** The escape hatch: the body as raw markdown in a plain textarea. */
+  const [sourceView, setSourceView] = useState(false)
   const [showingHistory, setShowingHistory] = useState(false)
   const [uploadingHero, setUploadingHero] = useState(false)
   const heroInputRef = useRef<HTMLInputElement>(null)
@@ -171,38 +175,6 @@ export function PageEditorPage() {
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [])
-
-  /** Wraps the selection, or inserts a placeholder when nothing is selected. */
-  function wrap(before: string, after: string, placeholder: string) {
-    const textarea = bodyRef.current
-    if (!textarea || !page) return
-
-    const { selectionStart, selectionEnd, value } = textarea
-    const selected = value.slice(selectionStart, selectionEnd) || placeholder
-    const next = value.slice(0, selectionStart) + before + selected + after + value.slice(selectionEnd)
-
-    mutate((current) => ({ ...current, body: next }))
-    requestAnimationFrame(() => {
-      textarea.focus()
-      textarea.setSelectionRange(selectionStart + before.length, selectionStart + before.length + selected.length)
-    })
-  }
-
-  function insertBlock(block: string) {
-    const textarea = bodyRef.current
-    if (!textarea || !page) return
-
-    const { selectionStart, value } = textarea
-    const needsLeadingBreak = selectionStart > 0 && !value.slice(0, selectionStart).endsWith('\n\n')
-    const insertion = `${needsLeadingBreak ? '\n\n' : ''}${block}\n\n`
-    const next = value.slice(0, selectionStart) + insertion + value.slice(selectionStart)
-
-    mutate((current) => ({ ...current, body: next }))
-    requestAnimationFrame(() => {
-      textarea.focus()
-      textarea.setSelectionRange(selectionStart + insertion.length, selectionStart + insertion.length)
-    })
-  }
 
   /**
    * The hero is stored as an id, not as a copy of the image, so the picture
@@ -477,150 +449,36 @@ export function PageEditorPage() {
       </div>
 
       <div className="editor">
-        <div>
-          <div className="wiki-toolbar">
-            <button type="button" className="button button--sm" onClick={() => insertBlock('## Heading')}>
-              Heading
-            </button>
-            <button type="button" className="button button--sm" onClick={() => wrap('**', '**', 'bold text')}>
-              Bold
-            </button>
-            <button type="button" className="button button--sm" onClick={() => wrap('_', '_', 'italic text')}>
-              Italic
-            </button>
-            <button type="button" className="button button--sm" onClick={() => insertBlock('- First item\n- Second item')}>
-              List
-            </button>
-            <button type="button" className="button button--sm" onClick={() => wrap('[', '](https://)', 'link text')}>
-              Link
-            </button>
-            <button type="button" className="button button--sm" onClick={() => insertBlock('| Column | Column |\n| --- | --- |\n| Value | Value |')}>
-              Table
-            </button>
-            {/* One named guide, beside the block that gathers many by tag. The
-                two are different jobs: "every confocal guide" keeps itself up
-                to date, "this guide, here, in this sentence" does not. */}
-            <button
-              type="button"
-              className="button button--sm"
-              onClick={() => insertBlock('```guide\nthe-guide-address\n```')}
-            >
-              Insert one guide
-            </button>
-            <button type="button" className="button button--sm button--primary" onClick={() => setInsertingList(true)}>
-              Insert guide list
-            </button>
-          </div>
-
-          <div className="wiki-split">
+        {sourceView ? (
+          <div>
+            <div className="wiki-source-head">
+              <span className="field__hint">The markdown the server stores, as it is.</span>
+              <button
+                type="button"
+                className="button button--sm"
+                onClick={() => setSourceView(false)}
+              >
+                Back to rich editing
+              </button>
+            </div>
             {/* A plain textarea, not the auto-growing one: a wiki body can run
-                to thousands of words, and a box that grows without limit makes
-                the preview beside it unreachable. */}
+                to thousands of words. */}
             <textarea
-              ref={bodyRef}
               className="textarea wiki-source"
+              aria-label="Page body markdown"
               value={page.body}
-              placeholder="Write the page here. Use the buttons above if you would rather not type markup."
               onChange={(event) => mutate((current) => ({ ...current, body: event.target.value }))}
             />
-            <div className="wiki-preview">
-              <span className="wiki-preview__label">Preview</span>
-              <MarkdownBody body={page.body} />
-            </div>
           </div>
-        </div>
-
+        ) : (
+          <WikiEditor
+            value={page.body}
+            onChange={(body) => mutate((current) => ({ ...current, body }))}
+            onSourceView={() => setSourceView(true)}
+          />
+        )}
       </div>
       </DesktopOnly>
-
-      {insertingList && (
-        <GuideListDialog
-          onClose={() => setInsertingList(false)}
-          onInsert={(block) => {
-            insertBlock(block)
-            setInsertingList(false)
-          }}
-        />
-      )}
     </>
-  )
-}
-
-/** Builds a guide-list block so an author never types the fenced syntax. */
-function GuideListDialog({
-  onClose,
-  onInsert,
-}: {
-  onClose: () => void
-  onInsert: (block: string) => void
-}) {
-  const [tags, setTags] = useState<string[]>([])
-  const [heading, setHeading] = useState('')
-  const [limit, setLimit] = useState('')
-
-  function build(): string {
-    const lines = ['```guidelist', `tags: ${tags.join(', ')}`]
-    if (heading.trim() !== '') lines.push(`heading: ${heading.trim()}`)
-    const capped = Number.parseInt(limit, 10)
-    if (Number.isFinite(capped) && capped > 0) lines.push(`limit: ${capped}`)
-    lines.push('```')
-    return lines.join('\n')
-  }
-
-  return (
-    <Modal title="Insert a guide list" onClose={onClose}>
-      {/* The block is written as a fenced code span, so what it will become is
-          not visible from the dialog that inserts it. */}
-      <p className="field__hint" style={{ marginBottom: '1rem' }}>
-        Gathers every published guide carrying these tags, and keeps itself up to date.
-      </p>
-
-      <div className="field">
-        <span className="field__label">Tags</span>
-        <TagInput tags={tags} onChange={setTags} />
-      </div>
-
-      <div className="field">
-        <label className="field__label" htmlFor="guidelist-heading">
-          Heading (optional)
-        </label>
-        <input
-          id="guidelist-heading"
-          className="input"
-          value={heading}
-          placeholder="e.g. Confocal systems"
-          onChange={(event) => setHeading(event.target.value)}
-        />
-      </div>
-
-      <div className="field">
-        <label className="field__label" htmlFor="guidelist-limit">
-          Show at most (optional)
-        </label>
-        <input
-          id="guidelist-limit"
-          className="input"
-          type="number"
-          min={1}
-          value={limit}
-          placeholder="every matching guide"
-          onChange={(event) => setLimit(event.target.value)}
-        />
-      </div>
-
-      <div className="page-actions">
-        <button
-          type="button"
-          className="button button--primary"
-          disabled={tags.length === 0}
-          onClick={() => onInsert(build())}
-        >
-          Insert
-        </button>
-        <button type="button" className="button" onClick={onClose}>
-          Cancel
-        </button>
-      </div>
-    </Modal>
   )
 }

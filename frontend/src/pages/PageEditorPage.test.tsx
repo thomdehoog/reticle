@@ -24,7 +24,9 @@ describe('PageEditorPage', () => {
     const user = userEvent.setup()
     renderEditor(server)
 
-    await user.click(await screen.findByRole('button', { name: 'Insert guide list' }))
+    /* The rarer inserts live behind the bar's last button. */
+    await user.click(await screen.findByRole('button', { name: 'More' }))
+    await user.click(screen.getByRole('button', { name: 'Insert guide list' }))
     /* Scoped to the dialog: the page itself carries tags now, so the editor
        behind it has a tag input of its own, and an unscoped query finds both. */
     const dialog = within(screen.getByRole('dialog'))
@@ -44,7 +46,8 @@ describe('PageEditorPage', () => {
     const user = userEvent.setup()
     renderEditor(server)
 
-    await user.click(await screen.findByRole('button', { name: 'Insert guide list' }))
+    await user.click(await screen.findByRole('button', { name: 'More' }))
+    await user.click(screen.getByRole('button', { name: 'Insert guide list' }))
     /* Scoped to the dialog: the page itself carries tags now, so the editor
        behind it has a tag input of its own, and an unscoped query finds both. */
     const dialog = within(screen.getByRole('dialog'))
@@ -126,6 +129,10 @@ describe('PageEditorPage', () => {
     const user = userEvent.setup()
     renderEditor(server)
 
+    /* Typed through the source view: jsdom cannot type into the rendered
+       surface, and the conflict machinery under both is one and the same. */
+    await user.click(await screen.findByRole('button', { name: 'More' }))
+    await user.click(screen.getByRole('button', { name: 'Edit markdown source' }))
     const body = await screen.findByDisplayValue('The current wording.')
     server.colleagueSavesFirst()
     await user.type(body, ' And one more thing.')

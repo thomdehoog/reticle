@@ -632,24 +632,94 @@ a:hover {
 
 /* ------------------------------------------------------------------- wiki */
 
-.wiki-toolbar {
+/* The wiki editor: the body written on a rendered surface in the reader's own
+   typography (the ProseMirror element carries `.markdown`), with the controls
+   in one bar at the foot. The stored form is markdown; everything here is only
+   how the writing feels. */
+
+.wiki-editor {
+  /* The reader's measure plus the surface's own padding, centred like the
+     read page is. */
+  max-width: 52rem;
+  margin: 0 auto;
+}
+
+.wiki-editor__surface {
+  min-height: 55vh;
+  /* Room at the foot for the bar to float over without covering the last
+     line an author is writing. */
+  padding: 1.25rem 1.5rem 4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.wiki-editor__surface:focus {
+  outline: none;
+  border-color: var(--brand-600);
+}
+
+/* One compact row, floating at the foot of the surface and staying in reach
+   while a long page scrolls — the bar is the whole chrome of the editor. */
+.wiki-editor__bar {
+  position: sticky;
+  bottom: 0.75rem;
+  z-index: 20;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-bottom: 0.6rem;
+  gap: 0.25rem;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  margin: 0.75rem auto 0;
+  padding: 0.3rem 0.4rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
 }
 
-.wiki-split {
-  display: grid;
+.wiki-editor__bar .button[aria-pressed='true'] {
+  color: var(--brand-700);
+  background: var(--brand-050);
+  border-color: var(--brand-600);
+}
+
+/* A guide or guide-list fence, drawn as the embed a reader gets. Dashed
+   because it is one placed thing — selectable, movable, deletable, but with
+   no cursor inside; its dialog is how it is made. */
+.wiki-editor__embed {
+  padding: 0.5rem 0.65rem;
+  margin: 0.75rem 0;
+  background: var(--surface-sunken);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.wiki-editor__embed.ProseMirror-selectednode {
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 2px var(--brand-100);
+}
+
+.wiki-editor__surface .selectedCell {
+  background: var(--brand-050);
+}
+
+/* The panel of a menu that lives at the foot of the surface opens upward —
+   downward it would fall off the bottom of the screen. */
+.header-menu--up .header-menu__panel {
+  top: auto;
+  right: auto;
+  bottom: calc(100% + 0.4rem);
+  left: 0;
+}
+
+.wiki-source-head {
+  display: flex;
   gap: 0.75rem;
-  grid-template-columns: 1fr 1fr;
-  align-items: stretch;
-}
-
-@media (max-width: 1100px) {
-  .wiki-split {
-    grid-template-columns: 1fr;
-  }
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
 }
 
 .wiki-source {
@@ -660,26 +730,46 @@ a:hover {
   resize: vertical;
 }
 
-.wiki-preview {
-  position: relative;
-  min-height: 62vh;
-  max-height: 78vh;
+/* The guide picker's results: a short list a click chooses from. */
+.guide-picker {
+  max-height: 40vh;
+  padding: 0;
+  margin: 0 0 1rem;
   overflow-y: auto;
-  padding: 1rem 1.1rem;
-  background: var(--surface);
+  list-style: none;
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
-.wiki-preview__label {
-  position: absolute;
-  top: 0.4rem;
-  right: 0.6rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-400);
+.guide-picker li + li {
+  border-top: 1px solid var(--border);
+}
+
+.guide-picker__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.guide-picker__row:hover {
+  background: var(--surface-sunken);
+}
+
+.guide-picker__title {
+  font-weight: 600;
+}
+
+.guide-picker__summary {
+  font-size: 0.85rem;
+  color: var(--ink-500);
 }
 
 /* --------------------------------------------------------------- markdown */
@@ -3315,7 +3405,7 @@ a:hover {
   .page-actions,
   .breadcrumb,
   .searchbar,
-  .wiki-toolbar,
+  .wiki-editor__bar,
   .media-slot__action,
   .media-empty {
     display: none !important;
