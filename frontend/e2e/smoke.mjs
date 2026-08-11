@@ -81,6 +81,13 @@ function measureReadability(page) {
            menu is not on the screen yet. */
         if (box.width === 0 && box.height === 0) continue
         if (element.type === 'hidden') continue
+        /* WCAG 2.5.8's own exception: a link inside a sentence is as tall as
+           the line it sits in, and making it taller would mean breaking the
+           prose around it. Only prose links are exempt — a row, a button or a
+           tag chip still has to answer for its size. */
+        if (element.tagName === 'A' && element.closest('.markdown p, .markdown li, .markdown td')) {
+          continue
+        }
         if (box.width < minTarget || box.height < minTarget) {
           const name = (element.getAttribute('aria-label') ?? element.textContent ?? '').trim()
           targets.add(
@@ -250,7 +257,10 @@ for (const viewport of VIEWPORTS) {
     await checkReadability(page, viewport, 'sub-category')
   }
 
-  const guideRow = page.locator('.guide-row').first()
+  /* By address, not by class: a wiki article is drawn as the same row now and
+     sorts first in its group, and clicking one leads to an article — a page
+     with no steps to wait for. */
+  const guideRow = page.locator('.guide-row[href^="/g/"]').first()
   if (await guideRow.count()) {
     await guideRow.click()
     await page.waitForSelector('.step')
