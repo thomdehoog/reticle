@@ -38,11 +38,11 @@ printf '\n'
 printf '%s\n%s\n' "$email" "$password" | compose exec -T app python -c '
 import sys
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from app import db
-from app.models import Session, User
-from app.security import hash_password
+from app.models import User
+from app.security import end_credentials, hash_password
 
 email = sys.stdin.readline().strip().lower()
 password = sys.stdin.readline().rstrip("\n")
@@ -53,7 +53,9 @@ with db.SessionLocal() as session:
     user.password_hash = hash_password(password)
     user.is_active = True
     role = user.role
-    session.execute(delete(Session).where(Session.user_id == user.id))
+    # Ends its sessions and raises its epoch, so device cookies issued under
+    # the old password stop verifying too.
+    end_credentials(session, user)
     session.commit()
 print(f"Password set for {email} ({role}); its sessions were ended.", flush=True)
 '
