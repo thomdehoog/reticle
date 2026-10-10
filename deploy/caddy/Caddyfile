@@ -153,6 +153,19 @@
 			file_server
 		}
 
+		# The icon is frontend/public/favicon.svg, linked from index.html and
+		# served as the file it is by the fallback below (img-src 'self' covers
+		# it). Browsers and feed readers also ask for /favicon.ico without being
+		# told to; that path does not exist, and the fallback would answer it
+		# with the app shell — an HTML page as an icon. Give them the real one:
+		# the Content-Type follows the file served, and every current browser
+		# goes by that rather than by the ".ico" in the URL.
+		handle /favicon.ico {
+			header Cache-Control "public, max-age=86400"
+			rewrite * /favicon.svg
+			file_server
+		}
+
 		# index.html, and every client-side route (/g/..., /w/..., /c/...,
 		# /t/...), which all are index.html: always revalidated, so a deployment
 		# reaches people on their next page load. The ETag makes that cheap.

@@ -100,6 +100,7 @@ export const MAX_MEDIA_PER_STEP = 3
 export const MAX_GUIDE_TITLE_LENGTH = 240
 export const MAX_TAGS_PER_GUIDE = 30
 export const MAX_TAG_LENGTH = 60
+export const MAX_ALT_LENGTH = 1000
 
 export interface Step {
   id: string
@@ -197,6 +198,13 @@ export interface Page {
   /** Markdown. Rendered to React elements, never to raw HTML. */
   body: string
   heroMediaId: string | null
+  /**
+   * What the hero shows, for someone who cannot see it. Belongs to the page,
+   * not the upload; the server keeps it only while there is a hero. A snapshot
+   * published before the field existed does not carry it at all, which is why
+   * the reader falls back to the empty string.
+   */
+  heroAlt: string
   status: ContentStatus
   author: UserRef
   lastEditedBy: UserRef

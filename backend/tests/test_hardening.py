@@ -189,6 +189,17 @@ def test_a_title_with_no_latin_characters_still_yields_a_usable_slug():
     assert slugify("   ", fallback="category") == "category"
 
 
+def test_slugs_transliterate_the_way_a_german_reader_would_spell_them():
+    assert slugify("Präparation der Probe") == "praeparation-der-probe"
+    assert slugify("Übersicht: Maßstab & Größe") == "uebersicht-massstab-groesse"
+    assert slugify("Café crème, señor") == "cafe-creme-senor"
+    assert slugify("Pra\u0308paration") == "praeparation"
+
+
+def test_a_truncated_slug_does_not_end_in_a_hyphen():
+    assert slugify("a" * 199 + " b") == "a" * 199
+
+
 def test_hardening_headers_are_present_on_every_response(anon, author):
     for response in (anon.get("/api/health"), anon.get("/api/auth/me"), author.get("/api/guides"), author.get("/api/nope")):
         headers = response.headers

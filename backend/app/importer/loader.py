@@ -634,8 +634,11 @@ class Loader:
 
         The file goes through ``images.normalise`` like any upload. If the
         application refuses it as it is — too many bytes or pixels, a format it
-        does not take, an EXIF rotation it would drop — it is decoded and
-        re-encoded here first, and the report says so.
+        does not take — it is decoded and re-encoded here first, and the report
+        says so. A photograph stored sideways needs nothing special: ``normalise``
+        applies the EXIF orientation itself, and when the picture is re-encoded
+        here ``_open`` has already applied it and the tag is gone, so it is
+        never turned twice.
         """
         record = self.record("image", record_key)
         if record is not None and record.fingerprint == mark:
@@ -647,11 +650,7 @@ class Loader:
         normalised: images.NormalisedImage | None = None
         reason = ""
         if picture is None:
-            with Image.open(path) as probe:
-                rotated = probe.getexif().get(0x0112, 1) not in (None, 1)
-            if rotated:
-                reason = "its EXIF rotation was applied"
-            elif path.stat().st_size > settings.max_upload_bytes:
+            if path.stat().st_size > settings.max_upload_bytes:
                 reason = "the file is larger than the upload limit"
             else:
                 try:
@@ -662,7 +661,7 @@ class Loader:
                 picture, lossless = self._open(path)
         if normalised is None:
             normalised = images.normalise(self._encode(picture, lossless), settings.max_image_dimension, settings.max_image_pixels)
-            if reason and "EXIF" not in reason:
+            if reason:
                 self.report.warn("marker_note", reference, f"{label} was re-encoded to fit Reticle’s limits ({reason})")
 
         media_id = new_id()

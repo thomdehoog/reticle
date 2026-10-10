@@ -7,7 +7,9 @@ derived from a server-minted identifier, so a hostile filename can neither
 traverse out of the media root nor land somewhere a web server would execute.
 
 Re-encoding rather than copying is what strips EXIF: a JPEG straight off a
-microscope camera carries serial numbers, and occasionally GPS.
+microscope camera carries serial numbers, and occasionally GPS. The one EXIF
+field that changes how a picture looks, its orientation, is applied to the
+pixels first, because the tag does not survive and the picture has to.
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
@@ -20,7 +22,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import BinaryIO
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from . import errors
 
@@ -147,12 +149,26 @@ def normalise(payload: bytes, max_dimension: int, max_pixels: int) -> Normalised
     with Image.open(BytesIO(payload)) as image:
         buffer = BytesIO()
         save_options = {}
+        upright = image
         if getattr(image, "n_frames", 1) > 1:
             save_options["save_all"] = True
+        else:
+            # A phone held upright records a landscape frame plus a tag saying
+            # "turn me"; the tag is about to be stripped with the rest of the
+            # EXIF, so the turn is made in the pixels. Only here, after every
+            # size check: the checks are the same either way round, and this
+            # is the first call that decodes. An animation is left alone —
+            # transposing would keep its first frame only, and the formats
+            # that animate are not the ones cameras write.
+            try:
+                upright = ImageOps.exif_transpose(image)
+            except Exception as exc:
+                raise errors.validation_failed("That image could not be processed.") from exc
         try:
-            image.save(buffer, format=image_format, **save_options)
+            upright.save(buffer, format=image_format, **save_options)
         except Exception as exc:
             raise errors.validation_failed("That image could not be processed.") from exc
+        width, height = upright.size
 
     content_type, extension = ACCEPTED_FORMATS[image_format]
     return NormalisedImage(buffer.getvalue(), content_type, extension, width, height)

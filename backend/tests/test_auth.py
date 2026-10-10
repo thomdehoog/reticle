@@ -325,6 +325,7 @@ def test_the_authentication_sweep_actually_looks_at_the_routes():
         "/api/auth/login", "/api/auth/logout", "/api/auth/me",
         "/api/categories", "/api/categories/{category_id}", "/api/categories/{category_id}/page",
         "/api/tags",
+        "/api/config",
         "/api/guides", "/api/guides/{key}", "/api/guides/{guide_id}", "/api/guides/{key}/pdf",
         "/api/guides/{item_id}/publish", "/api/guides/{item_id}/unpublish", "/api/guides/{item_id}/view",
         "/api/guides/{item_id}", "/api/guides/{item_id}/revisions", "/api/guides/{item_id}/revisions/{version}",

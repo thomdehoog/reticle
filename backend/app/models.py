@@ -415,6 +415,11 @@ class Page(ContentMixin, Base):
     is_landing: Mapped[bool] = mapped_column(Boolean, default=False)
     body: Mapped[str] = mapped_column(Text, default="")
     hero_media_id: Mapped[str | None] = mapped_column(ForeignKey("media.id"), nullable=True, index=True)
+    # The description lives on the page, not on the upload, for the same reason a
+    # step's alt text lives on the step: the same picture can head two pages and
+    # be described differently on each. The server default is what lets the
+    # column be added to a table that already has rows.
+    hero_alt: Mapped[str] = mapped_column(Text, default="", server_default="")
 
     category: Mapped[Category | None] = relationship()
     contributor_links: Mapped[list["PageContributor"]] = relationship(

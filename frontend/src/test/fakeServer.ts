@@ -11,6 +11,7 @@
  * transliteration, upload decoding), this does the simplest thing that answers.
  */
 
+import { DEFAULT_UPLOAD_LIMITS, type UploadLimits } from '../domain/media'
 import type {
   Category,
   Guide,
@@ -44,6 +45,8 @@ export interface FakeServerState {
   tagNames: Record<string, string>
   /** Publish history by guide or page id. Publishing through the API adds to it. */
   revisions: Record<string, FakeRevision<Guide | Page>[]>
+  /** What `GET /config` answers; the server's defaults unless a test says otherwise. */
+  limits: UploadLimits
 }
 
 export interface RecordedRequest {
@@ -127,6 +130,7 @@ export function pageFixture(overrides: Partial<Page> = {}): Page {
     isLanding: false,
     body: 'Match the immersion medium to the objective.',
     heroMediaId: null,
+    heroAlt: '',
     status: 'published',
     author,
     lastEditedBy: author,
@@ -211,6 +215,7 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
     media: initial.media ?? [],
     tagNames: initial.tagNames ?? {},
     revisions: initial.revisions ?? {},
+    limits: initial.limits ?? { ...DEFAULT_UPLOAD_LIMITS },
   }
 
   const requests: RecordedRequest[] = []
@@ -625,6 +630,8 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
             categoryId: incoming.categoryId,
             isLanding: incoming.isLanding,
             heroMediaId: incoming.heroMediaId,
+            // As the server does: a description is kept only alongside a hero.
+            heroAlt: incoming.heroMediaId ? (incoming.heroAlt ?? '').trim() : '',
             lastEditedBy: me(),
             updatedAt: nextTimestamp(),
           }),
@@ -637,6 +644,10 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
         return noContent()
       }
     }
+
+    /* --------------------------------------------------------------- config */
+
+    if (path === '/config' && method === 'GET') return json(state.limits)
 
     /* --------------------------------------------------------------- search */
 

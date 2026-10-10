@@ -202,7 +202,7 @@ set at the top of `tests/conftest.py`; no `.env` is required to run them.
 | `app/content.py` | The lifecycle guides and pages share: visibility predicate, concurrency token, publish/unpublish/archive/view/revisions. |
 | `app/documents.py` | The whole-guide `PUT`: steps, bullets, media, annotations, tags; publish rules. |
 | `app/pages.py` | The whole-page `PUT`: landing slot, hero, media references in the body. |
-| `app/images.py` | Image validation by decode, pixel caps, EXIF stripping, safe storage paths. |
+| `app/images.py` | Image validation by decode, pixel caps, EXIF orientation applied then EXIF stripped, safe storage paths. |
 | `app/videos.py` | MP4/WebM recognition by container signature; streamed storage. |
 | `app/pdf.py` | The guide as an A4 PDF (ReportLab). |
 | `app/audit.py` | The who-changed-what trail. |

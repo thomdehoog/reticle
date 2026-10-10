@@ -180,6 +180,71 @@ def test_exif_is_stripped_from_what_is_stored(author, db_session, media_root):
     assert dict(Image.open(media_root / stored.storage_path).getexif()) == {}
 
 
+def _sideways_photo(image_format: str = "JPEG") -> bytes:
+    """A portrait photograph as a phone stores it: a landscape frame, red on the
+    left and blue on the right, tagged "turn a quarter clockwise to view"."""
+    frame = Image.new("RGB", (64, 32), (200, 0, 0))
+    frame.paste((0, 0, 200), (32, 0, 64, 32))
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    buffer = BytesIO()
+    frame.save(buffer, format=image_format, exif=exif.tobytes())
+    return buffer.getvalue()
+
+
+def _is_red(pixel) -> bool:
+    return pixel[0] > 150 and pixel[2] < 80
+
+
+def _is_blue(pixel) -> bool:
+    return pixel[2] > 150 and pixel[0] < 80
+
+
+@pytest.mark.parametrize(("image_format", "mime"), [("JPEG", "image/jpeg"), ("PNG", "image/png"), ("WEBP", "image/webp")])
+def test_a_photo_taken_in_portrait_is_stored_upright(author, image_format, mime):
+    """Stripping EXIF used to strip the orientation with it, so every phone
+    photo taken upright arrived lying on its side."""
+    created = author.post("/api/media", files={"file": ("phone", _sideways_photo(image_format), mime)}).json()
+
+    assert (created["width"], created["height"]) == (32, 64)
+    served = Image.open(BytesIO(author.get(f"/api/media/{created['id']}").content)).convert("RGB")
+    assert served.size == (32, 64)
+    assert served.getexif().get(0x0112) is None
+    assert _is_red(served.getpixel((16, 8)))
+    assert _is_blue(served.getpixel((16, 56)))
+
+
+def test_an_upright_image_is_not_turned_a_second_time():
+    """The importer hands ``normalise`` pictures that were already normalised
+    once; the orientation tag is consumed the first time, so nothing moves."""
+    from app.images import normalise
+
+    once = normalise(_sideways_photo(), 10_000, 40_000_000)
+    twice = normalise(once.payload, 10_000, 40_000_000)
+
+    assert (once.width, once.height) == (twice.width, twice.height) == (32, 64)
+    assert _is_red(Image.open(BytesIO(twice.payload)).convert("RGB").getpixel((16, 8)))
+
+
+def test_an_image_without_an_orientation_keeps_its_shape(author):
+    created = author.post("/api/media", files={"file": ("a.jpg", jpeg_with_exif(), "image/jpeg")}).json()
+
+    assert (created["width"], created["height"]) == (32, 24)
+
+
+def test_an_animation_keeps_all_its_frames(author):
+    """Turning is skipped for animations, because it would keep one frame."""
+    frames = [Image.new("RGB", (20, 10), colour) for colour in ("red", "green", "blue")]
+    buffer = BytesIO()
+    frames[0].save(buffer, format="GIF", save_all=True, append_images=frames[1:], duration=50)
+
+    created = author.post("/api/media", files={"file": ("a.gif", buffer.getvalue(), "image/gif")}).json()
+
+    served = Image.open(BytesIO(author.get(f"/api/media/{created['id']}").content))
+    assert served.n_frames == 3
+    assert (created["width"], created["height"]) == (20, 10)
+
+
 def test_the_stored_filename_is_generated_and_the_original_never_used(author, db_session, media_root):
     created = author.post("/api/media", files={"file": ("Ünsafe Name (1).png", image_bytes(), "image/png")}).json()
 

@@ -21,6 +21,7 @@ from .conftest import (
 
 PAGE_FIELDS = {
     "id", "slug", "title", "summary", "categoryId", "isLanding", "body", "heroMediaId",
+    "heroAlt",
     "status", "author", "lastEditedBy", "contributors", "viewCount", "createdAt",
     "updatedAt", "publishedAt", "version",
 }
@@ -247,6 +248,68 @@ def test_the_hero_can_be_cleared(author):
     saved = save_page(author, created, heroMediaId=upload_media(author)["id"])
 
     assert save_page(author, saved, heroMediaId=None)["heroMediaId"] is None
+
+
+def test_a_new_page_has_no_hero_description(author):
+    assert create_page(author)["heroAlt"] == ""
+
+
+def test_the_hero_can_be_described(author):
+    created = create_page(author)
+    hero = upload_media(author)
+
+    saved = save_page(author, created, heroMediaId=hero["id"], heroAlt="  Two users at the Stellaris 5 in room 12  ")
+
+    assert saved["heroAlt"] == "Two users at the Stellaris 5 in room 12"
+    assert author.get(f"/api/pages/{created['id']}").json()["heroAlt"] == "Two users at the Stellaris 5 in room 12"
+
+
+def test_a_client_that_does_not_know_the_field_clears_nothing_it_did_not_mean_to(author):
+    """Omitting ``heroAlt`` is an older client; the default is the empty string."""
+    created = create_page(author)
+    body = document_from(created, heroMediaId=upload_media(author)["id"])
+    del body["heroAlt"]
+
+    response = author.put(f"/api/pages/{created['id']}", json=body)
+
+    assert response.status_code == 200
+    assert response.json()["heroAlt"] == ""
+
+
+def test_a_hero_description_is_at_most_a_thousand_characters(author):
+    created = create_page(author)
+    hero = upload_media(author)
+
+    assert save_page(author, created, heroMediaId=hero["id"], heroAlt="a" * 1000)["heroAlt"] == "a" * 1000
+    refused = author.put(
+        f"/api/pages/{created['id']}", json=document_from(created, heroMediaId=hero["id"], heroAlt="a" * 1001)
+    )
+    assert refused.status_code == 422
+    assert refused.json()["error"]["code"] == "validation_failed"
+
+
+def test_removing_the_hero_removes_its_description(author):
+    """Otherwise the words would be read out for whichever picture comes next."""
+    created = create_page(author)
+    saved = save_page(author, created, heroMediaId=upload_media(author)["id"], heroAlt="The confocal room")
+
+    cleared = save_page(author, saved, heroMediaId=None)
+
+    assert cleared["heroMediaId"] is None
+    assert cleared["heroAlt"] == ""
+    assert save_page(author, cleared, heroMediaId=None, heroAlt="words with no picture")["heroAlt"] == ""
+
+
+def test_the_hero_description_is_part_of_the_published_snapshot(author):
+    hero = upload_media(author)
+    page = published_page(author, "With a described hero", heroMediaId=hero["id"], heroAlt="As published")
+    current = author.get(f"/api/pages/{page['id']}").json()
+    save_page(author, current, heroAlt="Edited afterwards")
+
+    snapshot = author.get(f"/api/pages/{page['id']}/revisions/1").json()
+
+    assert snapshot["heroAlt"] == "As published"
+    assert snapshot["heroMediaId"] == hero["id"]
 
 
 # ------------------------------------------------------------- landing pages

@@ -19,8 +19,8 @@ left — see "What is left".
 
 | | as of 2026-10-10 |
 | --- | --- |
-| Backend tests | 554 passing, 99% branch coverage (the gate is 95%) |
-| Frontend tests | 358 passing |
+| Backend tests | 960 passing, 99% branch coverage (the gate is 95%) |
+| Frontend tests | 575 passing |
 | Browser tests | smoke test at 1440 / 768 / 390 px and an authoring round-trip, both also run against the Docker stack under the production Content-Security-Policy |
 | Deployment | two images, `compose.yaml`, backup / restore / upgrade scripts — exercised end to end, with the caveats under "Deployment: what was and was not verified" |
 

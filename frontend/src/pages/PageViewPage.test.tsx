@@ -125,6 +125,31 @@ describe('PageViewPage', () => {
     expect(article.querySelector('img')).toHaveAttribute('src', '/api/media/m-hero')
   })
 
+  it('gives the hero image the description its author wrote', async () => {
+    const server = createFakeServer({
+      user: VIEWER,
+      pages: [pageFixture({ heroMediaId: 'm-hero', heroAlt: 'Two users at the Stellaris 5' })],
+    })
+    renderApp({ route: '/w/choosing-an-objective', server })
+
+    const article = await screen.findByRole('article')
+    expect(within(article).getByRole('img', { name: 'Two users at the Stellaris 5' })).toHaveAttribute(
+      'src',
+      '/api/media/m-hero',
+    )
+  })
+
+  it('treats an undescribed hero as decoration rather than announcing nothing', async () => {
+    const server = createFakeServer({
+      user: VIEWER,
+      pages: [pageFixture({ heroMediaId: 'm-hero' })],
+    })
+    renderApp({ route: '/w/choosing-an-objective', server })
+
+    const article = await screen.findByRole('article')
+    expect(article.querySelector('img')).toHaveAttribute('alt', '')
+  })
+
   it('offers Edit to an author and marks a draft as one', async () => {
     const server = createFakeServer({ user: AUTHOR, pages: [pageFixture({ status: 'draft' })] })
     renderApp({ route: '/w/choosing-an-objective', server })

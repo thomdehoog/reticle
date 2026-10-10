@@ -39,7 +39,7 @@ def test_admin_creates_a_category_and_the_slug_is_derived(admin):
 def test_slugs_transliterate_rather_than_dropping_accents(admin):
     body = admin.post("/api/categories", json={"name": "Zürich Präparation"}).json()
 
-    assert body["slug"] == "zurich-praparation"
+    assert body["slug"] == "zuerich-praeparation"
 
 
 def test_new_categories_append_within_their_parent(admin):

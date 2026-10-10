@@ -119,6 +119,34 @@ def test_the_baseline_can_be_rolled_back(migrated):
     assert migrate.current_revision(migrated) is None
 
 
+def test_adding_the_hero_description_keeps_the_pages_that_were_already_there(file_db):
+    """0003 adds a NOT NULL column to a table with rows in it. On SQLite that is
+    a table rebuild, which is exactly where a migration loses data quietly."""
+    command.upgrade(migrate.alembic_config(file_db), "0002")
+    with file_db.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO users (id, email, display_name, role, password_hash, is_active, created_at, updated_at) "
+            "VALUES ('01HZZZZZZZZZZZZZZZZZZZZZZU', 'a@zmb.example', 'A', 'author', 'x', 1, '2026-01-01', '2026-01-01')"
+        ))
+        connection.execute(text(
+            "INSERT INTO pages (id, slug, title, summary, status, version, view_count, created_at, updated_at, "
+            "author_id, last_edited_by_id, is_landing, body) VALUES ('01HZZZZZZZZZZZZZZZZZZZZZZP', 'old', 'Old page', "
+            "'', 'published', 1, 7, '2026-01-01', '2026-01-01', '01HZZZZZZZZZZZZZZZZZZZZZZU', "
+            "'01HZZZZZZZZZZZZZZZZZZZZZZU', 0, 'Body from before.')"
+        ))
+
+    assert migrate.upgrade() == migrate.head_revision()
+
+    with file_db.connect() as connection:
+        row = connection.execute(text("SELECT title, body, view_count, hero_alt FROM pages")).one()
+    assert tuple(row) == ("Old page", "Body from before.", 7, "")
+
+    command.downgrade(migrate.alembic_config(file_db), "0002")
+    assert "hero_alt" not in {column["name"] for column in inspect(file_db).get_columns("pages")}
+    with file_db.connect() as connection:
+        assert connection.execute(text("SELECT body FROM pages")).scalar_one() == "Body from before."
+
+
 def test_a_database_from_before_migrations_is_refused_with_instructions(file_db):
     """Early development builds made their tables with ``create_all``. Running
     the baseline over one would die on "table already exists"."""
@@ -180,13 +208,83 @@ def test_the_server_refuses_to_start_on_an_uninitialised_database(file_db):
             pass  # pragma: no cover
 
 
-def test_the_server_refuses_to_start_on_a_schema_from_another_release(migrated):
-    with migrated.begin() as connection:
-        connection.execute(text("UPDATE alembic_version SET version_num = 'from-the-future'"))
+def _set_revision(engine, revision: str) -> None:
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE alembic_version SET version_num = :revision"), {"revision": revision})
 
-    with pytest.raises(migrate.SchemaError, match="from-the-future"):
+
+def test_the_server_refuses_to_start_on_a_schema_from_a_newer_release(migrated):
+    """Someone went back to an older image. "Run migrate" would be the wrong
+    advice: the database is ahead of the code, not behind it."""
+    _set_revision(migrated, "from-the-future")
+
+    with pytest.raises(migrate.SchemaError, match="from-the-future") as refusal:
         with TestClient(app):
             pass  # pragma: no cover
+
+    message = str(refusal.value)
+    assert "newer release" in message
+    assert "restore the backup" in message and "docs/MAINTENANCE.md" in message
+    assert "Run `python -m app.migrate`" not in message
+
+
+def test_the_server_refuses_to_start_on_a_schema_that_is_behind(migrated):
+    _set_revision(migrated, "0001")
+
+    with pytest.raises(migrate.SchemaError, match="revision 0001 but this release expects") as refusal:
+        with TestClient(app):
+            pass  # pragma: no cover
+
+    assert "python -m app.migrate" in str(refusal.value)
+
+
+def test_migrating_a_database_from_a_newer_release_explains_itself(migrated):
+    """Alembic's own words for this are "Can't locate revision identified by
+    'from-the-future'", which is no help to whoever rolled the image back."""
+    _set_revision(migrated, "from-the-future")
+
+    with pytest.raises(migrate.SchemaError) as refusal:
+        migrate.upgrade()
+
+    message = str(refusal.value)
+    assert "from-the-future" in message and "newer release" in message
+    assert "Can't locate" not in message
+    assert migrate.current_revision(migrated) == "from-the-future"
+
+
+def test_the_migrate_command_exits_with_the_explanation_and_no_traceback(migrated):
+    _set_revision(migrated, "from-the-future")
+
+    with pytest.raises(SystemExit) as stopped:
+        migrate.main()
+
+    assert str(stopped.value).startswith("reticle: The database schema is at revision from-the-future")
+    assert stopped.value.code != 0
+
+
+def test_a_version_table_alembic_cannot_place_is_still_this_modules_error(migrated, monkeypatch):
+    """The backstop behind the up-front check, for whatever that check missed."""
+    from alembic.util import CommandError
+
+    def cannot_locate(config, revision):
+        raise CommandError("Can't locate revision identified by 'elsewhere'")
+
+    monkeypatch.setattr(migrate.command, "upgrade", cannot_locate)
+
+    with pytest.raises(migrate.SchemaError, match="newer release"):
+        migrate.upgrade()
+
+
+def test_an_unrelated_alembic_failure_is_not_dressed_up_as_a_rollback(migrated, monkeypatch):
+    from alembic.util import CommandError
+
+    def broken(config, revision):
+        raise CommandError("Multiple head revisions are present")
+
+    monkeypatch.setattr(migrate.command, "upgrade", broken)
+
+    with pytest.raises(CommandError, match="Multiple head"):
+        migrate.upgrade()
 
 
 def test_the_server_starts_on_a_migrated_database_and_health_queries_it(migrated):

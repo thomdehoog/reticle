@@ -29,7 +29,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from . import db, errors, migrate
 from .auth import SAFE_METHODS, DbDep, get_session_row
-from .routers import auth, categories, guides, media, pages, search, tags, users
+from .routers import auth, categories, config, guides, media, pages, search, tags, users
 from .security import CSRF_COOKIE, CSRF_HEADER, constant_time_equals, prune_stale_rows
 from .settings import get_settings
 
@@ -258,7 +258,7 @@ def create_app() -> FastAPI:
 
     @application.exception_handler(RequestValidationError)
     async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
-        failure = errors.validation_failed(_describe_validation(exc))
+        failure = errors.validation_failed(errors.describe_validation(exc.errors()))
         return JSONResponse(status_code=failure.status_code, content=failure.body())
 
     @application.exception_handler(StarletteHTTPException)
@@ -285,23 +285,10 @@ def create_app() -> FastAPI:
             return JSONResponse(status_code=503, content={"status": "unavailable"})
         return JSONResponse(content={"status": "ok"})
 
-    for module in (auth, categories, guides, media, pages, search, tags, users):
+    for module in (auth, categories, config, guides, media, pages, search, tags, users):
         application.include_router(module.router)
 
     return application
-
-
-def _describe_validation(exc: RequestValidationError) -> str:
-    """Turn pydantic's structured report into one human sentence.
-
-    The contract gives errors a single ``message``, and echoing the raw input
-    back would risk reflecting a submitted password into a response body.
-    """
-    parts = []
-    for error in exc.errors()[:5]:
-        location = ".".join(str(item) for item in error.get("loc", ()) if item != "body")
-        parts.append(f"{location or 'request'}: {error.get('msg', 'is invalid')}")
-    return "; ".join(parts) or "The request could not be understood."
 
 
 def _dependant_requires_auth(dependant) -> bool:

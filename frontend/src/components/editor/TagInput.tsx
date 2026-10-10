@@ -12,18 +12,13 @@ import { useQuery } from '@tanstack/react-query'
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 
 import { useApi } from '../../api/context'
+import { slugifyTag } from '../../domain/slug'
 import { MAX_TAG_LENGTH, MAX_TAGS_PER_GUIDE, type Tag } from '../../domain/types'
 import { tagQueries } from '../../queries/tags'
 import { IconClose } from '../icons'
 
-/** Matches the server's `tag_slug` rule, so what you see is what gets stored. */
-export function slugifyTag(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
+/** Re-exported because the rule is this component's contract; it lives in the domain so it has no React around it. */
+export { slugifyTag }
 
 /** One stable empty list, so the suggestions are not recomputed on every render while tags load. */
 const NO_TAGS: Tag[] = []

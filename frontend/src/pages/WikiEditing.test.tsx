@@ -215,6 +215,52 @@ describe('pictures in a wiki page', () => {
     await user.click(screen.getByRole('button', { name: 'Remove' }))
     await waitFor(() => expect(server.state.pages[0].heroMediaId).toBeNull(), { timeout: 4000 })
   })
+
+  it('lets the author describe the hero image, and saves the description', async () => {
+    const server = createFakeServer({
+      pages: [pageFixture({ ...DRAFT, body: 'Text.', heroMediaId: 'm-hero' })],
+    })
+    const user = userEvent.setup()
+    renderEditor(server)
+
+    await source()
+    const description = screen.getByLabelText('Describe this image')
+    expect(description).toHaveValue('')
+    expect(description).toHaveAttribute('maxlength', '1000')
+
+    await user.type(description, 'Two users at the Stellaris 5')
+
+    await waitFor(
+      () => expect(server.state.pages[0].heroAlt).toBe('Two users at the Stellaris 5'),
+      { timeout: 4000 },
+    )
+  })
+
+  it('offers no description field while there is no hero to describe', async () => {
+    renderEditor(withBody('Text.'))
+
+    await source()
+
+    expect(screen.queryByLabelText('Describe this image')).not.toBeInTheDocument()
+  })
+
+  it('does not carry a description over to a different picture', async () => {
+    const server = createFakeServer({
+      pages: [
+        pageFixture({ ...DRAFT, body: 'Text.', heroMediaId: 'm-old', heroAlt: 'The old room' }),
+      ],
+    })
+    renderEditor(server)
+
+    await source()
+    expect(screen.getByLabelText('Describe this image')).toHaveValue('The old room')
+    const file = new File(['png'], 'hero.png', { type: 'image/png' })
+    fireEvent.change(screen.getByLabelText('Upload a hero image'), { target: { files: [file] } })
+
+    await waitFor(() => expect(server.state.pages[0].heroMediaId).toBe('m-1'), { timeout: 4000 })
+    expect(server.state.pages[0].heroAlt).toBe('')
+    expect(screen.getByLabelText('Describe this image')).toHaveValue('')
+  })
 })
 
 describe('the two panes', () => {

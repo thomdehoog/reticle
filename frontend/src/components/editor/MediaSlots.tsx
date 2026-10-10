@@ -1,7 +1,8 @@
 import { useRef, useState, type DragEvent } from 'react'
 
 import { STEP_MEDIA_ACCEPT } from '../../domain/media'
-import { MAX_MEDIA_PER_STEP, type Bullet, type Media } from '../../domain/types'
+import type { Bullet, Media } from '../../domain/types'
+import { useUploadLimits } from '../../queries/config'
 import { AnnotatedImage } from '../AnnotationOverlay'
 import { IconClose, IconEdit, IconImage, IconPalette, IconVideo } from '../icons'
 import { AnnotationEditor } from './AnnotationEditor'
@@ -53,7 +54,8 @@ export function MediaSlots({
   const [dragOver, setDragOver] = useState(false)
   const [detailsFor, setDetailsFor] = useState<string | null>(null)
 
-  const remaining = MAX_MEDIA_PER_STEP - media.length
+  const { maxMediaPerStep } = useUploadLimits()
+  const remaining = maxMediaPerStep - media.length
   const open = media.find((item) => item.id === detailsFor) ?? null
   const percent =
     upload && upload.total > 0 ? Math.min(100, Math.round((upload.loaded / upload.total) * 100)) : null

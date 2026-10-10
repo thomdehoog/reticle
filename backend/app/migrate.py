@@ -25,6 +25,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from alembic.util import CommandError
 from sqlalchemy import Engine, inspect
 
 from . import db
@@ -72,12 +73,56 @@ def _refuse_an_unversioned_schema(engine: Engine) -> None:
         )
 
 
+def known_revisions() -> set[str]:
+    return {script.revision for script in ScriptDirectory.from_config(alembic_config()).walk_revisions()}
+
+
+def newer_release_message(found: str) -> str:
+    return (
+        f"The database schema is at revision {found}, which this release (schema revision "
+        f"{head_revision()}) does not know. It was written by a newer release of Reticle, and an "
+        "older release cannot read it or take it back. Either run the newer release again, or "
+        "restore the backup that was taken before the upgrade (deploy/restore.sh; see "
+        "docs/MAINTENANCE.md, section 3)."
+    )
+
+
+def _refuse_a_schema_from_a_newer_release(engine: Engine) -> None:
+    """Say what happened when the database is ahead of the code.
+
+    Rolling back to an older image leaves the database at a revision that image
+    has no migration file for. Alembic's own report of that is "Can't locate
+    revision identified by '0007'", which is accurate and tells an operator
+    nothing about what they did or what to do next.
+    """
+    found = current_revision(engine)
+    if found is not None and found not in known_revisions():
+        raise SchemaError(newer_release_message(found))
+
+
 def upgrade(engine: Engine | None = None) -> str:
     """Bring the schema to the newest revision and return that revision."""
     target = engine if engine is not None else db.engine
     _refuse_an_unversioned_schema(target)
-    command.upgrade(alembic_config(target), "head")
+    _refuse_a_schema_from_a_newer_release(target)
+    try:
+        command.upgrade(alembic_config(target), "head")
+    except CommandError as problem:
+        # The check above covers the ordinary case. This is for whatever else
+        # leaves Alembic unable to place the database in its history — a
+        # version table holding two rows, say — so that it still surfaces as
+        # this module's error and not as a traceback.
+        if "Can't locate revision" not in str(problem):
+            raise
+        raise SchemaError(newer_release_message(current_revision_text(target))) from problem
     return head_revision()
+
+
+def current_revision_text(engine: Engine) -> str:
+    """Whatever the version table holds, for a message; never raises over it."""
+    with engine.connect() as connection:
+        heads = MigrationContext.configure(connection).get_current_heads()
+    return ", ".join(sorted(heads)) or "unknown"
 
 
 def assert_current(engine: Engine) -> None:
@@ -91,15 +136,22 @@ def assert_current(engine: Engine) -> None:
             "The database has not been initialised. Run `python -m app.migrate` (and then "
             "`python -m app.seed` on a first install) before starting the server."
         )
+    if found not in known_revisions():
+        # Not "run migrate": there is nothing to migrate to, the database is ahead.
+        raise SchemaError(newer_release_message(found))
     raise SchemaError(
         f"The database schema is at revision {found} but this release expects {expected}. "
-        "Run `python -m app.migrate` before starting the server. If you have just rolled back to "
-        "an older release, restore the database backup taken before the upgrade instead."
+        "Run `python -m app.migrate` before starting the server."
     )
 
 
 def main() -> None:
-    revision = upgrade()
+    try:
+        revision = upgrade()
+    except SchemaError as problem:
+        # An operator reads this in `docker compose logs`; the sentence is the
+        # whole diagnosis and a traceback above it would only bury it.
+        raise SystemExit(f"reticle: {problem}") from None
     print(f"Database schema is up to date (revision {revision}).")
 
 

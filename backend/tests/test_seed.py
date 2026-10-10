@@ -291,6 +291,8 @@ def test_demo_pages_cover_landing_standalone_draft_hero_and_body_image(demo, as_
     assert standalone.category_id is None and not standalone.is_landing and standalone.status == "published"
     assert draft.status == "draft" and draft.is_landing
     assert landing.hero_media_id is not None
+    assert landing.hero_alt == "ZMB · Light microscopy suite"
+    assert standalone.hero_media_id is None and standalone.hero_alt == ""
     assert len(landing.media_links) == 1
     assert f"/api/media/{landing.media_links[0].media_id}" in landing.body
     assert "{figure}" not in landing.body

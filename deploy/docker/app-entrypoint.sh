@@ -39,10 +39,11 @@ serve)
         cat >&2 <<'MESSAGE'
 
 reticle: the database could not be brought to the schema this release expects,
-so the server has not been started. The error is above. If you have just gone
-BACK to an older release, this is expected: the newer one already migrated the
-database, and an older release cannot read it. Restore the backup that was
-taken before the upgrade (deploy/restore.sh), or return to the newer release.
+so the server has not been started. The reason is above. If it says the
+database was written by a NEWER release, you have gone back to an older image:
+the newer one already migrated the database, and an older release cannot read
+it. Return to the newer release, or restore the backup that was taken before
+the upgrade (deploy/restore.sh; docs/MAINTENANCE.md, section 3).
 MESSAGE
         exit 1
     fi

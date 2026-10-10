@@ -9,7 +9,8 @@ import {
 } from '../../domain/guide'
 import { ApiError } from '../../api/client'
 import { stepMediaProblem } from '../../domain/media'
-import { MAX_MEDIA_PER_STEP, type Step } from '../../domain/types'
+import type { Step } from '../../domain/types'
+import { useUploadLimits } from '../../queries/config'
 import { useUploadMedia } from '../../queries/media'
 import { IconPlus } from '../icons'
 import type { UploadStatus } from './MediaSlots'
@@ -46,6 +47,7 @@ interface StepUpload extends UploadStatus {
 /** The column of step cards: editing, reordering, adding, and media uploads. */
 export function StepList({ steps, containerRef, onChange }: StepListProps) {
   const upload = useUploadMedia()
+  const limits = useUploadLimits()
 
   const [focusBulletId, setFocusBulletId] = useState<string | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -78,14 +80,14 @@ export function StepList({ steps, containerRef, onChange }: StepListProps) {
     const refused: string[] = []
     const accepted: File[] = []
     for (const file of files) {
-      const problem = stepMediaProblem(file)
+      const problem = stepMediaProblem(file, limits)
       if (problem) refused.push(problem)
       else accepted.push(file)
     }
     if (accepted.length > room) {
       const dropped = accepted.splice(room)
       refused.push(
-        `A step holds ${MAX_MEDIA_PER_STEP} images or videos, so ${dropped
+        `A step holds ${limits.maxMediaPerStep} images or videos, so ${dropped
           .map((file) => `“${file.name}”`)
           .join(', ')} ${dropped.length === 1 ? 'was' : 'were'} left out.`,
       )
@@ -113,7 +115,7 @@ export function StepList({ steps, containerRef, onChange }: StepListProps) {
           })
           onChange((current) =>
             current.map((step) =>
-              step.id === stepId && step.media.length < MAX_MEDIA_PER_STEP
+              step.id === stepId && step.media.length < limits.maxMediaPerStep
                 ? { ...step, media: [...step.media, media] }
                 : step,
             ),
@@ -157,7 +159,7 @@ export function StepList({ steps, containerRef, onChange }: StepListProps) {
           onMove={(delta) => onChange((current) => moveStep(current, index, index + delta))}
           onFocusBullet={setFocusBulletId}
           onUpload={(files) =>
-            void onUpload(step.id, files, MAX_MEDIA_PER_STEP - step.media.length)
+            void onUpload(step.id, files, limits.maxMediaPerStep - step.media.length)
           }
           onDragStart={() => setDragIndex(index)}
           onDragEnter={() => {

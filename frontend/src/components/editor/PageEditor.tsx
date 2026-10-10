@@ -18,6 +18,7 @@ import {
   useSavePage,
   useUnpublishPage,
 } from '../../queries/pages'
+import { useUploadLimits } from '../../queries/config'
 import { useUploadMedia } from '../../queries/media'
 import { CategoryCrumbs, Crumb } from '../CategoryCrumbs'
 import { MarkdownBody } from '../MarkdownBody'
@@ -130,6 +131,7 @@ export function PageEditor({ initial }: { initial: Page }) {
   }, [page.body, pane])
 
   const upload = useUploadMedia()
+  const limits = useUploadLimits()
   const [uploading, setUploading] = useState<number | null>(null)
 
   /**
@@ -141,7 +143,7 @@ export function PageEditor({ initial }: { initial: Page }) {
     autosave.reportError(null)
     const problem =
       mediaKindOf(file) === 'image'
-        ? stepMediaProblem(file)
+        ? stepMediaProblem(file, limits)
         : `“${file.name}” is not a picture. A wiki page takes PNG, JPEG, WebP or GIF images.`
     if (problem) {
       autosave.reportError(new Error(problem))

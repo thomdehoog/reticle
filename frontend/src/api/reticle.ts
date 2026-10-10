@@ -19,6 +19,7 @@ import type {
   User,
   UserRef,
 } from '../domain/types'
+import { uploadLimitsFrom, type UploadLimits } from '../domain/media'
 import type { ApiClient, UploadOptions } from './client'
 
 /**
@@ -218,6 +219,15 @@ export class ReticleApi {
 
   getPageRevision(id: string, version: number): Promise<Page> {
     return this.http.get<Page>(`/pages/${id}/revisions/${version}`)
+  }
+
+  /**
+   * The limits this server enforces. Normalised on the way in, so that nothing
+   * downstream has to wonder whether a figure it compares a file size against
+   * is really a number.
+   */
+  async getUploadLimits(): Promise<UploadLimits> {
+    return uploadLimitsFrom(await this.http.get<unknown>('/config'))
   }
 
   /** Every tag in use, with counts, for the tag picker and guide-list embeds. */

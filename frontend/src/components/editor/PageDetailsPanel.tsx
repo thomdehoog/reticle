@@ -4,7 +4,7 @@ import { useRef } from 'react'
 
 import { useApi } from '../../api/context'
 import { IMAGE_ACCEPT } from '../../domain/media'
-import type { Category, Page } from '../../domain/types'
+import { MAX_ALT_LENGTH, type Category, type Page } from '../../domain/types'
 import { useUploadMedia } from '../../queries/media'
 import { pageQueries } from '../../queries/pages'
 import { AutoTextarea } from '../ui'
@@ -41,7 +41,8 @@ export function PageDetailsPanel({ page, categories, onChange, onError }: PageDe
     onError(null)
     try {
       const media = await upload.mutateAsync({ file })
-      onChange((current) => ({ ...current, heroMediaId: media.id }))
+      /* A new picture is not described by the words written for the old one. */
+      onChange((current) => ({ ...current, heroMediaId: media.id, heroAlt: '' }))
     } catch (cause) {
       onError(cause)
     }
@@ -132,6 +133,8 @@ export function PageDetailsPanel({ page, categories, onChange, onError }: PageDe
           <div className="field" style={{ marginBottom: 0 }}>
             <span className="field__label">Hero image</span>
             {page.heroMediaId && (
+              /* Described by the field below, which is right next to it; an
+                 alt here would have a screen reader say the same words twice. */
               <img className="hero-preview" src={api.mediaUrl(page.heroMediaId)} alt="" />
             )}
             <div className="page-actions">
@@ -147,7 +150,9 @@ export function PageDetailsPanel({ page, categories, onChange, onError }: PageDe
                 <button
                   type="button"
                   className="button button--sm"
-                  onClick={() => onChange((current) => ({ ...current, heroMediaId: null }))}
+                  onClick={() =>
+                    onChange((current) => ({ ...current, heroMediaId: null, heroAlt: '' }))
+                  }
                 >
                   Remove
                 </button>
@@ -166,6 +171,28 @@ export function PageDetailsPanel({ page, categories, onChange, onError }: PageDe
             />
             <span className="field__hint">Shown across the top of the page, above the text.</span>
           </div>
+
+          {page.heroMediaId && (
+            <div className="field" style={{ marginTop: '0.9rem', marginBottom: 0 }}>
+              <label className="field__label" htmlFor="page-hero-alt">
+                Describe this image
+              </label>
+              <AutoTextarea
+                id="page-hero-alt"
+                className="textarea"
+                rows={2}
+                maxLength={MAX_ALT_LENGTH}
+                value={page.heroAlt}
+                onChange={(event) =>
+                  onChange((current) => ({ ...current, heroAlt: event.target.value }))
+                }
+              />
+              <span className="field__hint">
+                Read aloud to people who cannot see the picture. Leave it empty if the image is
+                only decoration.
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </aside>

@@ -45,6 +45,7 @@ MAX_TAG_LENGTH = models.TAG_LENGTH
 MAX_ANNOTATIONS_PER_IMAGE = 50
 MAX_PAGE_BODY_CHARS = 200_000
 MAX_SEARCH_TERM_CHARS = 200
+MAX_ALT_CHARS = 1000
 
 
 def iso_utc(value: datetime) -> str:
@@ -205,6 +206,7 @@ class PageOut(Wire):
     is_landing: bool
     body: str
     hero_media_id: str | None
+    hero_alt: str
     status: ContentStatus
     author: UserRefOut
     last_edited_by: UserRefOut
@@ -245,6 +247,14 @@ class RevisionSummaryOut(Wire):
     version: int
     published_at: Instant
     published_by: UserRefOut
+
+
+class ConfigOut(Wire):
+    """What the server will accept, for a client to check before it uploads."""
+
+    max_image_bytes: int
+    max_video_bytes: int
+    max_media_per_step: int
 
 
 class LoginIn(Wire):
@@ -307,7 +317,7 @@ class AnnotationIn(Document):
 
 class MediaRefIn(Document):
     id: str
-    alt: str = Field(default="", max_length=1000)
+    alt: str = Field(default="", max_length=MAX_ALT_CHARS)
     annotations: list[AnnotationIn] = Field(default_factory=list, max_length=MAX_ANNOTATIONS_PER_IMAGE)
 
 
@@ -369,6 +379,7 @@ class PageDocumentIn(Document):
     is_landing: bool = False
     body: str = Field(default="", max_length=MAX_PAGE_BODY_CHARS)
     hero_media_id: str | None = None
+    hero_alt: str = Field(default="", max_length=MAX_ALT_CHARS)
     expected_updated_at: datetime
 
 
@@ -504,6 +515,7 @@ def page_out(page: models.Page) -> PageOut:
         is_landing=page.is_landing,
         body=page.body,
         hero_media_id=page.hero_media_id,
+        hero_alt=page.hero_alt,
         status=page.status,
         author=user_ref_out(page.author),
         last_edited_by=user_ref_out(page.last_edited_by),

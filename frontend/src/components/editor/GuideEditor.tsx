@@ -21,6 +21,7 @@ import {
   useSaveGuide,
   useUnpublishGuide,
 } from '../../queries/guides'
+import { useUploadLimits } from '../../queries/config'
 import { CategoryCrumbs, Crumb } from '../CategoryCrumbs'
 import { EditorAlerts } from './EditorAlerts'
 import { EditorHeader } from './EditorHeader'
@@ -66,14 +67,15 @@ export function GuideEditor({ initial }: { initial: Guide }) {
      it is edited: each one disappears as it is dealt with, instead of going on
      accusing a guide that has since been fixed. */
   const [checking, setChecking] = useState(false)
-  const issues = checking ? validateForPublish(guide) : []
+  const { maxMediaPerStep } = useUploadLimits()
+  const issues = checking ? validateForPublish(guide, maxMediaPerStep) : []
   const stepsRef = useRef<HTMLDivElement>(null)
 
   const actions = useDocumentActions({
     autosave,
     readyToPublish: () => {
       setChecking(true)
-      return validateForPublish(guide).length === 0
+      return validateForPublish(guide, maxMediaPerStep).length === 0
     },
     publish: publish.mutateAsync,
     unpublish: unpublish.mutateAsync,

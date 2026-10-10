@@ -56,6 +56,19 @@ describe('ReticleApi — the contract in docs/API.md', () => {
     ])
   })
 
+  it('reads the upload limits from /config, as numbers it can rely on', async () => {
+    const { api, calls } = recordingApi(
+      json({ maxImageBytes: 5_000_000, maxVideoBytes: 'lots', maxMediaPerStep: 4 }),
+    )
+
+    await expect(api.getUploadLimits()).resolves.toEqual({
+      maxImageBytes: 5_000_000,
+      maxVideoBytes: 200 * 1024 * 1024,
+      maxMediaPerStep: 4,
+    })
+    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual(['GET /api/config'])
+  })
+
   it('reads "no landing page" as null rather than as an error', async () => {
     const { api } = recordingApi(json(null))
     await expect(api.getCategoryLandingPage('c1')).resolves.toBeNull()

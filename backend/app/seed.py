@@ -653,6 +653,7 @@ def _seed_page(
         is_landing=spec.is_landing,
         body=body,
         hero_media_id=hero.id if hero is not None else None,
+        hero_alt=" ".join(spec.hero_caption.split()) if spec.hero_caption is not None else "",
         author_id=author.id,
         last_edited_by_id=author.id,
     )

@@ -369,3 +369,72 @@ describe('step media in the editor', () => {
     })
   })
 })
+
+/**
+ * The limits are the operator's, read from `GET /api/config`. Until that
+ * answers the editor assumes the documented defaults, so each of these waits
+ * for the answer before dropping a file.
+ */
+describe('upload limits come from the server', () => {
+  const MB = 1024 * 1024
+
+  async function editorWith(server: ReturnType<typeof createFakeServer>, text: string) {
+    renderApp({ route: '/g/g-confocal/edit', server })
+    await screen.findByDisplayValue(text)
+    await waitFor(() => expect(server.count('GET', '/config')).toBe(1))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  }
+
+  it('sends a video the defaults would refuse when the server allows it', async () => {
+    const server = createFakeServer({
+      limits: { maxImageBytes: 20 * MB, maxVideoBytes: 500 * MB, maxMediaPerStep: 3 },
+    })
+    await editorWith(server, 'Switch on the lasers')
+
+    choose(fileOfSize('overnight.mp4', 'video/mp4', 300 * MB))
+
+    await waitFor(() => expect(server.count('POST', '/media')).toBe(1))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('refuses, with the server\'s figure, an image the defaults would send', async () => {
+    const server = createFakeServer({
+      limits: { maxImageBytes: 5 * MB, maxVideoBytes: 200 * MB, maxMediaPerStep: 3 },
+    })
+    await editorWith(server, 'Switch on the lasers')
+
+    choose(fileOfSize('stitch.png', 'image/png', 8 * MB))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '“stitch.png” is 8.0 MB; an image can be at most 5.0 MB.',
+    )
+    expect(server.count('POST', '/media')).toBe(0)
+  })
+
+  it('offers a fourth slot when the server allows more than three per step', async () => {
+    const server = createFakeServer({
+      guides: [guideWith([image('a'), image('b'), image('c')], { status: 'draft' })],
+      limits: { maxImageBytes: 20 * MB, maxVideoBytes: 200 * MB, maxMediaPerStep: 5 },
+    })
+    await editorWith(server, 'Mount the dish')
+
+    expect(screen.getByRole('button', { name: 'Add an image or video' })).toBeInTheDocument()
+    choose(PNG())
+
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'Remove image' })).toHaveLength(4),
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('falls back to the documented limits when the server cannot say', async () => {
+    const server = createFakeServer()
+    server.state.limits = undefined as never
+    await editorWith(server, 'Switch on the lasers')
+
+    choose(fileOfSize('overnight.mp4', 'video/mp4', MAX_VIDEO_BYTES + 1))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('a video can be at most 200 MB')
+    expect(server.count('POST', '/media')).toBe(0)
+  })
+})

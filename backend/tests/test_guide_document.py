@@ -491,15 +491,46 @@ def test_the_first_spelling_of_a_tag_stays_its_name(author, category, db_session
 
 
 def test_the_slug_rule_matches_the_tag_input_in_the_frontend():
-    """``slugifyTag`` in ``TagInput.tsx`` claims to match the server. These are
-    the cases where a transliterating slugger would quietly disagree with it."""
+    """``slugifyTag`` in the frontend claims to match the server. Both suites
+    read the same file of cases, so neither side can change the rule alone."""
+    import json
+    from pathlib import Path
+
     from app.slugs import tag_slug
 
-    assert tag_slug("LAS X") == "las-x"
-    assert tag_slug("  3D / SIM  ") == "3d-sim"
-    assert tag_slug("Zürich") == "z-rich"
-    assert tag_slug("--confocal--") == "confocal"
-    assert tag_slug("!!!") == ""
+    cases = json.loads((Path(__file__).parent / "data" / "tag_slug_cases.json").read_text("utf-8"))["cases"]
+    assert len(cases) > 20
+    for text, expected in cases:
+        assert tag_slug(text) == expected, text
+
+
+def test_tags_fold_accents_instead_of_dropping_them():
+    """The readable German spelling, not a hole where the umlaut was."""
+    from app.slugs import tag_slug
+
+    assert tag_slug("Präparation") == "praeparation"
+    assert tag_slug("Zürich") == "zuerich"
+    assert tag_slug("Maßstab") == "massstab"
+    assert tag_slug("Café") == "cafe"
+
+
+def test_a_tag_slug_is_a_fixed_point_of_the_rule():
+    """The editor sends slugs back; re-slugging one must not move the guide."""
+    from app.slugs import tag_slug
+
+    for text in ["Präparation", "Grüne Fluoreszenz", "pr-paration", "LAS X"]:
+        assert tag_slug(tag_slug(text)) == tag_slug(text)
+
+
+def test_an_accented_tag_and_its_plain_spelling_are_one_tag(author, category, db_session):
+    first = create_guide(author, category.id, "First")
+    second = create_guide(author, category.id, "Second")
+
+    save_guide(author, first, tags=["Präparation"])
+    saved = save_guide(author, second, tags=["praeparation"])
+
+    assert saved["tags"] == ["praeparation"]
+    assert [tag.name for tag in db_session.scalars(select(Tag))] == ["Präparation"]
 
 
 def test_tags_can_be_removed_and_replaced(author, category):

@@ -2696,23 +2696,42 @@ a:hover {
   }
 
   /**
-   * The bullet row gives the text its own line on a phone. Squeezed beside the
-   * style picker, the indent offset and three always-visible action buttons, it
-   * had roughly 150px left and wrapped at three or four words.
+   * On a phone the bullet's marker stays beside its text, as on a desk, and
+   * only the three action buttons drop to a line of their own. The row used to
+   * wrap the text under the marker as well, which spent a whole line per
+   * bullet on one small dot and pushed a five-bullet step off the screen.
+   * The width the text needs is found by moving the actions, not the marker:
+   * marker plus text is about 300px at 390, which holds a sentence.
+   *
+   * `flex: 1 1 0` with `min-width: 0` is what keeps the text on the marker's
+   * line; with a percentage basis it would wrap again.
    */
   .editor-bullet {
     flex-wrap: wrap;
+    gap: 0.25rem 0.35rem;
   }
 
   .editor-bullet__text {
     order: 2;
-    flex: 1 1 100%;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 2.5rem;
+    padding: 0.5rem 0.55rem;
   }
 
   .editor-bullet__actions {
     order: 3;
     flex: 1 0 100%;
     justify-content: flex-end;
+  }
+
+  /* These are pressed with a thumb, possibly a gloved one: 40px each way. The
+     marker button is the same height as one line of the text beside it, so the
+     dot lines up with the first line of what it marks. */
+  .editor-bullet__picker > .button,
+  .editor-bullet__actions > .button {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
   }
 
   .editor-step {

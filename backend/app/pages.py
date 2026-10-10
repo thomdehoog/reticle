@@ -95,6 +95,9 @@ def apply_document(db: DbSession, page: Page, payload: PageDocumentIn) -> None:
     page.is_landing = payload.is_landing
     page.body = payload.body
     page.hero_media_id = payload.hero_media_id
+    # A description of a picture that is no longer there would be attached to
+    # whichever picture is chosen next, and read out as if it described that.
+    page.hero_alt = payload.hero_alt.strip() if payload.hero_media_id is not None else ""
 
     sync_media_references(db, page)
 

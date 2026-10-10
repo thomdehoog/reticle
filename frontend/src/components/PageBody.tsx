@@ -17,9 +17,11 @@ export function PageBody({ page }: { page: Page }) {
   return (
     <>
       {page.heroMediaId && (
-        /* Decorative as far as the page can know: a `Page` carries the hero's
-           id and nothing else, so there is no description to give. */
-        <img className="wiki-hero" src={api.mediaUrl(page.heroMediaId)} alt="" />
+        /* The author's description, when they gave one. Empty is a deliberate
+           value too — it tells a screen reader the picture is decoration —
+           and it is also what a version published before pages could carry a
+           description arrives as, since that snapshot has no such field. */
+        <img className="wiki-hero" src={api.mediaUrl(page.heroMediaId)} alt={page.heroAlt ?? ''} />
       )}
 
       <LazyMarkdownBody body={page.body} />

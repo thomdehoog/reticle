@@ -16,6 +16,13 @@ shapes (`Guide`, `Page`, `Tag`, `Media`, …) are defined field by field in
   with a conventional status. Codes used: `invalid_credentials`,
   `not_authenticated`, `forbidden`, `not_found`, `validation_failed`,
   `conflict`, `rate_limited`, `payload_too_large`.
+- `message` is written for the person using the editor and is shown to them
+  as it stands. A `validation_failed` message is one sentence per problem (at
+  most five): `Title: must be at most 240 characters.` for a field, located the
+  way an author counts (`Step 2, bullet 3, text: …`), or a plain sentence when
+  the problem concerns the document as a whole (`The minimum time required
+  must not exceed the maximum.`). It never repeats the submitted value. The
+  wording is not part of the contract; branch on `code`.
 
 ## Authentication
 
@@ -82,8 +89,9 @@ number of tags; wiki pages embed tag-filtered guide lists.
 Tags have no create or delete endpoint. Saving a guide with a tag that does not
 exist creates it; a tag that no guide carries any more simply stops being
 listed. On input a tag is trimmed, and its slug is the lower-case, hyphenated
-form of the text (`"LAS X"` → `las-x`); the first spelling seen becomes the
-display `name`. A guide may carry at most 30 tags of at most 60 characters.
+form of the text with accents folded to plain letters (`"LAS X"` → `las-x`,
+`"Präparation"` → `praeparation`: ä, ö, ü and ß become ae, oe, ue and ss, other
+accents are dropped); the first spelling seen becomes the display `name`. A guide may carry at most 30 tags of at most 60 characters.
 `Guide.tags` and `GuideSummary.tags` are arrays of **slugs**, sorted.
 
 ## Guides
@@ -166,6 +174,11 @@ Rules:
 - `isLanding: true` requires a `categoryId`, and a category has at most one
   non-archived landing page; a second is 409 `conflict`.
 - `heroMediaId`, when set, must be an existing image.
+- `heroAlt` is the text alternative for that image: a string of at most 1000
+  characters, `""` by default, trimmed on save. It is stored only alongside a
+  hero — saving with `heroMediaId: null` resets it to `""` — and it is part of
+  the published snapshot. Snapshots written before the field existed do not
+  carry it; read a missing `heroAlt` as `""`.
 - `body` is at most 200 000 characters. It is stored and returned verbatim; the
   frontend renders it to React elements and ignores raw HTML.
 - Images are placed in a body as ordinary Markdown, `![alt](/api/media/<id>)`.
@@ -194,9 +207,13 @@ results. An empty or whitespace `q` returns `[]`. Visibility applies.
 `image` or `video`.
 
 **Images** are validated by decoding, not by trusting the filename or declared
-MIME type. Accepted: PNG, JPEG, WebP, GIF. Limits: 20 MB, 10000 px per side, and
-a cap on total pixels checked *before* decode so a small file cannot expand into
-gigabytes of memory.
+MIME type. Accepted: PNG, JPEG, WebP, GIF. Limits: 20 MB
+(`RETICLE_MAX_UPLOAD_BYTES`), 10000 px per side, and a cap on total pixels
+checked *before* decode so a small file cannot expand into gigabytes of memory.
+Images are re-encoded, which removes EXIF; the EXIF orientation is applied to
+the pixels first, so a photo taken in portrait is stored upright and
+`width`/`height` describe it as displayed. The limits in force are published
+at `GET /api/config`.
 
 **Videos** are accepted as MP4 (H.264/AAC is what every browser plays) and
 WebM, identified by container signature. Limit: 200 MB
@@ -210,6 +227,19 @@ filename cannot traverse or execute. Responses carry
 A viewer can fetch a media item only while it is referenced by something they
 can read: a step of a published guide, or the hero or body of a published page.
 Authors can fetch any media.
+
+## Configuration
+
+| Method | Path          | Role | Purpose |
+| ------ | ------------- | ---- | ------- |
+| GET    | `/api/config` | any  | `{maxImageBytes, maxVideoBytes, maxMediaPerStep}`: the limits this server enforces. |
+
+The limits are the operator's (`RETICLE_MAX_UPLOAD_BYTES`,
+`RETICLE_MAX_VIDEO_BYTES`, `RETICLE_MAX_MEDIA_PER_STEP`), so a client reads
+them here instead of assuming the defaults — 20 MB, 200 MB and 3 — and uses
+them to refuse an oversized file before uploading it. They are advisory to the
+client only: the server enforces every one of them itself. Nothing else about
+the configuration is exposed.
 
 ## Users
 

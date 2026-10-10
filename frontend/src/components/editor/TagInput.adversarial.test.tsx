@@ -13,23 +13,6 @@ import { TagInput, slugifyTag } from './TagInput'
 import { renderWithApp } from '../../test/harness'
 import { MAX_TAGS_PER_GUIDE, type Tag } from '../../domain/types'
 
-/**
- * The server's rule for a tag, transcribed from `tag_slug` in
- * backend/app/slugs.py: trim, lower-case, turn every run of anything outside
- * `[a-z0-9]` into one hyphen, strip the hyphens at the ends.
- *
- * It is deliberately not the server's general `slugify`, which transliterates
- * and truncates. Tags have their own rule precisely so that the editor and the
- * server can agree on it character for character.
- */
-function serverSlugify(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
-
 function tagServer(tags: Tag[] = []) {
   const fetchImpl = vi.fn(async (input: string | URL | Request) => {
     const path = new URL(String(input), 'http://reticle.test').pathname
@@ -53,41 +36,20 @@ function renderTagInput(tags: string[] = []) {
   return { ...view, onChange, field: screen.getByLabelText('Add a tag') as HTMLInputElement }
 }
 
-describe('slugifyTag — agreement with the server', () => {
-  it.each([
-    ['  Live Cell  ', 'live-cell'],
-    ['LIVE-CELL', 'live-cell'],
-    ['live   cell', 'live-cell'],
-    ['--confocal--', 'confocal'],
-    ['...confocal!!!', 'confocal'],
-    ['Stellaris 5', 'stellaris-5'],
-  ])('agrees with the server on %s', (input, expected) => {
-    expect(slugifyTag(input)).toBe(expected)
-    expect(serverSlugify(input)).toBe(expected)
+/**
+ * The character-for-character agreement with the server is pinned in
+ * src/domain/slug.test.ts, against the case file the backend suite also reads.
+ * What is checked here is the part this component depends on.
+ */
+describe('slugifyTag — as the tag input uses it', () => {
+  it('treats an accented word and its plain spelling as one tag', () => {
+    expect(slugifyTag('Präparation')).toBe(slugifyTag('praeparation'))
+    expect(slugifyTag('Köhler')).toBe('koehler')
   })
 
-  /**
-   * Accented words are where two slug rules would part company: a rule that
-   * transliterates files "Präparation" under `praparation`, one that does not
-   * under `pr-paration`, and a guide tagged through the editor would then not
-   * appear on the wiki page that asks for the same word. Neither side
-   * transliterates a tag, and this pins that they keep agreeing. (The author's
-   * own spelling survives as the tag's display name.)
-   */
-  it.each([
-    'Präparation',
-    'Messgröße',
-    'Ångström',
-    'Immersionsöl',
-    'Köhler',
-    'Grüne Fluoreszenz',
-  ])('agrees with the server on the accented word %s', (input) => {
-    expect(slugifyTag(input)).toBe(serverSlugify(input))
-  })
-
-  it('agrees with the server on a very long tag', () => {
+  it('handles a very long tag', () => {
     const long = `a${'b'.repeat(499)}`
-    expect(slugifyTag(long)).toBe(serverSlugify(long))
+    expect(slugifyTag(long)).toBe(long)
   })
 
   it('produces the empty string for input with nothing to slug', () => {

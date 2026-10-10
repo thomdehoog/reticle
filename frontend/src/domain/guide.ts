@@ -97,8 +97,8 @@ export function removeStep(steps: Step[], index: number): Step[] {
   return renumberSteps(steps.filter((_, i) => i !== index))
 }
 
-export function canAcceptMedia(step: Step): boolean {
-  return step.media.length < MAX_MEDIA_PER_STEP
+export function canAcceptMedia(step: Step, maxMediaPerStep = MAX_MEDIA_PER_STEP): boolean {
+  return step.media.length < maxMediaPerStep
 }
 
 /** Indent is clamped rather than rejected, so holding Tab cannot corrupt a bullet. */
@@ -174,7 +174,10 @@ export interface ValidationIssue {
  * publishing is where an author is told everything that still stands in the
  * way, one sentence per problem.
  */
-export function validateForPublish(guide: Guide): ValidationIssue[] {
+export function validateForPublish(
+  guide: Guide,
+  maxMediaPerStep = MAX_MEDIA_PER_STEP,
+): ValidationIssue[] {
   const issues: ValidationIssue[] = []
 
   if (guide.title.trim() === '') {
@@ -217,10 +220,10 @@ export function validateForPublish(guide: Guide): ValidationIssue[] {
         message: `Step ${index + 1} is empty — add an instruction or an image, or remove it.`,
       })
     }
-    if (step.media.length > MAX_MEDIA_PER_STEP) {
+    if (step.media.length > maxMediaPerStep) {
       issues.push({
         field: `steps.${index}.media`,
-        message: `Step ${index + 1} has ${step.media.length} images; the maximum is ${MAX_MEDIA_PER_STEP}.`,
+        message: `Step ${index + 1} has ${step.media.length} images; the maximum is ${maxMediaPerStep}.`,
       })
     }
   })

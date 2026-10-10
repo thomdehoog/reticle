@@ -7,9 +7,47 @@
  * refused when it is dropped, not after ten minutes of uploading it.
  */
 
-/** The limits in docs/API.md. The video one is configurable on the server. */
+import { MAX_MEDIA_PER_STEP } from './types'
+
+/**
+ * The server's defaults, from docs/API.md. All three are the operator's to
+ * change, so these are not the limits: they are what the editor assumes for
+ * the moment before `GET /api/config` has answered, and what it falls back to
+ * against a server too old to have that endpoint.
+ */
 export const MAX_IMAGE_BYTES = 20 * 1024 * 1024
 export const MAX_VIDEO_BYTES = 200 * 1024 * 1024
+
+/** What this server accepts, as `GET /api/config` reports it. */
+export interface UploadLimits {
+  maxImageBytes: number
+  maxVideoBytes: number
+  maxMediaPerStep: number
+}
+
+export const DEFAULT_UPLOAD_LIMITS: UploadLimits = {
+  maxImageBytes: MAX_IMAGE_BYTES,
+  maxVideoBytes: MAX_VIDEO_BYTES,
+  maxMediaPerStep: MAX_MEDIA_PER_STEP,
+}
+
+/**
+ * The server's answer, with a default wherever it is not a usable number.
+ *
+ * These figures gate what the editor will even try to send, so a malformed
+ * answer must not become a limit: `undefined` here would turn every size
+ * comparison false and wave a 4 GB file through, and a zero would refuse
+ * everything in the server's name.
+ */
+export function uploadLimitsFrom(answer: unknown): UploadLimits {
+  const given = (answer ?? {}) as Partial<Record<keyof UploadLimits, unknown>>
+  const limits = { ...DEFAULT_UPLOAD_LIMITS }
+  for (const key of Object.keys(limits) as (keyof UploadLimits)[]) {
+    const value = given[key]
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) limits[key] = value
+  }
+  return limits
+}
 
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 const VIDEO_TYPES = ['video/mp4', 'video/webm']
@@ -51,14 +89,18 @@ export function formatBytes(bytes: number): string {
 
 /**
  * Why a file cannot go into a step, in words for the person who dropped it —
- * or null when there is no reason to refuse it here.
+ * or null when there is no reason to refuse it here. `limits` are the server's
+ * own (see `useUploadLimits`); the defaults stand in until they are known.
  */
-export function stepMediaProblem(file: Pick<File, 'name' | 'type' | 'size'>): string | null {
+export function stepMediaProblem(
+  file: Pick<File, 'name' | 'type' | 'size'>,
+  limits: UploadLimits = DEFAULT_UPLOAD_LIMITS,
+): string | null {
   const kind = mediaKindOf(file)
   if (kind === null) {
     return `“${file.name}” is not a picture or a video Reticle can show. Use PNG, JPEG, WebP or GIF for images, and MP4 or WebM for video.`
   }
-  const limit = kind === 'image' ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES
+  const limit = kind === 'image' ? limits.maxImageBytes : limits.maxVideoBytes
   if (file.size > limit) {
     return `“${file.name}” is ${formatBytes(file.size)}; ${kind === 'image' ? 'an image' : 'a video'} can be at most ${formatBytes(limit)}.`
   }

@@ -857,6 +857,10 @@ def test_a_photograph_stored_sideways_is_turned_upright(fresh, archive):
     with db.SessionLocal() as session:
         media = session.scalars(select(Media)).one()
         assert (media.width, media.height) == (320, 240)
+        with Image.open(get_settings().media_root / media.storage_path) as stored:
+            assert stored.size == (320, 240)
+            assert stored.getexif().get(0x0112) is None
+    assert "re-encoded" not in (archive / "import-report.md").read_text()
 
 
 def test_a_category_that_already_has_a_landing_page_keeps_it(fresh, archive):
