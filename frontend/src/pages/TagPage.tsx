@@ -29,10 +29,16 @@ export function TagPage() {
 
   return (
     <>
-      <nav className="breadcrumb">
+      <nav className="breadcrumb" aria-label="Breadcrumb">
         <Link to="/">Guides</Link>
-        <span className="breadcrumb__sep">/</span>
-        <span>Tagged</span>
+        <span className="breadcrumb__sep" aria-hidden="true">
+          /
+        </span>
+        <Link to="/tags">Tags</Link>
+        <span className="breadcrumb__sep" aria-hidden="true">
+          /
+        </span>
+        <span>{name}</span>
       </nav>
 
       <div className="page-header">
@@ -41,6 +47,11 @@ export function TagPage() {
           <p className="page-header__sub">
             {guides.length} {guides.length === 1 ? 'guide carries' : 'guides carry'} this tag.
           </p>
+        </div>
+        <div className="page-actions">
+          <Link className="button" to="/tags">
+            All tags
+          </Link>
         </div>
       </div>
 

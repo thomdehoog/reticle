@@ -2,15 +2,17 @@ import { RouterContextProvider, createMemoryHistory } from '@tanstack/react-rout
 import { render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 
+import type { UploadTransport } from '../api/client'
 import { App } from '../App'
 import { AppProviders } from '../app/AppProviders'
 import { createReticleApp } from '../app/createApp'
 import { createAppRouter } from '../router'
 import type { FakeServer } from './fakeServer'
 
-function createTestApp(fetchImpl: typeof fetch, route: string) {
+function createTestApp(fetchImpl: typeof fetch, route: string, uploadImpl?: UploadTransport) {
   return createReticleApp({
     fetchImpl,
+    uploadImpl,
     history: createMemoryHistory({ initialEntries: [route] }),
     retry: false,
   })
@@ -24,8 +26,17 @@ function createTestApp(fetchImpl: typeof fetch, route: string) {
  * then the real ones, and a page that only works when hand-fed its params
  * cannot pass.
  */
-export function renderApp({ route = '/', server }: { route?: string; server: FakeServer }) {
-  const app = createTestApp(server.fetchImpl, route)
+export function renderApp({
+  route = '/',
+  server,
+  uploadImpl,
+}: {
+  route?: string
+  server: FakeServer
+  /** Stands in for the browser's upload, for tests that drive its progress by hand. */
+  uploadImpl?: UploadTransport
+}) {
+  const app = createTestApp(server.fetchImpl, route, uploadImpl)
   const view = render(
     <AppProviders app={app}>
       <App app={app} />

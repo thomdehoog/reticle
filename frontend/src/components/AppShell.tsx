@@ -2,7 +2,7 @@ import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-route
 import { useEffect, useState, type FormEvent } from 'react'
 
 import { useLogout, useSession } from '../auth/session'
-import { IconPlus, ReticleMark } from './icons'
+import { IconPlus, IconSignOut, ReticleMark } from './icons'
 import { NewGuideDialog } from './NewGuideDialog'
 
 function initials(displayName: string): string {
@@ -54,14 +54,26 @@ export function AppShell() {
           <span className="app__brand-sub">ZMB</span>
         </Link>
 
+        {/* Three ways in, because there are three: the category tree, the wiki,
+            and the tags that cut across both. People is navigation too — it
+            was a lone button here before there was a row to put it in. */}
+        <nav className="app__nav" aria-label="Main">
+          <Link to="/" activeOptions={{ exact: true }}>
+            Guides
+          </Link>
+          <Link to="/wiki">Wiki</Link>
+          <Link to="/tags">Tags</Link>
+          {can('admin') && <Link to="/users">People</Link>}
+        </nav>
+
         <form className="searchbar" role="search" onSubmit={onSearch}>
           <label className="visually-hidden" htmlFor="global-search">
-            Search guides
+            Search guides and wiki pages
           </label>
           <input
             id="global-search"
             type="search"
-            placeholder="Search guides…"
+            placeholder="Search guides and pages…"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -76,21 +88,21 @@ export function AppShell() {
           </button>
         )}
 
-        {can('admin') && (
-          <Link className="button" to="/users">
-            People
-          </Link>
-        )}
-
         <Link className="app__user" to="/account" title="Your account">
           <span className="avatar" aria-hidden="true">
             {initials(user?.displayName ?? '')}
           </span>
-          <span>{user?.displayName}</span>
+          <span className="app__user-name">{user?.displayName}</span>
         </Link>
 
-        <button className="button" type="button" onClick={() => logout.mutate()}>
-          Sign out
+        <button
+          className="button app__signout"
+          type="button"
+          aria-label="Sign out"
+          onClick={() => logout.mutate()}
+        >
+          <IconSignOut />
+          <span className="app__signout-label">Sign out</span>
         </button>
       </header>
 

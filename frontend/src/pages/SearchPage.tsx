@@ -1,5 +1,5 @@
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { getRouteApi } from '@tanstack/react-router'
+import { Link, getRouteApi } from '@tanstack/react-router'
 
 import { useApi } from '../api/context'
 import { GuideRow, PageRow } from '../components/GuideRow'
@@ -37,13 +37,17 @@ export function SearchPage() {
 
       {query !== '' && results.length === 0 && (
         <EmptyState>
-          Nothing matches “{query}”. Try an instrument name, or browse by tag from any guide.
+          <p>Nothing matches “{query}”.</p>
+          <p className="empty-state__action">
+            Try an instrument name, or{' '}
+            <Link to="/tags">browse the tags</Link>.
+          </p>
         </EmptyState>
       )}
 
       {guides.length > 0 && (
-        <section style={{ marginBottom: '2rem' }}>
-          <h2 style={{ marginBottom: '0.75rem' }}>
+        <section className="section">
+          <h2 className="section__title">
             Guides <span className="result-count">{guides.length}</span>
           </h2>
           <div className="card">
@@ -55,8 +59,8 @@ export function SearchPage() {
       )}
 
       {pages.length > 0 && (
-        <section>
-          <h2 style={{ marginBottom: '0.75rem' }}>
+        <section className="section">
+          <h2 className="section__title">
             Wiki pages <span className="result-count">{pages.length}</span>
           </h2>
           <div className="card">

@@ -21,7 +21,16 @@ import type {
   SearchResult,
   Tag,
   User,
+  UserRef,
 } from '../domain/types'
+
+/** One entry of publish history, with the document as it was at that moment. */
+export interface FakeRevision<T> {
+  version: number
+  publishedAt: string
+  publishedBy: UserRef
+  snapshot: T
+}
 
 export interface FakeServerState {
   /** Who the session belongs to; swap it before a login to sign in as someone else. */
@@ -33,6 +42,8 @@ export interface FakeServerState {
   media: Media[]
   /** Display names for tags, by slug; a tag without one is shown as its slug. */
   tagNames: Record<string, string>
+  /** Publish history by guide or page id. Publishing through the API adds to it. */
+  revisions: Record<string, FakeRevision<Guide | Page>[]>
 }
 
 export interface RecordedRequest {
@@ -199,6 +210,7 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
     pages: initial.pages ?? [],
     media: initial.media ?? [],
     tagNames: initial.tagNames ?? {},
+    revisions: initial.revisions ?? {},
   }
 
   const requests: RecordedRequest[] = []
@@ -207,6 +219,33 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
   let created = 0
   /** Set by a test to make the next save look like a colleague got there first. */
   let conflictOnNextSave = false
+  /** Set by a test to make the next upload fail the way the real server would. */
+  let uploadRefusal: Response | null = null
+
+  /** Files a snapshot the way the real server does on every publish. */
+  function recordRevision<T extends Guide | Page>(published: T): T {
+    state.revisions[published.id] = [
+      ...(state.revisions[published.id] ?? []),
+      {
+        version: published.version,
+        publishedAt: published.publishedAt ?? '',
+        publishedBy: me(),
+        snapshot: published,
+      },
+    ]
+    return published
+  }
+
+  /** The two history endpoints, which guides and pages share the shape of. */
+  function history(id: string, version: string | undefined): Response {
+    if (!isAuthor()) return FORBIDDEN()
+    const revisions = state.revisions[id] ?? []
+    if (version === undefined) {
+      return json(revisions.map(({ snapshot: _snapshot, ...summary }) => summary))
+    }
+    const found = revisions.find((revision) => String(revision.version) === version)
+    return found ? json(found.snapshot) : error('not_found', 'That revision does not exist.', 404)
+  }
 
   /** A fresh, strictly increasing timestamp, so every write changes `updatedAt`. */
   function nextTimestamp(): string {
@@ -440,16 +479,25 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
       if (!isAuthor()) return FORBIDDEN()
       if (guideAction[2] === 'publish') {
         return json(
-          replaceGuide({
-            ...guide,
-            status: 'published',
-            version: guide.version + 1,
-            publishedAt: '2026-07-01T09:00:00Z',
-            updatedAt: nextTimestamp(),
-          }),
+          recordRevision(
+            replaceGuide({
+              ...guide,
+              status: 'published',
+              version: guide.version + 1,
+              publishedAt: '2026-07-01T09:00:00Z',
+              updatedAt: nextTimestamp(),
+            }),
+          ),
         )
       }
       return json(replaceGuide({ ...guide, status: 'draft', updatedAt: nextTimestamp() }))
+    }
+
+    const guideHistory = path.match(/^\/guides\/([^/]+)\/revisions(?:\/([^/]+))?$/)
+    if (guideHistory && method === 'GET') {
+      /* By id only, like the real endpoint: a slug here is a 404. */
+      const guide = state.guides.find((candidate) => candidate.id === guideHistory[1])
+      return guide && visible(guide) ? history(guide.id, guideHistory[2]) : NOT_FOUND()
     }
 
     const guideMatch = path.match(/^\/guides\/([^/]+)$/)
@@ -533,16 +581,24 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
           return error('validation_failed', 'A page needs a title and some content.', 422)
         }
         return json(
-          replacePage({
-            ...page,
-            status: 'published',
-            version: page.version + 1,
-            publishedAt: '2026-07-01T09:00:00Z',
-            updatedAt: nextTimestamp(),
-          }),
+          recordRevision(
+            replacePage({
+              ...page,
+              status: 'published',
+              version: page.version + 1,
+              publishedAt: '2026-07-01T09:00:00Z',
+              updatedAt: nextTimestamp(),
+            }),
+          ),
         )
       }
       return json(replacePage({ ...page, status: 'draft', updatedAt: nextTimestamp() }))
+    }
+
+    const pageHistory = path.match(/^\/pages\/([^/]+)\/revisions(?:\/([^/]+))?$/)
+    if (pageHistory && method === 'GET') {
+      const page = state.pages.find((candidate) => candidate.id === pageHistory[1])
+      return page && visible(page) ? history(page.id, pageHistory[2]) : NOT_FOUND()
     }
 
     const pageMatch = path.match(/^\/pages\/([^/]+)$/)
@@ -590,18 +646,27 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
 
     if (path === '/media' && method === 'POST') {
       if (!isAuthor()) return FORBIDDEN()
+      if (uploadRefusal) {
+        const refusal = uploadRefusal
+        uploadRefusal = null
+        return refusal
+      }
+      /* The real server reads the bytes; the browser's declared type is close
+         enough for a stand-in. */
+      const file = body instanceof FormData ? body.get('file') : null
+      const isVideo = file instanceof File && file.type.startsWith('video/')
       const id = `m-${state.media.length + 1}`
-      const image: Media = {
+      const media: Media = {
         id,
-        kind: 'image',
+        kind: isVideo ? 'video' : 'image',
         url: `/api/media/${id}`,
         alt: '',
-        width: 800,
-        height: 600,
+        width: isVideo ? null : 800,
+        height: isVideo ? null : 600,
         annotations: [],
       }
-      state.media.push(image)
-      return json(image, 201)
+      state.media.push(media)
+      return json(media, 201)
     }
 
     /* ---------------------------------------------------------------- users */
@@ -672,6 +737,10 @@ export function createFakeServer(initial: Partial<FakeServerState> = {}) {
     },
     failNextSaveWithConflict() {
       conflictOnNextSave = true
+    },
+    /** Makes the next upload fail with the given error, as the server words it. */
+    refuseNextUpload(code: string, message: string, status: number) {
+      uploadRefusal = error(code, message, status)
     },
     /** A colleague's save: changes a guide and moves its `updatedAt` on. */
     editGuideElsewhere(id: string, changes: Partial<Guide>) {

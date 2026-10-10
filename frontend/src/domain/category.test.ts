@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  ancestorsOf,
   browsableChildren,
   buildBrowsableTree,
   buildCategoryTree,
+  byOrder,
+  moveAmongSiblings,
   possibleParents,
   subtreeIds,
 } from './category'
@@ -112,5 +115,81 @@ describe('possibleParents', () => {
   it('never offers a category itself or anything beneath it, which would make a loop', () => {
     expect(names(possibleParents(categories, 'light'))).toEqual(['electron'])
     expect(names(possibleParents(categories, 'confocal')).sort()).toEqual(['electron', 'light'])
+  })
+})
+
+describe('moveAmongSiblings', () => {
+  const cat = (id: string, orderIndex: number, parentId: string | null = null): Category => ({
+    id,
+    slug: id,
+    name: id,
+    description: '',
+    parentId,
+    orderIndex,
+    isHidden: false,
+  })
+
+  it('swaps two neighbours and rewrites only those two', () => {
+    const list = [cat('a', 0), cat('b', 1), cat('c', 2)]
+    expect(moveAmongSiblings(list, 'c', -1)).toEqual([
+      { id: 'c', orderIndex: 1 },
+      { id: 'b', orderIndex: 2 },
+    ])
+  })
+
+  it('does nothing at either end of the list', () => {
+    const list = [cat('a', 0), cat('b', 1)]
+    expect(moveAmongSiblings(list, 'a', -1)).toEqual([])
+    expect(moveAmongSiblings(list, 'b', 1)).toEqual([])
+    expect(moveAmongSiblings(list, 'missing', 1)).toEqual([])
+  })
+
+  /* Imported categories can all carry the same index and sort by name; a plain
+     swap of two equal numbers would move nothing. */
+  it('renumbers siblings that share an index so the move actually takes', () => {
+    const list = [cat('alpha', 0), cat('beta', 0), cat('gamma', 0)]
+    const changes = moveAmongSiblings(list, 'gamma', -1)
+
+    const applied = list.map((entry) => ({
+      ...entry,
+      orderIndex: changes.find((change) => change.id === entry.id)?.orderIndex ?? entry.orderIndex,
+    }))
+    expect([...applied].sort(byOrder).map((entry) => entry.id)).toEqual(['alpha', 'gamma', 'beta'])
+  })
+
+  it('moves only among categories with the same parent', () => {
+    const list = [cat('root-a', 0), cat('root-b', 1), cat('child-a', 0, 'root-a'), cat('child-b', 1, 'root-a')]
+    expect(moveAmongSiblings(list, 'child-b', -1)).toEqual([
+      { id: 'child-b', orderIndex: 0 },
+      { id: 'child-a', orderIndex: 1 },
+    ])
+    expect(moveAmongSiblings(list, 'child-a', -1)).toEqual([])
+  })
+})
+
+describe('ancestorsOf', () => {
+  const cat = (id: string, parentId: string | null): Category => ({
+    id,
+    slug: id,
+    name: id,
+    description: '',
+    parentId,
+    orderIndex: 0,
+    isHidden: false,
+  })
+
+  it('lists parents outermost first', () => {
+    const list = [cat('light', null), cat('confocal', 'light'), cat('stellaris', 'confocal')]
+    expect(ancestorsOf(list, list[2]).map((entry) => entry.id)).toEqual(['light', 'confocal'])
+    expect(ancestorsOf(list, list[0])).toEqual([])
+  })
+
+  it('stops at a parent that is missing, and at a loop', () => {
+    const orphan = cat('orphan', 'gone')
+    expect(ancestorsOf([orphan], orphan)).toEqual([])
+
+    const a = cat('a', 'b')
+    const b = cat('b', 'a')
+    expect(ancestorsOf([a, b], a).map((entry) => entry.id)).toEqual(['b'])
   })
 })

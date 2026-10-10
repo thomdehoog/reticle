@@ -7,7 +7,9 @@
  * phone widths, and fails on console errors or sideways scrolling.
  *
  * Requires the backend on :8000 and the dev server on :5173, and an account
- * matching RETICLE_E2E_EMAIL / RETICLE_E2E_PASSWORD.
+ * matching RETICLE_E2E_EMAIL / RETICLE_E2E_PASSWORD. RETICLE_E2E_BASE points it
+ * at another address, and RETICLE_E2E_CHROMIUM at a Chromium binary when
+ * Playwright's own download is not the one installed.
  *
  * Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
  */
@@ -43,7 +45,9 @@ function record(step, ok, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${step}${detail ? ' — ' + detail : ''}`)
 }
 
-const browser = await chromium.launch()
+const browser = await chromium.launch({
+  executablePath: process.env.RETICLE_E2E_CHROMIUM || undefined,
+})
 
 for (const viewport of VIEWPORTS) {
   const context = await browser.newContext({
@@ -92,7 +96,9 @@ for (const viewport of VIEWPORTS) {
   await page.waitForSelector('.guide-row, .empty-state')
   await page.screenshot({ path: join(SHOTS, `${viewport.name}-3-category.png`), fullPage: true })
 
-  const guideRow = page.locator('.guide-row').first()
+  /* The title, not the row: a row also carries tag chips, and on a phone the
+     middle of a row is as likely to be one of those. */
+  const guideRow = page.locator('.guide-row__title').first()
   if (await guideRow.count()) {
     await guideRow.click()
     await page.waitForSelector('.step')
@@ -112,10 +118,95 @@ for (const viewport of VIEWPORTS) {
     record(`[${viewport.name}] guide renders steps`, false, 'no guides in Light Microscopy')
   }
 
-  const overflows = await page.evaluate(
-    () => document.documentElement.scrollWidth > window.innerWidth + 1,
+  /**
+   * The ways in that are not the category tree: the tag index, a tag, the wiki
+   * index and a wiki page. Every screen visited from here on is also checked
+   * for sideways scrolling, which is the commonest way a new screen breaks on
+   * a phone.
+   */
+  const overflowing = []
+  async function checkWidth(name) {
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth + 1,
+    )
+    if (overflows) overflowing.push(name)
+  }
+  await checkWidth('editor or guide')
+
+  const nav = page.getByRole('navigation', { name: 'Main' })
+
+  await nav.getByRole('link', { name: 'Tags' }).click()
+  await page.waitForSelector('.tag-index__item, .empty-state')
+  const tags = await page.locator('.tag-index__item').count()
+  record(`[${viewport.name}] tag index lists tags`, tags > 0, `${tags} tags`)
+  await page.screenshot({ path: join(SHOTS, `${viewport.name}-6-tags.png`), fullPage: true })
+  await checkWidth('tags')
+
+  if (tags > 0) {
+    await page.locator('.tag-index__item').first().click()
+    await page.waitForSelector('.guide-row, .empty-state')
+    const tagged = await page.locator('.guide-row').count()
+    record(`[${viewport.name}] a tag gathers its guides`, tagged > 0, `${tagged} guides`)
+    await checkWidth('tag')
+
+    /* A reader's guide, reached through a tag: the PDF must be a real file. */
+    /* A published one: a draft has no history to list further down. */
+    await page.locator('.guide-row:not(:has(.badge)) .guide-row__title').first().click()
+    await page.waitForSelector('.guide__meta')
+    const pdf = page.getByRole('link', { name: 'PDF' })
+    const href = await pdf.getAttribute('href')
+    const answer = await page.evaluate(async (url) => {
+      const response = await fetch(url)
+      return `${response.status} ${response.headers.get('content-type')}`
+    }, href)
+    record(
+      `[${viewport.name}] PDF link downloads a PDF`,
+      (await pdf.getAttribute('download')) !== null && answer.startsWith('200 application/pdf'),
+      answer,
+    )
+    await checkWidth('guide')
+
+    /* History is an author's screen; a viewer account simply skips it. */
+    const history = page.getByRole('link', { name: 'History' })
+    if (await history.count()) {
+      await history.click()
+      await page.waitForSelector('.revision-list, .empty-state')
+      const versions = await page.locator('.revision-list__row').count()
+      record(`[${viewport.name}] history lists versions`, versions > 0, `${versions} versions`)
+      await page.screenshot({ path: join(SHOTS, `${viewport.name}-7-history.png`), fullPage: true })
+      await checkWidth('history')
+
+      if (versions > 0) {
+        await page.locator('.revision-list__row').last().click()
+        await page.waitForSelector('.revision-banner')
+        const banner = await page.locator('.revision-banner').innerText()
+        record(`[${viewport.name}] a past version is bannered`, /Version \d+, published/.test(banner))
+        await page.screenshot({ path: join(SHOTS, `${viewport.name}-8-version.png`), fullPage: true })
+        await checkWidth('version')
+      }
+    }
+  }
+
+  await nav.getByRole('link', { name: 'Wiki' }).click()
+  await page.waitForSelector('.guide-row, .empty-state')
+  const pages = await page.locator('.guide-row').count()
+  record(`[${viewport.name}] wiki index lists pages`, pages > 0, `${pages} pages`)
+  await page.screenshot({ path: join(SHOTS, `${viewport.name}-9-wiki.png`), fullPage: true })
+  await checkWidth('wiki')
+
+  if (pages > 0) {
+    await page.locator('.guide-row__title').first().click()
+    await page.waitForSelector('.markdown')
+    record(`[${viewport.name}] a wiki page renders`, (await page.locator('.provenance').count()) > 0)
+    await page.screenshot({ path: join(SHOTS, `${viewport.name}-10-page.png`), fullPage: true })
+    await checkWidth('wiki page')
+  }
+
+  record(
+    `[${viewport.name}] no horizontal overflow`,
+    overflowing.length === 0,
+    overflowing.join(', '),
   )
-  record(`[${viewport.name}] no horizontal overflow`, !overflows)
 
   record(
     `[${viewport.name}] no console errors`,

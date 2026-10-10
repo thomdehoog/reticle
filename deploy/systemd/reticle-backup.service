@@ -1,0 +1,22 @@
+# Nightly backup of Reticle. Install with:
+#
+#   sudo cp deploy/systemd/reticle-backup.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now reticle-backup.timer
+#
+# Adjust the two paths if the installation is not in /opt/reticle.
+# Check it:   systemctl list-timers reticle-backup.timer
+#             journalctl -u reticle-backup.service -n 20
+
+[Unit]
+Description=Back up Reticle (database and media)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/reticle
+ExecStart=/opt/reticle/deploy/backup.sh
+# A backup must never be what makes the site slow.
+Nice=10
+IOSchedulingClass=idle

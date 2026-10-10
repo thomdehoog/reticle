@@ -181,3 +181,43 @@ export function IconEdit(props: IconProps) {
     </svg>
   )
 }
+
+export function IconDownload(props: IconProps) {
+  return (
+    <svg {...svgProps(props)}>
+      <path d="M12 4v10.5" />
+      <path d="m7.5 10.5 4.5 4.5 4.5-4.5" />
+      <path d="M4.5 19.5h15" />
+    </svg>
+  )
+}
+
+/** A clock face run backwards: the hands, and an arrow sweeping anticlockwise. */
+export function IconHistory(props: IconProps) {
+  return (
+    <svg {...svgProps(props)}>
+      <path d="M4.2 12a7.8 7.8 0 1 0 2.6-5.8" />
+      <path d="M3.6 4.4v3.8h3.8" />
+      <path d="M12 8v4.3l2.8 1.9" />
+    </svg>
+  )
+}
+
+export function IconVideo(props: IconProps) {
+  return (
+    <svg {...svgProps(props)}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M10.2 9.2v5.6l4.6-2.8-4.6-2.8Z" fill="currentColor" />
+    </svg>
+  )
+}
+
+export function IconSignOut(props: IconProps) {
+  return (
+    <svg {...svgProps(props)}>
+      <path d="M10 4.5H6.2A1.7 1.7 0 0 0 4.5 6.2v11.6a1.7 1.7 0 0 0 1.7 1.7H10" />
+      <path d="M10.5 12h9" />
+      <path d="m16 8 4 4-4 4" />
+    </svg>
+  )
+}

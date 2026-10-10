@@ -1,7 +1,7 @@
 /**
  * Every route in Reticle, in one place.
  *
- * Code-based on purpose: there are ten routes, and a table that can be read
+ * Code-based on purpose: there are a dozen and a half routes, and a table that can be read
  * top to bottom is worth more here than a file-naming convention and the build
  * plugin that comes with it.
  *
@@ -30,11 +30,15 @@ import { NotFound, RouteError, RoutePending } from './components/RouteStates'
 import type { Category, Role } from './domain/types'
 import { AccountPage } from './pages/AccountPage'
 import { CategoryPage } from './pages/CategoryPage'
+import { GuideHistoryPage, GuideRevisionPage } from './pages/GuideHistoryPage'
 import { GuideViewPage } from './pages/GuideViewPage'
 import { HomePage } from './pages/HomePage'
+import { PageHistoryPage, PageRevisionPage } from './pages/PageHistoryPage'
 import { PageViewPage } from './pages/PageViewPage'
 import { SearchPage } from './pages/SearchPage'
 import { TagPage } from './pages/TagPage'
+import { TagsPage } from './pages/TagsPage'
+import { WikiIndexPage } from './pages/WikiIndexPage'
 import { categoryQueries } from './queries/categories'
 import { guideQueries } from './queries/guides'
 import { pageQueries } from './queries/pages'
@@ -86,6 +90,16 @@ function load<T>(context: RouterContext, work: (context: RouterContext) => Promi
     if (signedOut) return new Promise<never>(() => undefined)
     throw cause
   })
+}
+
+/**
+ * The version number in a history URL. It is typed by hand as often as it is
+ * clicked, so anything that is not a plain positive whole number is simply a
+ * page that does not exist — it never reaches the server as `NaN`.
+ */
+function versionFrom(raw: string): number {
+  if (!/^[1-9]\d{0,8}$/.test(raw)) throw notFound()
+  return Number(raw)
 }
 
 /**
@@ -178,6 +192,46 @@ const guideEditRoute = createRoute({
   component: lazyRouteComponent(() => import('./pages/GuideEditorPage'), 'GuideEditorPage'),
 })
 
+/*
+ * History is addressed by slug, like the reader it hangs off, but the revision
+ * endpoints take an id — so each loader resolves the guide first. Authors only:
+ * the server refuses a viewer anyway, and the guard spares them the error.
+ */
+
+const guideHistoryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/g/$slug/history',
+  beforeLoad: ({ context }) => requireRole(context, 'author'),
+  loader: ({ context, params }) =>
+    load(context, async ({ api, queryClient }) => {
+      const [guide] = await Promise.all([
+        orNotFound(queryClient.ensureQueryData(guideQueries.detail(api, params.slug))),
+        queryClient.ensureQueryData(categoryQueries.list(api)),
+      ])
+      await queryClient.ensureQueryData(guideQueries.revisions(api, guide.id))
+    }),
+  component: GuideHistoryPage,
+})
+
+const guideRevisionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/g/$slug/v/$version',
+  beforeLoad: ({ context }) => requireRole(context, 'author'),
+  loader: ({ context, params }) =>
+    load(context, async ({ api, queryClient }) => {
+      const version = versionFrom(params.version)
+      const [guide] = await Promise.all([
+        orNotFound(queryClient.ensureQueryData(guideQueries.detail(api, params.slug))),
+        queryClient.ensureQueryData(categoryQueries.list(api)),
+      ])
+      await Promise.all([
+        queryClient.ensureQueryData(guideQueries.revisions(api, guide.id)),
+        orNotFound(queryClient.ensureQueryData(guideQueries.revision(api, guide.id, version))),
+      ])
+    }),
+  component: GuideRevisionPage,
+})
+
 const pageRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/w/$slug',
@@ -206,6 +260,65 @@ const pageEditRoute = createRoute({
       )
     }),
   component: lazyRouteComponent(() => import('./pages/PageEditorPage'), 'PageEditorPage'),
+})
+
+const pageHistoryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/w/$slug/history',
+  beforeLoad: ({ context }) => requireRole(context, 'author'),
+  loader: ({ context, params }) =>
+    load(context, async ({ api, queryClient }) => {
+      const [page] = await Promise.all([
+        orNotFound(queryClient.ensureQueryData(pageQueries.detail(api, params.slug))),
+        queryClient.ensureQueryData(categoryQueries.list(api)),
+      ])
+      await queryClient.ensureQueryData(pageQueries.revisions(api, page.id))
+    }),
+  component: PageHistoryPage,
+})
+
+const pageRevisionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/w/$slug/v/$version',
+  beforeLoad: ({ context }) => requireRole(context, 'author'),
+  loader: ({ context, params }) =>
+    load(context, async ({ api, queryClient }) => {
+      const version = versionFrom(params.version)
+      const [page] = await Promise.all([
+        orNotFound(queryClient.ensureQueryData(pageQueries.detail(api, params.slug))),
+        queryClient.ensureQueryData(categoryQueries.list(api)),
+        preloadMarkdownBody(),
+      ])
+      await Promise.all([
+        queryClient.ensureQueryData(pageQueries.revisions(api, page.id)),
+        orNotFound(queryClient.ensureQueryData(pageQueries.revision(api, page.id, version))),
+      ])
+    }),
+  component: PageRevisionPage,
+})
+
+/** The index of every wiki page; what makes a standalone article findable. */
+const wikiRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/wiki',
+  loader: ({ context }) =>
+    load(context, async ({ api, queryClient }) => {
+      await Promise.all([
+        queryClient.ensureQueryData(pageQueries.list(api)),
+        queryClient.ensureQueryData(categoryQueries.list(api)),
+      ])
+    }),
+  component: WikiIndexPage,
+})
+
+const tagsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/tags',
+  loader: ({ context }) =>
+    load(context, async ({ api, queryClient }) => {
+      await queryClient.ensureQueryData(tagQueries.list(api))
+    }),
+  component: TagsPage,
 })
 
 const tagRoute = createRoute({
@@ -270,8 +383,14 @@ const routeTree = rootRoute.addChildren([
   categoryRoute,
   guideRoute,
   guideEditRoute,
+  guideHistoryRoute,
+  guideRevisionRoute,
   pageRoute,
   pageEditRoute,
+  pageHistoryRoute,
+  pageRevisionRoute,
+  wikiRoute,
+  tagsRoute,
   tagRoute,
   searchRoute,
   accountRoute,

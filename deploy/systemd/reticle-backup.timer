@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Reticle backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+# Up to ten minutes of jitter, and run at next boot if the host was off at 02:30.
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

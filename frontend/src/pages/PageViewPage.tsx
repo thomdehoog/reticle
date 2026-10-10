@@ -3,9 +3,10 @@ import { Link, getRouteApi } from '@tanstack/react-router'
 
 import { useApi } from '../api/context'
 import { useSession } from '../auth/session'
-import { IconEdit } from '../components/icons'
-import { LazyMarkdownBody } from '../components/LazyMarkdownBody'
-import { StatusBadge } from '../components/ui'
+import { CategoryCrumbs } from '../components/CategoryCrumbs'
+import { IconEdit, IconHistory } from '../components/icons'
+import { PageBody } from '../components/PageBody'
+import { DraftNotice, StatusBadge } from '../components/ui'
 import { useRecordView } from '../hooks/useRecordView'
 import { categoryQueries } from '../queries/categories'
 import { pageQueries } from '../queries/pages'
@@ -22,22 +23,14 @@ export function PageViewPage() {
 
   useRecordView(page.id, (id) => api.recordPageView(id))
 
-  const category = categories.find((candidate) => candidate.id === page.categoryId)
-  const otherContributors = page.contributors.filter((person) => person.id !== page.author.id)
-
   return (
     <article className="guide">
-      <nav className="breadcrumb">
-        <Link to="/">Guides</Link>
-        {category && (
-          <>
-            <span className="breadcrumb__sep">/</span>
-            <Link to="/c/$slug" params={{ slug: category.slug }}>
-              {category.name}
-            </Link>
-          </>
-        )}
-      </nav>
+      <CategoryCrumbs
+        categories={categories}
+        categoryId={page.categoryId}
+        /* A standalone article hangs off the wiki index, not off a category. */
+        root={page.categoryId === null ? <Link to="/wiki">Wiki</Link> : undefined}
+      />
 
       <div className="page-header">
         <div className="page-header__text">
@@ -47,6 +40,12 @@ export function PageViewPage() {
         <div className="page-actions">
           {page.status !== 'published' && <StatusBadge status={page.status} />}
           {can('author') && (
+            <Link className="button" to="/w/$slug/history" params={{ slug: page.slug }}>
+              <IconHistory />
+              History
+            </Link>
+          )}
+          {can('author') && (
             <Link className="button" to="/w/$id/edit" params={{ id: page.id }}>
               <IconEdit />
               Edit
@@ -55,24 +54,9 @@ export function PageViewPage() {
         </div>
       </div>
 
-      {page.heroMediaId && (
-        <img
-          src={api.mediaUrl(page.heroMediaId)}
-          alt=""
-          style={{ display: 'block', maxWidth: '100%', marginBottom: '1.5rem' }}
-        />
-      )}
+      {page.status !== 'published' && <DraftNotice noun="page" />}
 
-      <LazyMarkdownBody body={page.body} />
-
-      {/* The same provenance a guide carries: who to ask, and how current it is. */}
-      <p className="page-header__sub" style={{ marginTop: '2rem' }}>
-        {page.author.displayName}
-        {otherContributors.length > 0 &&
-          `, with ${otherContributors.map((person) => person.displayName).join(', ')}`}
-        {page.publishedAt &&
-          ` · version ${page.version}, published ${new Date(page.publishedAt).toLocaleDateString()}`}
-      </p>
+      <PageBody page={page} />
     </article>
   )
 }

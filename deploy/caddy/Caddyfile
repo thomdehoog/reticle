@@ -1,0 +1,188 @@
+# Reticle's front door: TLS, the static frontend, and the way in to the API.
+#
+# Everything that differs between installations comes from the environment
+# (set in the root .env, passed on by compose.yaml); this file should not need
+# editing. If it does, mount your copy over /etc/caddy/Caddyfile from a
+# compose.override.yaml rather than rebuilding the image.
+#
+# Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
+{
+	# No admin API. It can rewrite the whole configuration and nothing here
+	# uses it. The price: `caddy reload` does not work, so a changed
+	# certificate file is picked up with `docker compose restart web`.
+	admin off
+
+	servers {
+		# Whose X-Forwarded-For Caddy itself believes. Normally nobody's (the
+		# list is empty): Caddy is the first thing a browser reaches. Behind
+		# an institutional reverse proxy, RETICLE_UPSTREAM_PROXIES names that
+		# proxy, and only then is its header used to find the real client.
+		trusted_proxies static {$RETICLE_UPSTREAM_PROXIES}
+		trusted_proxies_strict
+
+		# Headers must arrive promptly (slow-header attacks cost nothing to
+		# refuse). There is deliberately no limit on reading a body: 200 MB of
+		# video over a hotel uplink takes many minutes, and the size limits
+		# below are what bound an upload, not the clock.
+		timeouts {
+			read_header 30s
+			idle 5m
+		}
+	}
+}
+
+# ---------------------------------------------------------------------------
+# The API. Imported once for uploads and once for everything else, because the
+# only difference between the two is how large a body may be.
+(api) {
+	request_body {
+		max_size {args[0]}
+	}
+	reverse_proxy app:8000 {
+		# Overwrite, never append. The API believes this header because it
+		# comes from this proxy's network (RETICLE_TRUSTED_PROXIES); whatever
+		# a browser — or an attacker — sent under the same name is discarded
+		# here, and what goes upstream is the one address Caddy itself
+		# vouches for. The login throttle and the audit log stand on this.
+		header_up X-Forwarded-For {client_ip}
+		header_up X-Real-IP {client_ip}
+
+		# Stream responses as they come. A video is fetched in ranges while
+		# it plays; buffering a range in the proxy first makes seeking lag.
+		flush_interval -1
+
+		transport http {
+			dial_timeout 5s
+			# Counted from the moment the request (body included) has been
+			# sent, so it does not cut a slow upload short. Generous because
+			# a PDF export may queue for 20 seconds before it starts.
+			response_header_timeout 120s
+		}
+	}
+}
+
+# ---------------------------------------------------------------------------
+# The site itself, shared by every TLS mode.
+(reticle) {
+	# One line per request: who, what, status, how long. Request and response
+	# headers are left out — they triple the volume and include the CSRF token.
+	log {
+		output stdout
+		format filter {
+			wrap console {
+				# No colour codes: these lines end up in files and in grep.
+				level_format upper
+			}
+			fields {
+				request>headers delete
+				request>tls delete
+				resp_headers delete
+			}
+		}
+	}
+
+	encode zstd gzip
+
+	header {
+		-Server
+		-Via
+		# For the API these are already set by the application, more strictly
+		# than a page could bear (its Content-Security-Policy is
+		# "default-src 'none'"); `?` adds a header only where none exists.
+		?X-Content-Type-Options nosniff
+		?Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), browsing-topics=()"
+	}
+
+	# POST /api/media is the only request allowed to be large: one video of up
+	# to RETICLE_MAX_VIDEO_BYTES (200 MB) plus multipart framing. The API
+	# enforces the exact figure and answers with a readable error; this limit
+	# only has to be above it.
+	@upload {
+		method POST
+		path /api/media /api/media/
+	}
+	handle @upload {
+		import api {$RETICLE_PROXY_UPLOAD_LIMIT:210MiB}
+	}
+
+	# Everything else fits in 2 MB — a whole guide is a few hundred kilobytes
+	# of JSON — and the API refuses more than that itself.
+	handle /api/* {
+		import api 2MiB
+	}
+
+	# The frontend: static files, and nothing but static files. Uploaded media
+	# is NOT here and must never be: it lives on the API's volume and is served
+	# through /api/media/{id}, where each request is checked against the login
+	# and against what that person may see.
+	handle {
+		root * /srv
+
+		header {
+			# What the built frontend actually needs, and nothing else:
+			#   script/style  its own files under /assets/. There is no inline
+			#                 script and no <style> element. React's `style`
+			#                 props are applied through the DOM (element.style),
+			#                 which a CSP does not restrict, so 'unsafe-inline'
+			#                 is not needed and not granted.
+			#   img/media     /api/media/... (same origin). data: and blob: are
+			#                 allowed for images and blob: for video so that a
+			#                 local preview of a file being uploaded keeps
+			#                 working; neither can load anything from elsewhere.
+			#   connect       fetch() to /api only.
+			# Images hosted on other sites will not load in wiki pages. That is
+			# intended: a guide should not stop working because someone else's
+			# server moved, nor tell that server who is reading. Upload them.
+			Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+			X-Frame-Options DENY
+			Referrer-Policy same-origin
+			Cross-Origin-Opener-Policy same-origin
+			Cross-Origin-Resource-Policy same-origin
+		}
+
+		# Built assets carry a content hash in their name: a new build is a new
+		# name, so a year is safe. Only files that exist get the header — a 404
+		# cached for a year would outlive the deployment that fixes it.
+		#
+		# A missing asset is a 404 here, not the app shell. Otherwise a browser
+		# holding yesterday's index.html asks for yesterday's script and is
+		# handed HTML under a JavaScript URL.
+		handle /assets/* {
+			@exists file
+			header @exists Cache-Control "public, max-age=31536000, immutable"
+			file_server
+		}
+
+		# index.html, and every client-side route (/g/..., /w/..., /c/...,
+		# /t/...), which all are index.html: always revalidated, so a deployment
+		# reaches people on their next page load. The ETag makes that cheap.
+		handle {
+			header Cache-Control no-cache
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}
+
+# Sent only where the site really is HTTPS-only.
+(hsts) {
+	header ?Strict-Transport-Security "max-age=31536000"
+}
+
+# ---------------------------------------------------------------------------
+# The TLS mode chooses the site address and where certificates come from:
+# modes/auto.caddy, files.caddy, internal.caddy or off.caddy.
+import modes/{$RETICLE_TLS_MODE:auto}.caddy
+
+# ---------------------------------------------------------------------------
+# Container healthcheck only; the port is not published. It proxies the API's
+# health endpoint, so "healthy" means Caddy runs and can reach the API.
+http://:9180 {
+	@health path /api/health
+	handle @health {
+		reverse_proxy app:8000
+	}
+	handle {
+		respond 404
+	}
+}

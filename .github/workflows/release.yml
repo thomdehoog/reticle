@@ -1,0 +1,145 @@
+name: Release
+
+# Pushing a version tag publishes a release:
+#
+#   git tag v1.2.0 && git push origin v1.2.0
+#
+#   ghcr.io/<owner>/reticle-app:1.2.0   (also :1.2 and, for a stable version, :latest)
+#   ghcr.io/<owner>/reticle-web:1.2.0
+#   a GitHub release carrying reticle-deploy-1.2.0.tar.gz — compose.yaml,
+#   .env.example and the deploy/ scripts, which is everything a server needs.
+#
+# Nothing here connects to a ZMB machine. The server pulls; see "Upgrading" in
+# docs/DEPLOYMENT.md. A university host is not reachable from GitHub's runners,
+# and a deploy key that can log in to it should not live in a repository's
+# secrets when `deploy/upgrade.sh` on the host does the same job.
+#
+# Needs no configuration: images are pushed with the workflow's own token. The
+# first time, make the two packages public (or log the server in to ghcr.io)
+# under github.com/<owner>?tab=packages.
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # No image is published from a commit that fails its tests.
+  verify:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  images:
+    name: Publish ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    needs: verify
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - image: reticle-app
+            dockerfile: backend/Dockerfile
+          - image: reticle-web
+            dockerfile: frontend/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR image names must be lower case; repository owners need not be.
+      - name: Image name
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # v1.2.3 -> 1.2.3, 1.2 and latest. A pre-release (v1.3.0-rc.1) gets only
+      # its own tag: `latest` never moves to something unfinished.
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          flavor: latest=auto
+
+      # linux/amd64 only: that is what the servers are. To publish for ARM as
+      # well, add docker/setup-qemu-action before buildx and set
+      # `platforms: linux/amd64,linux/arm64` — the frontend stage already
+      # builds natively whatever the target.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: RETICLE_VERSION=${{ steps.meta.outputs.version }}
+          # What went into the image and how it was built, stored next to it
+          # in the registry:  docker buildx imagetools inspect <image>
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+
+  release:
+    name: GitHub release
+    runs-on: ubuntu-latest
+    needs: images
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Everything a server needs to run the published images, and nothing it
+      # does not: no source, no build. The bundle pins the version it was cut
+      # from, so "which release is this host on" is one line in its .env.
+      - name: Assemble the deployment bundle
+        id: bundle
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          root="reticle-$version"
+          mkdir -p "$root/docs"
+          cp compose.yaml .env.example LICENSE NOTICE.md "$root/"
+          cp docs/DEPLOYMENT.md docs/MAINTENANCE.md "$root/docs/"
+          cp -r deploy "$root/deploy"
+          rm -rf "$root/deploy/docker" "$root/deploy/caddy"
+          sed -i \
+            -e "s|^#RETICLE_VERSION=.*|RETICLE_VERSION=$version|" \
+            -e "s|^#RETICLE_IMAGE_PREFIX=.*|RETICLE_IMAGE_PREFIX=ghcr.io/$owner|" \
+            "$root/.env.example"
+          grep -q "^RETICLE_VERSION=$version\$" "$root/.env.example"
+          tar -czf "reticle-deploy-$version.tar.gz" "$root"
+          echo "file=reticle-deploy-$version.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=""
+          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$TAG" "${{ steps.bundle.outputs.file }}" \
+            --verify-tag --generate-notes $prerelease

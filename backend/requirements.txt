@@ -28,3 +28,7 @@ alembic~=1.20
 
 # PDF export of guides. Pure Python, BSD-licensed, no system libraries.
 reportlab~=5.0
+
+# HTTP client for the one-off content export (`python -m app.importer export`),
+# which talks to the old site's API. The server itself makes no outbound calls.
+httpx~=0.28

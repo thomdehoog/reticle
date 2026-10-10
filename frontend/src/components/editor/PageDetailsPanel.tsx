@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { useRef } from 'react'
 
 import { useApi } from '../../api/context'
+import { IMAGE_ACCEPT } from '../../domain/media'
 import type { Category, Page } from '../../domain/types'
 import { useUploadMedia } from '../../queries/media'
 import { pageQueries } from '../../queries/pages'
@@ -39,7 +40,7 @@ export function PageDetailsPanel({ page, categories, onChange, onError }: PageDe
     if (!file) return
     onError(null)
     try {
-      const media = await upload.mutateAsync(file)
+      const media = await upload.mutateAsync({ file })
       onChange((current) => ({ ...current, heroMediaId: media.id }))
     } catch (cause) {
       onError(cause)
@@ -131,11 +132,7 @@ export function PageDetailsPanel({ page, categories, onChange, onError }: PageDe
           <div className="field" style={{ marginBottom: 0 }}>
             <span className="field__label">Hero image</span>
             {page.heroMediaId && (
-              <img
-                src={api.mediaUrl(page.heroMediaId)}
-                alt=""
-                style={{ display: 'block', maxWidth: '100%', marginBottom: '0.5rem' }}
-              />
+              <img className="hero-preview" src={api.mediaUrl(page.heroMediaId)} alt="" />
             )}
             <div className="page-actions">
               <button
@@ -159,7 +156,7 @@ export function PageDetailsPanel({ page, categories, onChange, onError }: PageDe
             <input
               ref={heroRef}
               type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif"
+              accept={IMAGE_ACCEPT}
               aria-label="Upload a hero image"
               hidden
               onChange={(event) => {

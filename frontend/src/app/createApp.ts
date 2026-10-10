@@ -10,7 +10,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { createBrowserHistory, type RouterHistory } from '@tanstack/react-router'
 
-import { ApiClient } from '../api/client'
+import { ApiClient, type UploadTransport } from '../api/client'
 import { createQueryClient } from '../api/queryClient'
 import { ReticleApi } from '../api/reticle'
 import { endSession } from '../auth/session'
@@ -28,6 +28,8 @@ export interface ReticleAppOptions {
    * mapping; nothing in production should ever set it.
    */
   fetchImpl?: typeof fetch
+  /** Replaces the upload transport, for tests that need to see progress reported. */
+  uploadImpl?: UploadTransport
   /** Replaces the browser's address bar, for tests. */
   history?: RouterHistory
   /** Off in tests; see `createQueryClient`. */
@@ -39,6 +41,7 @@ export function createReticleApp(options: ReticleAppOptions = {}): ReticleApp {
 
   const http = new ApiClient({
     fetchImpl: options.fetchImpl,
+    uploadImpl: options.uploadImpl,
     /* Whichever request discovers the session has gone — a page load, a
        background refetch, an autosave — the result is the same: back to the
        login screen, with nothing of the old session left in the cache. */

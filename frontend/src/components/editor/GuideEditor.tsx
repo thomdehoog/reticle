@@ -8,7 +8,6 @@ import {
   createStep,
   renumberSteps,
   validateForPublish,
-  type ValidationIssue,
 } from '../../domain/guide'
 import type { Guide } from '../../domain/types'
 import { useAutosave } from '../../hooks/useAutosave'
@@ -22,6 +21,7 @@ import {
   useSaveGuide,
   useUnpublishGuide,
 } from '../../queries/guides'
+import { CategoryCrumbs, Crumb } from '../CategoryCrumbs'
 import { EditorAlerts } from './EditorAlerts'
 import { EditorHeader } from './EditorHeader'
 import { GuideDetailsPanel } from './GuideDetailsPanel'
@@ -62,15 +62,18 @@ export function GuideEditor({ initial }: { initial: Guide }) {
   const guide = autosave.document
   useLeaveGuard(autosave)
 
-  const [issues, setIssues] = useState<ValidationIssue[]>([])
+  /* Once a publish has been refused, the list of reasons follows the guide as
+     it is edited: each one disappears as it is dealt with, instead of going on
+     accusing a guide that has since been fixed. */
+  const [checking, setChecking] = useState(false)
+  const issues = checking ? validateForPublish(guide) : []
   const stepsRef = useRef<HTMLDivElement>(null)
 
   const actions = useDocumentActions({
     autosave,
     readyToPublish: () => {
-      const found = validateForPublish(guide)
-      setIssues(found)
-      return found.length === 0
+      setChecking(true)
+      return validateForPublish(guide).length === 0
     },
     publish: publish.mutateAsync,
     unpublish: unpublish.mutateAsync,
@@ -91,7 +94,7 @@ export function GuideEditor({ initial }: { initial: Guide }) {
         staleTime: 0,
       })
       autosave.reset(withFirstStep(fresh))
-      setIssues([])
+      setChecking(false)
     } catch (cause) {
       autosave.reportError(cause)
     }
@@ -100,7 +103,13 @@ export function GuideEditor({ initial }: { initial: Guide }) {
   return (
     <>
       <EditorHeader
-        crumb="Editing"
+        breadcrumb={
+          <CategoryCrumbs categories={categories} categoryId={guide.categoryId}>
+            <Crumb>
+              <span>Editing</span>
+            </Crumb>
+          </CategoryCrumbs>
+        }
         title={guide.title || 'Untitled guide'}
         status={guide.status}
         saveState={autosave.saveState}
@@ -109,6 +118,11 @@ export function GuideEditor({ initial }: { initial: Guide }) {
         viewLink={
           <Link className="button" to="/g/$slug" params={{ slug: guide.slug }}>
             View
+          </Link>
+        }
+        historyLink={
+          <Link className="button" to="/g/$slug/history" params={{ slug: guide.slug }}>
+            History
           </Link>
         }
         onPublish={actions.publish}
@@ -137,7 +151,6 @@ export function GuideEditor({ initial }: { initial: Guide }) {
           onChange={(mutator) =>
             autosave.change((current) => ({ ...current, steps: mutator(current.steps) }))
           }
-          onError={autosave.reportError}
         />
 
         <GuideDetailsPanel guide={guide} categories={categories} onChange={autosave.change} />

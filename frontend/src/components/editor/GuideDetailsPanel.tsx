@@ -70,11 +70,13 @@ export function GuideDetailsPanel({ guide, categories, onChange }: GuideDetailsP
             <span className="field__label">Tags</span>
             <TagInput
               tags={guide.tags}
+              spelling="as-typed"
               onChange={(tags) => onChange((current) => ({ ...current, tags }))}
             />
             <span className="field__hint">
               Tags decide where this guide appears. A wiki page can gather every guide carrying a
-              tag, so one guide can show up under several instruments.
+              tag, so one guide can show up under several instruments. Reuse a suggested tag where
+              one fits.
             </span>
           </div>
 

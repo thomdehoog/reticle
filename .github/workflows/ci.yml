@@ -5,18 +5,49 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # The release workflow runs all of this first: no image is published from a
+  # commit that does not pass.
+  workflow_call:
 
 # A second push to the same branch cancels the first: a facility repo does not
 # need three superseded runs finishing after the one that matters.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+# Nothing here needs to write to the repository.
+permissions:
+  contents: read
 
 env:
   NODE_VERSION: '22'
-  PYTHON_VERSION: '3.12'
+  # The version the application image runs (backend/Dockerfile).
+  PYTHON_VERSION: '3.13'
 
 jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      # The tests set their own environment (tests/conftest.py) and give every
+      # test a private database, so nothing needs configuring here. The gate
+      # is branch coverage; the same figure is in backend/.coveragerc.
+      - name: Tests with coverage
+        run: python -m pytest --cov=app --cov-report=term-missing --cov-fail-under=95
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
@@ -49,31 +80,16 @@ jobs:
           path: frontend/dist
           retention-days: 7
 
-  backend:
-    name: Backend
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: backend/requirements-dev.txt
-
-      - run: pip install -r requirements-dev.txt
-
-      - name: Tests with coverage
-        run: pytest --cov=app --cov-report=term-missing --cov-fail-under=85
-
+  # ---------------------------------------------------------------------------
+  # The development topology: uvicorn and the Vite dev server, driven by a real
+  # browser. This is what a developer runs, so it is what must keep working.
   e2e:
-    name: Browser smoke test
+    name: Browser tests (dev servers)
     runs-on: ubuntu-latest
     needs: [frontend, backend]
     env:
+      # Process environment only: no .env file is read.
+      RETICLE_ENV_FILE: ''
       RETICLE_SECRET_KEY: ci-only-secret-not-used-anywhere-real-0000
       RETICLE_COOKIE_SECURE: 'false'
       RETICLE_DATABASE_URL: sqlite:///./ci.db
@@ -88,6 +104,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
 
       - uses: actions/setup-node@v4
         with:
@@ -103,14 +121,21 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Seed the database
+      # The server refuses to start on a database that has not been migrated,
+      # and the smoke test needs a published guide in Light Microscopy, which
+      # the demo content provides.
+      - name: Migrate and seed
         working-directory: backend
-        run: python -m app.seed
+        run: |
+          python -m app.migrate
+          python -m app.seed --demo
 
+      # --no-proxy-headers, as in production: uvicorn must not rewrite the
+      # client address from X-Forwarded-For by itself.
       - name: Start the backend
         working-directory: backend
         run: |
-          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers > ../backend.log 2>&1 &
           for _ in $(seq 1 30); do
             curl -sf http://127.0.0.1:8000/api/health && break
             sleep 1
@@ -120,26 +145,235 @@ jobs:
       - name: Start the frontend
         working-directory: frontend
         run: |
-          npm run dev -- --port 5173 &
+          npm run dev -- --port 5173 --strictPort > ../frontend.log 2>&1 &
           for _ in $(seq 1 30); do
-            curl -sf http://127.0.0.1:5173/ >/dev/null && break
+            curl -sf http://localhost:5173/ >/dev/null && break
             sleep 1
           done
-          curl -sf http://127.0.0.1:5173/ >/dev/null
+          curl -sf http://localhost:5173/ >/dev/null
 
       - name: Install Chromium
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
-      - name: Smoke test
+      - name: Smoke test (read, at three widths)
         working-directory: frontend
         run: node e2e/smoke.mjs
+
+      - name: Authoring test (write, publish, read back)
+        working-directory: frontend
+        run: node e2e/cms.mjs
+
+      - name: Server logs
+        if: failure()
+        run: tail -n 200 backend.log frontend.log
 
       # Screenshots are the fastest way to see why a run failed, so keep them
       # whatever the outcome.
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: smoke-screenshots
+          name: e2e-screenshots
           path: frontend/e2e/shots
           retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # The production topology: both images, started by compose.yaml exactly as a
+  # server would start them, then poked from outside. This is the job that
+  # notices a Content-Security-Policy the frontend has outgrown, a proxy rule
+  # that swallows uploads, or a backup script that no longer restores.
+  docker:
+    name: Docker images and Compose stack
+    runs-on: ubuntu-latest
+    env:
+      BASE: http://localhost:8080
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint the operations scripts
+        run: shellcheck -s sh -x deploy/*.sh deploy/docker/*.sh
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the application image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          tags: ghcr.io/thomdehoog/reticle-app:ci
+          build-args: RETICLE_VERSION=ci
+          load: true
+          cache-from: type=gha,scope=reticle-app
+          cache-to: type=gha,scope=reticle-app,mode=max
+
+      - name: Build the web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend/Dockerfile
+          tags: ghcr.io/thomdehoog/reticle-web:ci
+          build-args: RETICLE_VERSION=ci
+          load: true
+          cache-from: type=gha,scope=reticle-web
+          cache-to: type=gha,scope=reticle-web,mode=max
+
+      - name: Image sizes
+        run: docker image ls --format 'table {{.Repository}}:{{.Tag}}\t{{.Size}}' | grep -E 'REPOSITORY|reticle'
+
+      - name: Compose refuses to start without its two required settings
+        run: |
+          if docker compose config -q 2>refusal.txt; then
+            echo "compose.yaml accepted an empty configuration" >&2
+            exit 1
+          fi
+          grep -q RETICLE_SECRET_KEY refusal.txt
+          grep -q RETICLE_DOMAIN refusal.txt
+
+      # The local-trial configuration from the README: plain http on localhost.
+      - name: Write .env
+        run: |
+          cat > .env <<EOF
+          RETICLE_DOMAIN=localhost
+          RETICLE_SECRET_KEY=$(openssl rand -base64 48 | tr -d '\n')
+          RETICLE_TLS_MODE=off
+          RETICLE_COOKIE_SECURE=false
+          RETICLE_HTTP_PORT=8080
+          RETICLE_HTTPS_PORT=8443
+          RETICLE_VERSION=ci
+          RETICLE_ADMIN_EMAIL=ci@example.org
+          RETICLE_ADMIN_PASSWORD=ci-only-password-not-real
+          EOF
+
+      - name: Start the stack and wait until it is healthy
+        run: docker compose up -d --no-build --wait --wait-timeout 120
+
+      - name: Create the administrator and the demo content
+        run: docker compose exec -T app reticle-entrypoint seed --demo
+
+      - name: Containers are unprivileged and read-only
+        run: |
+          test "$(docker compose exec -T app id -u)" = 10001
+          test "$(docker compose exec -T web id -u)" = 10002
+          for target in "app /app/probe" "app /etc/probe" "web /srv/probe" "web /etc/caddy/probe"; do
+            set -- $target
+            if docker compose exec -T "$1" touch "$2" 2>/dev/null; then
+              echo "$1 could write $2: the root filesystem is not read-only" >&2
+              exit 1
+            fi
+          done
+
+      - name: Health, single-page fallback, caching and security headers
+        run: |
+          set -x
+          test "$(curl -sf "$BASE/api/health")" = '{"status":"ok"}'
+          # A deep link is the app shell, never cached...
+          curl -sf -D headers.txt -o shell.html "$BASE/g/some-guide/edit"
+          grep -q '<div id="root">' shell.html
+          grep -qi '^cache-control: no-cache' headers.txt
+          grep -qi "^content-security-policy: default-src 'none'; script-src 'self'; style-src 'self';" headers.txt
+          grep -qi '^x-content-type-options: nosniff' headers.txt
+          grep -qi '^x-frame-options: DENY' headers.txt
+          # ...a hashed asset is cached for good, a missing one is a 404 and not the shell.
+          asset="$(grep -o '/assets/[^"]*\.js' shell.html | head -n 1)"
+          curl -sf -o /dev/null -D headers.txt "$BASE$asset"
+          grep -qi '^cache-control: public, max-age=31536000, immutable' headers.txt
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/assets/no-such-file.js")" = 404
+
+      - name: Everything is behind the login; login works; limits hold
+        run: |
+          set -x
+          # The single most important line in this file. If it is ever 200,
+          # the guides are readable without signing in.
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/guides")" = 401
+
+          curl -sf -c jar.txt -o me.json -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.org","password":"ci-only-password-not-real"}' \
+            "$BASE/api/auth/login"
+          grep -q '"role":"admin"' me.json
+          csrf="$(awk '$6 == "reticle_csrf" { print $7 }' jar.txt)"
+          curl -sf -b jar.txt -o guides.json "$BASE/api/guides"
+          grep -q 'Tile Scan' guides.json
+
+          # A mutating request without the CSRF header is refused...
+          test "$(curl -s -o /dev/null -w '%{http_code}' -b jar.txt -X POST "$BASE/api/auth/logout")" = 403
+
+          # ...an upload larger than the 2 MB general limit goes through on /api/media...
+          python3 - <<'PY'
+          import os, struct
+          with open("clip.mp4", "wb") as clip:
+              clip.write(struct.pack(">I", 24) + b"ftypisom" + struct.pack(">I", 512) + b"isommp42")
+              clip.write(struct.pack(">I", 8) + b"free" + os.urandom(5 * 1024 * 1024))
+          with open("big.json", "w") as body:
+              body.write('{"email":"a@example.org","password":"' + "x" * (3 * 1024 * 1024) + '"}')
+          PY
+          curl -sf -b jar.txt -H "X-CSRF-Token: $csrf" -F 'file=@clip.mp4;type=video/mp4' "$BASE/api/media" > media.json
+          media_url="$(python3 -c 'import json; print(json.load(open("media.json"))["url"])')"
+
+          # ...and is served back in ranges, which is what lets a video seek...
+          test "$(curl -s -o /dev/null -w '%{http_code}' -b jar.txt -H 'Range: bytes=100-199' "$BASE$media_url")" = 206
+          # ...but not to somebody without a session...
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE$media_url")" = 401
+          # ...while the same size anywhere else is refused.
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data-binary @big.json "$BASE/api/auth/login")" = 413
+
+      - name: A forged X-Forwarded-For does not change the recorded address
+        run: |
+          curl -s -o /dev/null -H 'Content-Type: application/json' -H 'X-Forwarded-For: 203.0.113.99' \
+            -d '{"email":"nobody@example.org","password":"wrong-password"}' "$BASE/api/auth/login"
+          docker compose exec -T app python - <<'PY'
+          import sqlite3, sys
+          rows = sqlite3.connect("file:/data/reticle.db?mode=ro", uri=True).execute(
+              "SELECT ip_address FROM audit_log ORDER BY created_at DESC LIMIT 1").fetchall()
+          print("recorded:", rows)
+          sys.exit(1 if not rows or rows[0][0] == "203.0.113.99" else 0)
+          PY
+
+      - name: Backup, destroy the data, restore
+        run: |
+          set -x
+          deploy/backup.sh
+          archive="$(ls backups/reticle-*.tar.gz | tail -n 1)"
+          docker compose down --volumes
+          docker compose up -d --no-build --wait --wait-timeout 120
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.org","password":"ci-only-password-not-real"}' "$BASE/api/auth/login")" = 401
+          deploy/restore.sh --yes --no-safety-backup "$archive"
+          curl -sf -c jar.txt -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.org","password":"ci-only-password-not-real"}' "$BASE/api/auth/login" > /dev/null
+          curl -sf -b jar.txt -o guides.json "$BASE/api/guides"
+          grep -q 'Tile Scan' guides.json
+
+      # The same browser test as above, but through Caddy and under the real
+      # Content-Security-Policy. A console error — which is what a CSP
+      # violation is — fails it.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Browser smoke test against the stack
+        working-directory: frontend
+        env:
+          RETICLE_E2E_BASE: http://localhost:8080
+          RETICLE_E2E_EMAIL: ci@example.org
+          RETICLE_E2E_PASSWORD: ci-only-password-not-real
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          node e2e/smoke.mjs
+
+      - name: Container logs
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compose-screenshots
+          path: frontend/e2e/shots
+          retention-days: 7
+
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes

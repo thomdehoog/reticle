@@ -290,6 +290,21 @@ a:hover {
   background: var(--brand-100);
 }
 
+/* A long tag wraps inside its chip instead of pushing the row off a phone. */
+.tag {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* A tag nobody else uses yet. Dashed, like every other "not there yet" surface
+   in the app, so an accidental near-duplicate is visible before it is saved. */
+.tag--new {
+  color: var(--ink-700);
+  background: var(--surface);
+  border-style: dashed;
+  border-color: var(--border-strong);
+}
+
 /* 24px is the WCAG 2.2 floor for a target, and this one deletes something.
    Negative margin keeps the chip its original size. */
 .tag__remove {
@@ -355,28 +370,52 @@ a:hover {
   box-shadow: var(--shadow-lg);
 }
 
-.tag-input__suggestions button {
+.tag-input__suggestions[hidden] {
+  display: none;
+}
+
+.tag-input__option {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   gap: 0.75rem;
-  width: 100%;
-  padding: 0.3rem 0.5rem;
-  font: inherit;
+  padding: 0.35rem 0.5rem;
   font-size: 0.85rem;
-  text-align: left;
   color: var(--ink-700);
-  background: none;
-  border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
-.tag-input__suggestions button:hover {
-  background: var(--surface-sunken);
+/* The keyboard's position and the mouse's are the same highlight: there is
+   only ever one "this is what Enter will add". */
+.tag-input__option[aria-selected='true'] {
+  color: var(--brand-800);
+  background: var(--brand-050);
+}
+
+.tag-input__slug {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink-500);
 }
 
 .tag-input__count {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
   color: var(--ink-500);
+}
+
+.tag-input__new {
+  margin-top: 0.25rem;
+  padding: 0.4rem 0.5rem 0.2rem;
+  font-size: 0.78rem;
+  color: var(--ink-500);
+  border-top: 1px solid var(--border);
+}
+
+.tag-input .field__error {
+  display: block;
+  margin-top: 0.3rem;
 }
 
 .checkbox {
@@ -392,8 +431,52 @@ a:hover {
 .wiki-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: 0.35rem 0.75rem;
   margin-bottom: 0.6rem;
+}
+
+/* Related buttons sit together; the wider gap between groups is the only
+   separator, so the bar still wraps cleanly on a phone. */
+.wiki-toolbar__group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.wiki-toolbar__bold {
+  font-weight: 750;
+}
+
+.wiki-toolbar__italic {
+  font-style: italic;
+}
+
+/**
+ * Write / Preview, for screens too narrow to show both. Hidden where the two
+ * panes sit side by side — the breakpoint is the one `.wiki-split` collapses at.
+ */
+.wiki-tabs {
+  display: none;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.wiki-tabs [role='tab'] {
+  padding: 0.45rem 0.9rem;
+  margin-bottom: -1px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink-500);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.wiki-tabs [role='tab'][aria-selected='true'] {
+  color: var(--brand-700);
+  border-bottom-color: var(--brand-600);
 }
 
 .wiki-split {
@@ -405,7 +488,22 @@ a:hover {
 
 @media (max-width: 1100px) {
   .wiki-split {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wiki-tabs {
+    display: flex;
+  }
+
+  .wiki-split--write .wiki-preview,
+  .wiki-split--preview .wiki-source {
+    display: none;
+  }
+
+  /* As a tab the preview is the page, not a pane beside one: it runs to its
+     full length and the window scrolls, not a box inside it. */
+  .wiki-split .wiki-preview {
+    max-height: none;
   }
 }
 
@@ -426,6 +524,10 @@ a:hover {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+.wiki-preview__empty {
+  color: var(--ink-400);
 }
 
 .wiki-preview__label {
@@ -503,7 +605,46 @@ a:hover {
 
 .markdown img {
   max-width: 100%;
+  height: auto;
   border-radius: var(--radius);
+}
+
+/* A pasted URL or a long identifier must break rather than widen the page.
+   `break-word`, not `anywhere`: the latter also lets a table squeeze its
+   columns until ordinary words split in two. */
+.markdown {
+  overflow-wrap: break-word;
+}
+
+.wiki-hero {
+  display: block;
+  width: 100%;
+  max-width: 46rem;
+  max-height: 340px;
+  margin-bottom: 1.5rem;
+  object-fit: cover;
+  border-radius: var(--radius-lg);
+}
+
+.hero-preview {
+  display: block;
+  max-width: 100%;
+  margin-bottom: 0.5rem;
+  border-radius: var(--radius);
+}
+
+/* Who wrote a page and when it last changed: small, but never missing. */
+.provenance {
+  max-width: 46rem;
+  margin-top: 2.5rem;
+  padding-top: 0.9rem;
+  font-size: 0.85rem;
+  color: var(--ink-500);
+  border-top: 1px solid var(--border);
+}
+
+.provenance p {
+  margin: 0 0 0.2em;
 }
 
 /* A wide table must scroll inside itself rather than widening the page. */
@@ -600,6 +741,41 @@ a:hover {
 
 .app__spacer {
   flex: 1;
+}
+
+.app__nav {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  gap: 0.15rem;
+}
+
+.app__nav a {
+  display: flex;
+  align-items: center;
+  padding: 0 0.7rem;
+  font-size: 0.9rem;
+  font-weight: 550;
+  color: #c7d6ee;
+  border-bottom: 2px solid transparent;
+  /* Balances the underline so the label stays on the header's centre line. */
+  border-top: 2px solid transparent;
+}
+
+.app__nav a:hover {
+  color: #fff;
+  text-decoration: none;
+}
+
+/* Underlined as well as brightened: the current section must not be told by
+   colour alone. */
+.app__nav a[aria-current='page'] {
+  color: #fff;
+  border-bottom-color: #8fb6f5;
+}
+
+.app__signout svg {
+  display: none;
 }
 
 .app__header .button {
@@ -742,7 +918,14 @@ a:hover {
   color: var(--brand-700);
 }
 
+/**
+ * A row is one big target for its guide, with tag chips on top that go
+ * elsewhere. The title link is stretched over the whole row by its `::after`
+ * rather than the row being an anchor itself, because an anchor cannot contain
+ * the chips' anchors.
+ */
 .guide-row {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 1rem;
@@ -752,13 +935,64 @@ a:hover {
   transition: background 0.1s ease;
 }
 
+.guide-row:first-child {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
 .guide-row:last-child {
   border-bottom: none;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+.guide-row:only-child {
+  border-radius: var(--radius-lg);
 }
 
 .guide-row:hover {
-  text-decoration: none;
   background: var(--brand-050);
+}
+
+.guide-row__title::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.guide-row__title:hover {
+  text-decoration: none;
+}
+
+/* The focus ring goes round the row, which is what the link covers. */
+.guide-row__title:focus-visible {
+  outline: none;
+}
+
+.guide-row:has(.guide-row__title:focus-visible) {
+  outline: 2px solid var(--brand-600);
+  outline-offset: -2px;
+}
+
+.guide-row__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+  /* The strip itself lets clicks through to the row; only the chips catch them. */
+  pointer-events: none;
+}
+
+.guide-row__tags .tag {
+  position: relative;
+  z-index: 1;
+  padding: 0.05rem 0.5rem;
+  font-size: 0.74rem;
+  pointer-events: auto;
+}
+
+.guide-row__more {
+  font-size: 0.74rem;
+  color: var(--ink-500);
 }
 
 .guide-row__main {
@@ -769,6 +1003,7 @@ a:hover {
 .guide-row__title {
   font-weight: 600;
   color: var(--ink-900);
+  overflow-wrap: anywhere;
 }
 
 .guide-row__summary {
@@ -845,6 +1080,12 @@ a:hover {
   color: var(--border-strong);
 }
 
+/* A crumb can be a guide's whole title, and a title can be one long word. */
+.breadcrumb > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* ------------------------------------------------------------- page header */
 
 .page-header {
@@ -859,6 +1100,12 @@ a:hover {
   min-width: 0;
 }
 
+/* A title is whatever its author typed; one unbroken 80-character string must
+   wrap rather than push the action buttons off the screen. */
+.page-header__text h1 {
+  overflow-wrap: anywhere;
+}
+
 .page-header__sub {
   margin-top: 0.3rem;
   color: var(--ink-500);
@@ -866,8 +1113,47 @@ a:hover {
 
 .page-actions {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.page-header > .page-actions {
+  justify-content: flex-end;
+}
+
+/* --------------------------------------------------------------- sections */
+
+/* A titled block on a listing page: wiki pages, guides, search results. */
+.section {
+  margin-bottom: 2rem;
+}
+
+.section--spaced {
+  margin-top: 2.5rem;
+}
+
+.section__title {
+  margin-bottom: 0.75rem;
+}
+
+.section__title a {
+  color: inherit;
+}
+
+.section__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.section__head a {
+  font-size: 0.88rem;
+}
+
+.section__lead {
+  margin-bottom: 0.75rem;
 }
 
 /* ------------------------------------------------------------------- login */
@@ -942,6 +1228,10 @@ a:hover {
   flex-direction: column;
 }
 
+.guide__meta dd {
+  margin: 0;
+}
+
 .guide__meta-label {
   font-size: 0.72rem;
   font-weight: 650;
@@ -983,8 +1273,22 @@ a:hover {
 
 .step__title {
   align-self: center;
+  /* A grid item will not shrink below its longest word unless told it may,
+     and a step title with no spaces in it then widens the whole page. */
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 1.1rem;
   font-weight: 650;
+}
+
+.step__body {
+  min-width: 0;
+}
+
+.guide__intro,
+.guide__conclusion,
+.page-header__sub {
+  overflow-wrap: anywhere;
 }
 
 .step__body {
@@ -992,36 +1296,76 @@ a:hover {
   margin-top: 0.5rem;
 }
 
+/* The conclusion borrows a step's rule and spacing but has no number column. */
+.step--plain {
+  display: block;
+}
+
+.guide__conclusion {
+  margin: 0.5rem 0 0;
+  white-space: pre-wrap;
+}
+
 .step__media {
   display: grid;
   gap: 0.6rem;
   margin-bottom: 0.9rem;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  align-items: start;
 }
 
+/**
+ * The frame shrinks to the picture; the picture is never stretched, cropped or
+ * letterboxed inside the frame.
+ *
+ * This is what keeps annotations where they were drawn. The overlay is sized to
+ * the frame, so the frame has to be exactly the picture: `object-fit: cover`
+ * cut off the very knob a bullet described, and `contain` inside a taller or
+ * wider box drew the picture smaller than the frame — and with it every shape
+ * a few percent away from what it pointed at.
+ */
 .step__media .annotated {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
   background: var(--surface-sunken);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
 }
 
-/**
- * `contain`, never `cover`. Cropping a step photo can cut out the very knob the
- * bullet is describing — and because the annotation overlay is sized to the
- * element box while a cropped picture is not, `cover` also lands every drawn
- * shape in the wrong place on any step with more than one image.
- */
-.step__media img {
-  width: 100%;
-  height: 100%;
+.step__media .annotated img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
   max-height: 340px;
-  object-fit: contain;
 }
 
-.step__media--single img {
-  object-fit: contain;
+.step__media--1 .annotated img {
   max-height: 460px;
+}
+
+/* A video takes the place of a picture and is sized like one. */
+.step__video {
+  line-height: 0;
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.step__video video {
+  display: block;
+  width: 100%;
+  max-height: 340px;
+}
+
+.step__media--1 .step__video video {
+  max-height: 460px;
+}
+
+.step__video-note {
+  line-height: 1.4;
 }
 
 /* -------------------------------------------------------------- annotation */
@@ -1078,6 +1422,70 @@ a:hover {
   color: #fff;
   background: var(--brand-700);
   border-color: var(--brand-700);
+}
+
+/* The step's bullets, as the way to pick a colour: a shape belongs to one. */
+.annotate__bullets,
+.annotate__shapes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.annotate__bullets-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-500);
+}
+
+.annotate__bullet,
+.annotate__shape {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 16rem;
+  padding: 0.2rem 0.6rem;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--ink-700);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.annotate__bullet[aria-pressed='true'],
+.annotate__shape[aria-pressed='true'] {
+  color: var(--ink-900);
+  background: var(--brand-050);
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 1px var(--brand-600);
+}
+
+.annotate__bullet-dot {
+  flex: 0 0 auto;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+}
+
+.annotate__bullet-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annotate .field {
+  margin-bottom: 0;
+}
+
+.video-preview {
+  display: block;
+  width: 100%;
+  max-height: 50vh;
+  background: #000;
+  border-radius: var(--radius);
 }
 
 .annotate__surface {
@@ -1396,6 +1804,14 @@ a:hover {
   flex: 0 0 auto;
 }
 
+/* The style button shows the bullet as it will be read: its dot or flag in the
+   bullet's own colour. A button sets its own text colour, which is what the
+   marker draws with, so without this every bullet in the editor looked black
+   whatever had been chosen for it. */
+.editor-bullet__picker > .button {
+  color: inherit;
+}
+
 .popover {
   position: absolute;
   z-index: 30;
@@ -1439,6 +1855,8 @@ a:hover {
 }
 
 .media-slots {
+  --slot-width: 110px;
+  --slot-height: 82px;
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
@@ -1447,20 +1865,52 @@ a:hover {
 
 .media-slot {
   position: relative;
-  width: 110px;
-  height: 82px;
+  display: grid;
+  place-items: center;
+  width: var(--slot-width);
+  height: var(--slot-height);
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--border);
   background: var(--surface-sunken);
 }
 
-.media-slot .annotated,
-.media-slot img {
+/* The thumbnail is the whole picture, fitted — never a cropped fill. Its
+   annotations are drawn over it, and they only line up with a picture that is
+   exactly as big as the box they are measured against (see `.step__media`). */
+.media-slot .annotated {
+  width: auto;
+}
+
+.media-slot .annotated img {
+  width: auto;
+  height: auto;
+  max-width: var(--slot-width);
+  max-height: var(--slot-height);
+}
+
+.media-slot video {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  display: block;
+  background: #000;
+}
+
+.media-slot__kind {
+  position: absolute;
+  bottom: 3px;
+  left: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.5;
+  color: #fff;
+  background: rgba(16, 21, 28, 0.72);
+  border-radius: 999px;
 }
 
 /* Two 20px targets 4px apart, one of which deletes an image with no undo, is
@@ -1522,8 +1972,8 @@ a:hover {
 .media-dropzone {
   display: grid;
   place-items: center;
-  width: 110px;
-  height: 82px;
+  width: var(--slot-width);
+  height: var(--slot-height);
   font-size: 0.76rem;
   text-align: center;
   color: var(--ink-500);
@@ -1538,6 +1988,58 @@ a:hover {
   color: var(--brand-700);
   border-color: var(--brand-600);
   background: var(--brand-050);
+}
+
+/* An upload in flight takes the slot it is about to fill. */
+.media-upload {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  width: var(--slot-width);
+  height: var(--slot-height);
+  padding: 0 0.5rem;
+  font-size: 0.76rem;
+  color: var(--brand-800);
+  background: var(--brand-050);
+  border: 1px solid var(--brand-100);
+  border-radius: var(--radius);
+}
+
+.media-upload__label {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.media-upload__bar {
+  width: 100%;
+  height: 6px;
+  accent-color: var(--brand-600);
+}
+
+.media-upload__cancel {
+  padding: 0.1rem 0.3rem;
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--ink-700);
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.media-problems {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.media-problems ul {
+  flex: 1;
+  margin: 0;
+  padding-left: 1.1rem;
 }
 
 .save-state {
@@ -1559,6 +2061,19 @@ a:hover {
   background: var(--surface-raised);
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-lg);
+}
+
+.empty-state p {
+  margin: 0;
+}
+
+.empty-state__action {
+  margin-top: 0.75rem !important;
+}
+
+/* For a gap in an otherwise full page, rather than a page with nothing on it. */
+.empty-state--compact {
+  padding: 1.5rem;
 }
 
 .alert {
@@ -1636,7 +2151,14 @@ a:hover {
   box-shadow: var(--shadow-lg);
 }
 
+/* Stays put while a tall dialog scrolls, so its name and the way out of it
+   are always on screen. */
 .modal__head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1647,6 +2169,236 @@ a:hover {
 
 .modal__body {
   padding: 1.25rem;
+}
+
+.modal:focus {
+  outline: none;
+}
+
+.dialog-lead {
+  display: block;
+  margin-bottom: 1rem;
+}
+
+/* ------------------------------------------------------------------ history */
+
+.revision-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.revision-list li + li {
+  border-top: 1px solid var(--border);
+}
+
+.revision-list__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1.5rem;
+  padding: 0.85rem 1.1rem;
+  color: inherit;
+}
+
+.revision-list__row:hover {
+  text-decoration: none;
+  background: var(--brand-050);
+}
+
+.revision-list li:first-child .revision-list__row {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.revision-list li:last-child .revision-list__row {
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+.revision-list li:only-child .revision-list__row {
+  border-radius: var(--radius-lg);
+}
+
+.revision-list__version {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 600;
+  color: var(--ink-900);
+}
+
+.revision-list__meta {
+  font-size: 0.85rem;
+  color: var(--ink-500);
+}
+
+/**
+ * Stays at the top of the screen while a past version is read. The page under
+ * it is drawn by the reader's own components and looks exactly like the live
+ * guide, so the one thing saying "this is not it" must not scroll away.
+ */
+.revision-banner {
+  position: sticky;
+  top: calc(var(--header-height) + 0.5rem);
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.65rem 0.9rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.9rem;
+  color: var(--warning-600);
+  background: var(--warning-050);
+  border: 1px solid #ecd9a8;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.revision-banner > svg {
+  flex: 0 0 auto;
+}
+
+.revision-banner__text {
+  flex: 1 1 16rem;
+  margin: 0;
+}
+
+.revision-banner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* --------------------------------------------------------------- tag index */
+
+.list-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.list-controls__filter {
+  flex: 1 1 14rem;
+  max-width: 22rem;
+}
+
+.list-controls__count {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: var(--ink-500);
+}
+
+/* Two or three choices of which exactly one is on. */
+.segmented {
+  display: inline-flex;
+}
+
+.segmented .button {
+  border-radius: 0;
+}
+
+.segmented .button + .button {
+  margin-left: -1px;
+}
+
+.segmented .button:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.segmented .button:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.segmented .button[aria-pressed='true'] {
+  position: relative;
+  color: var(--brand-800);
+  background: var(--brand-050);
+  border-color: var(--brand-600);
+}
+
+.tag-index {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag-index__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  height: 100%;
+  padding: 0.6rem 0.85rem;
+  color: var(--ink-900);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.tag-index__item:hover {
+  text-decoration: none;
+  background: var(--brand-050);
+  border-color: var(--brand-600);
+}
+
+.tag-index__name {
+  min-width: 0;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+
+.tag-index__count {
+  flex: 0 0 auto;
+  min-width: 1.7rem;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--brand-800);
+  background: var(--brand-050);
+  border: 1px solid var(--brand-100);
+  border-radius: 999px;
+}
+
+/* ---------------------------------------------------------- category order */
+
+.order-list {
+  margin: 0 0 1.25rem;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.order-list__row {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.2rem 0.4rem 0.2rem 0.6rem;
+}
+
+.order-list__row + .order-list__row {
+  border-top: 1px solid var(--border);
+}
+
+.order-list__name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+
+.order-list__note {
+  font-weight: 400;
+  color: var(--ink-500);
 }
 
 /* ------------------------------------------------------------------- print */
@@ -1678,9 +2430,78 @@ a:hover {
   .searchbar,
   .editor__sidebar,
   .wiki-toolbar,
+  .wiki-tabs,
   .media-slot__action,
-  .media-dropzone {
+  .media-dropzone,
+  .alert,
+  .revision-banner__actions,
+  .step__video video {
     display: none !important;
+  }
+
+  /* A printed past version must still say it is one — more than ever. */
+  .revision-banner {
+    position: static;
+    box-shadow: none;
+    color: #000;
+    background: #fff;
+    border: 1pt solid #000;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .step__video {
+    background: none;
+    border: 1px dashed #999;
+    padding: 0.4rem 0.6rem;
+  }
+
+  /* Two classes, to outweigh the rule that underlines every `.print-only`. */
+  .step__video .step__video-note {
+    margin: 0;
+    border: none;
+    padding: 0;
+  }
+
+  /* Tags are navigation; on paper they are a row of words. */
+  .tag {
+    padding: 0;
+    border: none;
+    background: none;
+    color: #333;
+  }
+
+  .tag + .tag::before {
+    content: '· ';
+  }
+
+  .tag-row {
+    gap: 0.3rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .markdown,
+  .provenance {
+    max-width: none;
+  }
+
+  .markdown h2,
+  .markdown h3,
+  .step__title {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .markdown img,
+  .markdown table,
+  .markdown pre,
+  .guide-row {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .card {
+    box-shadow: none;
   }
 
   .app__main {
@@ -1711,7 +2532,8 @@ a:hover {
     grid-template-columns: repeat(auto-fit, minmax(45mm, 1fr));
   }
 
-  .step__media img {
+  .step__media .annotated img,
+  .step__media--1 .annotated img {
     max-height: 55mm;
   }
 
@@ -1781,8 +2603,21 @@ a:hover {
     flex: 1 1 100%;
   }
 
-  .app__user span:not(.avatar) {
+  .app__user-name {
     display: none;
+  }
+
+  /* The sections get a row of their own, above the search box. */
+  .app__nav {
+    order: 9;
+    flex: 1 1 100%;
+    align-self: auto;
+    margin: 0 -0.4rem;
+    overflow-x: auto;
+  }
+
+  .app__nav a {
+    padding: 0.35rem 0.6rem;
   }
 
   .app__main {
@@ -1894,10 +2729,43 @@ a:hover {
     border-color: var(--border);
   }
 
-  .media-slot,
-  .media-dropzone {
-    width: 88px;
-    height: 66px;
+  .media-slots {
+    --slot-width: 88px;
+    --slot-height: 66px;
+  }
+
+  /* "Sign out" in words pushed the header onto a row of its own at 390px. */
+  .app__signout {
+    padding: 0.45rem;
+  }
+
+  .app__signout svg {
+    display: block;
+  }
+
+  .app__signout-label {
+    display: none;
+  }
+
+  .page-header > .page-actions {
+    justify-content: flex-start;
+  }
+
+  .list-controls__count {
+    margin-left: 0;
+  }
+
+  .revision-banner {
+    top: 0.5rem;
+    position: static;
+  }
+
+  .modal-backdrop {
+    padding: 0.75rem;
+  }
+
+  .modal__body {
+    padding: 1rem;
   }
 
   .modal {
@@ -2065,6 +2933,14 @@ a:hover {
   border-radius: var(--radius-sm);
 }
 
+.step-nav__thumb--video {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--ink-700);
+  border-color: var(--ink-700);
+}
+
 .step-nav__title {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -2126,5 +3002,27 @@ a:hover {
 @media print {
   .step-nav {
     display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ motion */
+
+/**
+ * For people who have asked their system for less movement. Nothing here
+ * depends on an animation to be understood, so they all simply stop: the hover
+ * lift on cards, the colour fades, and the browser's smooth scrolling.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+
+  .category-card:hover {
+    transform: none;
   }
 }

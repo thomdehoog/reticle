@@ -80,3 +80,59 @@ export function possibleParents(categories: Category[], categoryId: string | nul
   }
   return categories.filter((category) => !excluded.has(category.id)).sort(byOrder)
 }
+
+export interface OrderChange {
+  id: string
+  orderIndex: number
+}
+
+/**
+ * Moves a category one place among its siblings and says which rows have to be
+ * rewritten for that order to hold.
+ *
+ * Swapping two `orderIndex` values is not enough: siblings created by an import
+ * can share an index and fall back on their names, and swapping two equal
+ * numbers moves nothing. So the whole sibling list is renumbered from zero in
+ * its new order, and only the rows whose number actually changes are returned
+ * — for a tidy list that is the two that traded places.
+ */
+export function moveAmongSiblings(
+  categories: Category[],
+  categoryId: string,
+  delta: -1 | 1,
+): OrderChange[] {
+  const moving = categories.find((category) => category.id === categoryId)
+  if (!moving) return []
+
+  const siblings = categories
+    .filter((category) => category.parentId === moving.parentId)
+    .sort(byOrder)
+  const from = siblings.findIndex((category) => category.id === categoryId)
+  const to = from + delta
+  if (to < 0 || to >= siblings.length) return []
+
+  siblings.splice(from, 1)
+  siblings.splice(to, 0, moving)
+
+  return siblings
+    .map((category, index) => ({ id: category.id, orderIndex: index, was: category.orderIndex }))
+    .filter((entry) => entry.orderIndex !== entry.was)
+    .map(({ id, orderIndex }) => ({ id, orderIndex }))
+}
+
+/** A category's ancestors, outermost first, for a breadcrumb. */
+export function ancestorsOf(categories: Category[], category: Category): Category[] {
+  const byId = new Map(categories.map((candidate) => [candidate.id, candidate]))
+  const trail: Category[] = []
+  const seen = new Set<string>([category.id])
+
+  let parentId = category.parentId
+  while (parentId && !seen.has(parentId)) {
+    const parent = byId.get(parentId)
+    if (!parent) break
+    trail.unshift(parent)
+    seen.add(parentId)
+    parentId = parent.parentId
+  }
+  return trail
+}

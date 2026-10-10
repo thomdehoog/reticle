@@ -34,7 +34,7 @@ describe('PageEditorPage', () => {
     expect(await source()).toHaveValue('Use **oil** for the 63x.')
     expect(screen.getByDisplayValue('Choosing an objective')).toBeInTheDocument()
 
-    const preview = screen.getByText('Preview').parentElement as HTMLElement
+    const preview = screen.getByRole('region', { name: 'Preview' })
     expect(within(preview).getByText('oil').tagName).toBe('STRONG')
   })
 
@@ -132,6 +132,11 @@ describe('PageEditorPage', () => {
 
     await waitFor(() => expect(box).toHaveValue('![objective turret](/api/media/m-1)\n\n'))
     expect(server.count('POST', '/media')).toBe(1)
+    /* The file name is a stand-in for a description, left selected so that
+       the next thing typed replaces it. */
+    await waitFor(() =>
+      expect(box.value.slice(box.selectionStart, box.selectionEnd)).toBe('objective turret'),
+    )
   })
 
   it('files the page under a category and makes it the landing page', async () => {

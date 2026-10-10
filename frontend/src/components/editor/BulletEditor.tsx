@@ -99,7 +99,12 @@ export function BulletEditor({
   }
 
   return (
-    <div className={`editor-bullet bullet--color-${bullet.color}`}>
+    <div
+      className={`editor-bullet bullet--color-${bullet.color}${
+        /* A flag is drawn in the colour of its kind, as the reader draws it. */
+        bullet.icon ? ` bullet--kind-${bullet.icon}` : ''
+      }`}
+    >
       <div className="editor-bullet__picker">
         <button
           type="button"

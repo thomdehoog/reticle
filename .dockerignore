@@ -1,0 +1,47 @@
+# Build context for both images (the context is the repository root).
+#
+# An allow-list, not a deny-list: everything is excluded, then exactly what the
+# two Dockerfiles copy is let back in. A deny-list has to be right about every
+# file anyone will ever create here; this one fails safe. In particular a
+# database, an uploaded photograph, a .env with the session key in it or a
+# 300 MB node_modules can never be sent to the Docker daemon or baked into a
+# layer, wherever in the tree they turn up.
+*
+
+!backend/
+!frontend/
+!deploy/
+deploy/*
+!deploy/docker/
+!deploy/caddy/
+!LICENSE
+!NOTICE.md
+
+# ...and inside the parts let back in, the things that still must not travel.
+**/.env
+**/.env.*
+!**/.env.example
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.db-journal
+**/*.sqlite3
+backend/media/
+backend/media_store/
+backend/ci_media/
+**/node_modules/
+frontend/dist/
+**/.vite/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.coverage
+**/htmlcov/
+**/.venv/
+backend/tests/
+backend/README.md
+backend/requirements-dev.txt
+frontend/e2e/
+**/Dockerfile
+**/*.md
+!NOTICE.md

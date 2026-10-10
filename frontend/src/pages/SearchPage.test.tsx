@@ -83,7 +83,7 @@ describe('SearchPage', () => {
     const user = userEvent.setup()
     const { location } = renderApp({ route: '/search?q=confocal', server })
 
-    const box = await screen.findByLabelText('Search guides')
+    const box = await screen.findByLabelText('Search guides and wiki pages')
     expect(box).toHaveValue('confocal')
 
     await user.clear(box)

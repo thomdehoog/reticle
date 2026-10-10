@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { useApi } from '../api/context'
 import { useSession } from '../auth/session'
+import { CategoryCrumbs, Crumb } from '../components/CategoryCrumbs'
 import { CategoryDialog } from '../components/CategoryDialog'
 import { GuideRow, PageRow } from '../components/GuideRow'
 import { IconEdit, IconPlus } from '../components/icons'
@@ -56,27 +57,16 @@ function CategoryContent({ category, categories }: { category: Category; categor
   const [dialog, setDialog] = useState<'landing' | 'category' | null>(null)
 
   const children = browsableChildren(categories, category.id)
-  const parent = category.parentId
-    ? categories.find((candidate) => candidate.id === category.parentId)
-    : undefined
   const articles = pages.filter((page) => !page.isLanding)
   const empty = guides.length === 0 && articles.length === 0 && children.length === 0 && !landing
 
   return (
     <>
-      <nav className="breadcrumb">
-        <Link to="/">Guides</Link>
-        {parent && (
-          <>
-            <span className="breadcrumb__sep">/</span>
-            <Link to="/c/$slug" params={{ slug: parent.slug }}>
-              {parent.name}
-            </Link>
-          </>
-        )}
-        <span className="breadcrumb__sep">/</span>
-        <span>{category.name}</span>
-      </nav>
+      <CategoryCrumbs categories={categories} categoryId={category.parentId}>
+        <Crumb>
+          <span>{category.name}</span>
+        </Crumb>
+      </CategoryCrumbs>
 
       <div className="page-header">
         <div className="page-header__text">
@@ -86,16 +76,11 @@ function CategoryContent({ category, categories }: { category: Category; categor
         {can('author') && (
           <div className="page-actions">
             {landing && landing.status !== 'published' && <StatusBadge status={landing.status} />}
-            {landing ? (
+            {landing && (
               <Link className="button" to="/w/$id/edit" params={{ id: landing.id }}>
                 <IconEdit />
                 Edit landing page
               </Link>
-            ) : (
-              <button className="button" type="button" onClick={() => setDialog('landing')}>
-                <IconPlus />
-                Write landing page
-              </button>
             )}
             {can('admin') && (
               <button className="button" type="button" onClick={() => setDialog('category')}>
@@ -106,27 +91,63 @@ function CategoryContent({ category, categories }: { category: Category; categor
         )}
       </div>
 
-      {landing && <LandingBody page={landing} />}
-
-      {children.length > 0 && (
-        <div className="grid" style={{ margin: '1.5rem 0 2rem' }}>
-          {children.map((child) => (
-            <Link
-              key={child.id}
-              to="/c/$slug"
-              params={{ slug: child.slug }}
-              className="category-card"
-            >
-              <span className="category-card__name">{child.name}</span>
-              {child.description && <span className="category-card__desc">{child.description}</span>}
-            </Link>
-          ))}
+      {landing && landing.status !== 'published' && (
+        <div className="alert alert--info" role="note">
+          <strong>The landing page below is a draft.</strong> Readers see this category without it
+          until it is published.
         </div>
       )}
 
+      {landing && (
+        <div className="section">
+          <LandingBody page={landing} />
+        </div>
+      )}
+
+      {/* A category without a landing page is a bare list. Saying so, with the
+          way to fix it, is how the lists turn into pages over time — but only
+          to the people who can write one. */}
+      {!landing && can('author') && (
+        <div className="empty-state empty-state--compact section">
+          <p>
+            <strong>This category has no landing page yet.</strong> A landing page introduces the
+            category and can gather guides from anywhere by tag.
+          </p>
+          <p className="empty-state__action">
+            <button className="button" type="button" onClick={() => setDialog('landing')}>
+              <IconPlus />
+              Write this page
+            </button>
+          </p>
+        </div>
+      )}
+
+      {children.length > 0 && (
+        <section className="section">
+          {(landing || guides.length > 0 || articles.length > 0) && (
+            <h2 className="section__title">In this category</h2>
+          )}
+          <div className="grid">
+            {children.map((child) => (
+              <Link
+                key={child.id}
+                to="/c/$slug"
+                params={{ slug: child.slug }}
+                className="category-card"
+              >
+                <span className="category-card__name">{child.name}</span>
+                {child.description && (
+                  <span className="category-card__desc">{child.description}</span>
+                )}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
       {articles.length > 0 && (
-        <section style={{ marginBottom: '2rem' }}>
-          <h2 style={{ marginBottom: '0.75rem' }}>Wiki pages</h2>
+        <section className="section">
+          <h2 className="section__title">Wiki pages</h2>
           <div className="card">
             {articles.map((page) => (
               <PageRow key={page.id} page={page} />
@@ -136,12 +157,12 @@ function CategoryContent({ category, categories }: { category: Category; categor
       )}
 
       {guides.length > 0 && (
-        <section>
+        <section className="section">
           {/* Only needs saying when something else on the page could be
               mistaken for it: a landing page usually embeds guide lists of
               its own, gathered by tag from other categories. */}
-          {(landing || articles.length > 0) && (
-            <h2 style={{ marginBottom: '0.75rem' }}>Guides in this category</h2>
+          {(landing || articles.length > 0 || children.length > 0) && (
+            <h2 className="section__title">Guides in this category</h2>
           )}
           <div className="card">
             {guides.map((guide) => (
@@ -151,7 +172,10 @@ function CategoryContent({ category, categories }: { category: Category; categor
         </section>
       )}
 
-      {empty && <EmptyState>No guides in this category yet.</EmptyState>}
+      {empty && !can('author') && <EmptyState>Nothing in this category yet.</EmptyState>}
+      {empty && can('author') && (
+        <p className="page-header__sub">No guides are filed in this category yet.</p>
+      )}
 
       {dialog === 'landing' && (
         <NewPageDialog

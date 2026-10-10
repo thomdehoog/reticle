@@ -18,6 +18,13 @@ export const guideKeys = {
   details: () => [...guideKeys.all, 'detail'] as const,
   /** Readers arrive by slug and the editor by id, so both spellings are keys. */
   detail: (idOrSlug: string) => [...guideKeys.details(), idOrSlug] as const,
+  /**
+   * Publish history sits under the guide keys so that publishing — which
+   * invalidates everything derived from a guide — also refreshes the list of
+   * versions it has just added to.
+   */
+  revisions: (id: string) => [...guideKeys.all, 'revisions', id] as const,
+  revision: (id: string, version: number) => [...guideKeys.revisions(id), version] as const,
 }
 
 export const guideQueries = {
@@ -31,6 +38,20 @@ export const guideQueries = {
     queryOptions({
       queryKey: guideKeys.detail(idOrSlug),
       queryFn: () => api.getGuide(idOrSlug),
+    }),
+
+  revisions: (api: ReticleApi, id: string) =>
+    queryOptions({
+      queryKey: guideKeys.revisions(id),
+      queryFn: () => api.listGuideRevisions(id),
+    }),
+
+  /** A published snapshot never changes, so one fetch lasts the session. */
+  revision: (api: ReticleApi, id: string, version: number) =>
+    queryOptions({
+      queryKey: guideKeys.revision(id, version),
+      queryFn: () => api.getGuideRevision(id, version),
+      staleTime: Infinity,
     }),
 }
 

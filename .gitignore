@@ -18,6 +18,17 @@ backend/media/
 backend/media_store/
 backend/.env
 
+# Docker Compose deployment: the root .env holds the session key, backups hold
+# everything, and deploy/certs holds a private key.
+/.env
+/backups/
+/import/
+/deploy/certs/*
+!/deploy/certs/.gitkeep
+/compose.override.yaml
+*.db-wal
+*.db-shm
+
 # Smoke-test screenshots are build output, not source
 frontend/e2e/shots/
 

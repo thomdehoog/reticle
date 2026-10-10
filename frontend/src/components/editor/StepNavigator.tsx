@@ -21,7 +21,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react'
 
 import { moveStep } from '../../domain/guide'
 import type { Step } from '../../domain/types'
-import { IconChevronDown, IconChevronUp } from '../icons'
+import { IconChevronDown, IconChevronUp, IconVideo } from '../icons'
 
 const UNTITLED = 'Untitled step'
 
@@ -173,7 +173,16 @@ export function StepNavigator({ steps, stepsContainer, onReorder }: StepNavigato
                 onClick={() => show(index)}
               >
                 <span className="step-nav__number">{number}</span>
-                {thumbnail && <img className="step-nav__thumb" src={thumbnail.url} alt="" />}
+                {thumbnail?.kind === 'image' && (
+                  <img className="step-nav__thumb" src={thumbnail.url} alt="" />
+                )}
+                {/* A video has no still to shrink; the rail only needs to say
+                    that this step has something to watch. */}
+                {thumbnail?.kind === 'video' && (
+                  <span className="step-nav__thumb step-nav__thumb--video">
+                    <IconVideo size={14} />
+                  </span>
+                )}
                 <span className={`step-nav__title${title ? '' : ' step-nav__title--empty'}`}>
                   {title || UNTITLED}
                 </span>

@@ -2,6 +2,7 @@ import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query
 
 import { useApi } from '../api/context'
 import type { CategoryChanges, CategoryInput, ReticleApi } from '../api/reticle'
+import type { OrderChange } from '../domain/category'
 
 export const categoryKeys = {
   all: ['categories'] as const,
@@ -46,5 +47,24 @@ export function useDeleteCategory() {
   return useMutation({
     mutationFn: (id: string) => api.deleteCategory(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: categoryKeys.all }),
+  })
+}
+
+/**
+ * Writes a new sibling order. One request per row that moved, in sequence:
+ * there is no bulk endpoint, and for the usual nudge that is two small PATCHes.
+ * The list is refetched whether or not they all landed, so what is on screen
+ * is what the server holds even after a failure half-way.
+ */
+export function useReorderCategories() {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (changes: OrderChange[]) => {
+      for (const { id, orderIndex } of changes) {
+        await api.updateCategory(id, { orderIndex })
+      }
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: categoryKeys.all }),
   })
 }

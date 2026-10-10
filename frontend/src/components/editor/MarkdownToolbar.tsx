@@ -1,16 +1,35 @@
 import { useRef, useState } from 'react'
 
-import { imageMarkdown } from '../../domain/markdownEdit'
-import { useUploadMedia } from '../../queries/media'
+import { IMAGE_ACCEPT } from '../../domain/media'
+import {
+  insertBlock,
+  linkSelection,
+  styleLines,
+  wrapSelection,
+  type TextEdit,
+} from '../../domain/markdownEdit'
 import { GuideListDialog } from './GuideListDialog'
 
+/** Computes an edit from the text and the selection in it. */
+export type BodyEdit = (value: string, selectionStart: number, selectionEnd: number) => TextEdit
+
 interface MarkdownToolbarProps {
-  /** Wraps the selection, or a placeholder when nothing is selected. */
-  onWrap: (before: string, after: string, placeholder: string) => void
-  /** Inserts a block as its own paragraph at the cursor. */
-  onInsertBlock: (block: string) => void
-  onError: (error: unknown) => void
+  /** Applies an edit to the page body and restores the cursor. */
+  onEdit: (edit: BodyEdit) => void
+  /** Uploads a picture and places it at the cursor. */
+  onImage: (file: File) => void
+  /** The share of the picture sent so far, 0–1, or null when none is uploading. */
+  uploading: number | null
 }
+
+const TABLE = '| Column | Column |\n| --- | --- |\n| Value | Value |'
+
+/** The formatting moves that also have a keyboard shortcut in the source box. */
+export const BOLD: BodyEdit = (value, start, end) =>
+  wrapSelection(value, start, end, '**', '**', 'bold text')
+export const ITALIC: BodyEdit = (value, start, end) =>
+  wrapSelection(value, start, end, '_', '_', 'italic text')
+export const LINK: BodyEdit = linkSelection
 
 /**
  * The buttons above the wiki source.
@@ -18,91 +37,97 @@ interface MarkdownToolbarProps {
  * They only ever produce Markdown text — the same text an author could type —
  * so the toolbar is a convenience and never a second way for content to exist.
  */
-export function MarkdownToolbar({ onWrap, onInsertBlock, onError }: MarkdownToolbarProps) {
-  const upload = useUploadMedia()
+export function MarkdownToolbar({ onEdit, onImage, uploading }: MarkdownToolbarProps) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [insertingList, setInsertingList] = useState(false)
 
-  /**
-   * An image goes into the body as ordinary Markdown pointing at the upload.
-   * The server reads those references on save, which is what later lets a
-   * viewer fetch the picture once the page is published.
-   */
-  async function onPickImage(file: File | undefined) {
-    if (!file) return
-    onError(null)
-    try {
-      const media = await upload.mutateAsync(file)
-      onInsertBlock(imageMarkdown(file.name.replace(/\.[^.]+$/, ''), media.url))
-    } catch (cause) {
-      onError(cause)
-    }
-  }
+  const lines = (style: Parameters<typeof styleLines>[3]) => () =>
+    onEdit((value, start, end) => styleLines(value, start, end, style))
 
   return (
-    <div className="wiki-toolbar">
-      <button type="button" className="button button--sm" onClick={() => onInsertBlock('## Heading')}>
-        Heading
-      </button>
-      <button
-        type="button"
-        className="button button--sm"
-        onClick={() => onWrap('**', '**', 'bold text')}
-      >
-        Bold
-      </button>
-      <button
-        type="button"
-        className="button button--sm"
-        onClick={() => onWrap('_', '_', 'italic text')}
-      >
-        Italic
-      </button>
-      <button
-        type="button"
-        className="button button--sm"
-        onClick={() => onInsertBlock('- First item\n- Second item')}
-      >
-        List
-      </button>
-      <button
-        type="button"
-        className="button button--sm"
-        onClick={() => onWrap('[', '](https://)', 'link text')}
-      >
-        Link
-      </button>
-      <button
-        type="button"
-        className="button button--sm"
-        onClick={() => onInsertBlock('| Column | Column |\n| --- | --- |\n| Value | Value |')}
-      >
-        Table
-      </button>
-      <button
-        type="button"
-        className="button button--sm"
-        disabled={upload.isPending}
-        onClick={() => fileRef.current?.click()}
-      >
-        {upload.isPending ? 'Uploading…' : 'Image'}
-      </button>
-      <button
-        type="button"
-        className="button button--sm button--primary"
-        onClick={() => setInsertingList(true)}
-      >
-        Insert guide list
-      </button>
+    <div className="wiki-toolbar" role="toolbar" aria-label="Formatting">
+      <div className="wiki-toolbar__group">
+        <button type="button" className="button button--sm" onClick={lines('heading')}>
+          Heading
+        </button>
+        <button type="button" className="button button--sm" onClick={lines('subheading')}>
+          Subheading
+        </button>
+      </div>
+
+      <div className="wiki-toolbar__group">
+        <button
+          type="button"
+          className="button button--sm wiki-toolbar__bold"
+          title="Bold (Ctrl+B)"
+          onClick={() => onEdit(BOLD)}
+        >
+          Bold
+        </button>
+        <button
+          type="button"
+          className="button button--sm wiki-toolbar__italic"
+          title="Italic (Ctrl+I)"
+          onClick={() => onEdit(ITALIC)}
+        >
+          Italic
+        </button>
+        <button
+          type="button"
+          className="button button--sm"
+          title="Link (Ctrl+K)"
+          onClick={() => onEdit(LINK)}
+        >
+          Link
+        </button>
+      </div>
+
+      <div className="wiki-toolbar__group">
+        <button type="button" className="button button--sm" onClick={lines('bullets')}>
+          List
+        </button>
+        <button type="button" className="button button--sm" onClick={lines('numbers')}>
+          Numbered list
+        </button>
+        <button type="button" className="button button--sm" onClick={lines('quote')}>
+          Quote
+        </button>
+        <button
+          type="button"
+          className="button button--sm"
+          onClick={() => onEdit((value, start) => insertBlock(value, start, TABLE))}
+        >
+          Table
+        </button>
+      </div>
+
+      <div className="wiki-toolbar__group">
+        <button
+          type="button"
+          className="button button--sm"
+          disabled={uploading !== null}
+          onClick={() => fileRef.current?.click()}
+        >
+          {uploading === null ? 'Image' : `Uploading… ${Math.round(uploading * 100)}%`}
+        </button>
+        <button
+          type="button"
+          className="button button--sm button--primary"
+          onClick={() => setInsertingList(true)}
+        >
+          Insert guide list
+        </button>
+      </div>
 
       <input
         ref={fileRef}
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
+        accept={IMAGE_ACCEPT}
         aria-label="Upload an image"
         hidden
         onChange={(event) => {
-          void onPickImage(event.target.files?.[0])
+          const file = event.target.files?.[0]
+          if (file) onImage(file)
           event.target.value = ''
         }}
       />
@@ -111,8 +136,8 @@ export function MarkdownToolbar({ onWrap, onInsertBlock, onError }: MarkdownTool
         <GuideListDialog
           onClose={() => setInsertingList(false)}
           onInsert={(block) => {
-            onInsertBlock(block)
             setInsertingList(false)
+            onEdit((value, start) => insertBlock(value, start, block))
           }}
         />
       )}

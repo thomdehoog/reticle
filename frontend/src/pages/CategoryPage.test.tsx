@@ -79,7 +79,7 @@ describe('CategoryPage', () => {
     renderApp({ route: '/c/confocal', server })
 
     await screen.findByRole('heading', { name: 'Confocal' })
-    const crumbs = screen.getByRole('navigation')
+    const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' })
     expect(within(crumbs).getByRole('link', { name: 'Light Microscopy' })).toHaveAttribute(
       'href',
       '/c/light-microscopy',
@@ -121,7 +121,7 @@ describe('CategoryPage', () => {
       'href',
       '/g/stellaris-startup',
     )
-    expect(screen.queryByText('No guides in this category yet.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Nothing in this category yet.')).not.toBeInTheDocument()
   })
 
   it('counts reading a landing page as one read of that page', async () => {
@@ -140,7 +140,7 @@ describe('CategoryPage', () => {
     })
     renderApp({ route: '/c/light-microscopy', server })
 
-    expect(await screen.findByText('No guides in this category yet.')).toBeInTheDocument()
+    expect(await screen.findByText('Nothing in this category yet.')).toBeInTheDocument()
     expect(screen.queryByText('Start here if you are new to the facility.')).not.toBeInTheDocument()
   })
 
@@ -159,7 +159,7 @@ describe('CategoryPage', () => {
     const user = userEvent.setup()
     const { location } = renderApp({ route: '/c/light-microscopy', server })
 
-    await user.click(await screen.findByRole('button', { name: 'Write landing page' }))
+    await user.click(await screen.findByRole('button', { name: 'Write this page' }))
     expect(screen.getByLabelText('Title')).toHaveValue('Light Microscopy')
     await user.click(screen.getByRole('button', { name: 'Create and start writing' }))
 
@@ -190,7 +190,7 @@ describe('CategoryPage', () => {
       isHidden: true,
     })
 
-    await user.click(screen.getByRole('link', { name: 'Guides' }))
+    await user.click(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'Guides' }))
     await screen.findByRole('heading', { name: 'Hidden categories' })
     expect(screen.queryByText('Light Microscopy', { selector: '.category-card__name' })).toBeNull()
   })

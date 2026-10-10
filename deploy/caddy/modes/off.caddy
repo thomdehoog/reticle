@@ -1,0 +1,13 @@
+# RETICLE_TLS_MODE=off — plain HTTP on port 80, for exactly two situations:
+#
+#   1. a trial on your own machine (http://localhost:8080), together with
+#      RETICLE_COOKIE_SECURE=false;
+#   2. behind another reverse proxy that terminates TLS and forwards plain HTTP
+#      here, together with RETICLE_UPSTREAM_PROXIES. RETICLE_COOKIE_SECURE
+#      stays true: the browser's connection IS https.
+#
+# Never expose this mode to a network directly: passwords would cross it in
+# the clear.
+:80 {
+	import reticle
+}

@@ -4,7 +4,7 @@ import { createBullet, indentBullet } from '../../domain/guide'
 import type { Bullet, Media, Step } from '../../domain/types'
 import { IconChevronDown, IconChevronUp, IconDrag, IconPlus, IconTrash } from '../icons'
 import { BulletEditor } from './BulletEditor'
-import { MediaSlots } from './MediaSlots'
+import { MediaSlots, type UploadStatus } from './MediaSlots'
 
 interface StepEditorProps {
   step: Step
@@ -13,7 +13,10 @@ interface StepEditorProps {
   isLast: boolean
   canRemove: boolean
   focusBulletId: string | null
-  uploading: boolean
+  upload: UploadStatus | null
+  problems: string[]
+  onCancelUpload: () => void
+  onDismissProblems: () => void
   onChange: (step: Step) => void
   onRemove: () => void
   onMove: (delta: number) => void
@@ -33,7 +36,10 @@ export function StepEditor({
   isLast,
   canRemove,
   focusBulletId,
-  uploading,
+  upload,
+  problems,
+  onCancelUpload,
+  onDismissProblems,
   onChange,
   onRemove,
   onMove,
@@ -145,8 +151,12 @@ export function StepEditor({
 
       <MediaSlots
         media={step.media}
-        uploading={uploading}
+        bullets={step.bullets}
+        upload={upload}
+        problems={problems}
         onAdd={onUpload}
+        onCancelUpload={onCancelUpload}
+        onDismissProblems={onDismissProblems}
         onRemove={removeMedia}
         onUpdate={(updated) =>
           onChange({

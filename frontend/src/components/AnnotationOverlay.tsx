@@ -144,17 +144,29 @@ export function AnnotatedImage({
   alt,
   annotations,
   className,
+  width,
+  height,
 }: {
   src: string
   alt: string
   annotations: Annotation[]
   className?: string
+  /** The picture's own pixel size, when known: it lets the browser reserve the
+      right shape before the file arrives, so the steps below do not jump. */
+  width?: number | null
+  height?: number | null
 }) {
   const { ref, size } = useElementSize<HTMLDivElement>()
 
   return (
     <div className={`annotated${className ? ` ${className}` : ''}`} ref={ref}>
-      <img src={src} alt={alt} loading="lazy" />
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        width={width ?? undefined}
+        height={height ?? undefined}
+      />
       {annotations.length > 0 && size.width > 0 && (
         <svg
           className="annotated__overlay"

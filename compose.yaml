@@ -1,0 +1,195 @@
+# Reticle on one host with Docker Compose.
+#
+#   cp .env.example .env      # then edit it: domain, secret key, TLS mode
+#   docker compose up -d
+#
+# All configuration is in .env; this file should not need editing. Local
+# adjustments belong in a compose.override.yaml next to it, which Compose
+# merges automatically and an upgrade will not overwrite.
+#
+# docs/DEPLOYMENT.md explains every choice made here.
+#
+# Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
+
+name: reticle
+
+# Container logs are files on the host, and without a limit they grow until the
+# disk is full — on a server nobody logs in to for a year, that is the outage.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# Applied to both services. Neither needs a single Linux capability, neither
+# may gain privileges through a setuid binary, and neither can write anywhere
+# except its named volume and a small RAM-backed /tmp.
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 256
+  logging: *logging
+
+services:
+  # -------------------------------------------------------------------------
+  # The API. Not published: the only way in is through `web`.
+  app:
+    <<: *hardening
+    # `docker compose pull` fetches this image; `docker compose build` builds
+    # it from this checkout and gives it the same name.
+    image: ${RETICLE_IMAGE_PREFIX:-ghcr.io/thomdehoog}/reticle-app:${RETICLE_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        RETICLE_VERSION: ${RETICLE_VERSION:-dev}
+    # Every RETICLE_* setting in .env reaches the application (the full list is
+    # in backend/.env.example) ...
+    env_file: .env
+    # ... except these, which describe the container and are not for .env to
+    # change. `environment` wins over `env_file`.
+    environment:
+      RETICLE_SECRET_KEY: ${RETICLE_SECRET_KEY:?Set RETICLE_SECRET_KEY in .env - generate one with - openssl rand -base64 48}
+      RETICLE_ENV_FILE: ""
+      RETICLE_DATABASE_URL: sqlite:////data/reticle.db
+      RETICLE_MEDIA_ROOT: /data/media
+      TMPDIR: /data/tmp
+      # X-Forwarded-For is believed from the proxy's network and from nowhere
+      # else. Only `web` and `app` are on that network.
+      RETICLE_TRUSTED_PROXIES: ${RETICLE_SUBNET:-172.31.250.0/24}
+      # Pages and API share one origin behind Caddy; CORS has nobody to admit.
+      RETICLE_CORS_ORIGINS: ""
+      RETICLE_COOKIE_SECURE: ${RETICLE_COOKIE_SECURE:-true}
+      RETICLE_WORKERS: ${RETICLE_WORKERS:-2}
+      RETICLE_DEBUG: "false"
+    volumes:
+      - reticle-data:/data
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    networks:
+      - backend
+    mem_limit: ${RETICLE_APP_MEMORY:-1g}
+    # uvicorn is given 20 seconds to finish requests in flight.
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+      start_interval: 2s
+
+  # -------------------------------------------------------------------------
+  # Caddy: TLS, the static frontend, and the reverse proxy for /api.
+  web:
+    <<: *hardening
+    image: ${RETICLE_IMAGE_PREFIX:-ghcr.io/thomdehoog}/reticle-web:${RETICLE_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        RETICLE_VERSION: ${RETICLE_VERSION:-dev}
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      RETICLE_DOMAIN: ${RETICLE_DOMAIN:?Set RETICLE_DOMAIN in .env to the name people will type, e.g. reticle.zmb.uzh.ch (or localhost for a trial)}
+      RETICLE_TLS_MODE: ${RETICLE_TLS_MODE:-auto}
+      RETICLE_TLS_CERT_FILE: ${RETICLE_TLS_CERT_FILE:-fullchain.pem}
+      RETICLE_TLS_KEY_FILE: ${RETICLE_TLS_KEY_FILE:-privkey.pem}
+      RETICLE_UPSTREAM_PROXIES: ${RETICLE_UPSTREAM_PROXIES:-}
+      RETICLE_PROXY_UPLOAD_LIMIT: ${RETICLE_PROXY_UPLOAD_LIMIT:-210MiB}
+    ports:
+      - "${RETICLE_BIND_ADDRESS:-0.0.0.0}:${RETICLE_HTTP_PORT:-80}:80"
+      - "${RETICLE_BIND_ADDRESS:-0.0.0.0}:${RETICLE_HTTPS_PORT:-443}:443"
+      # HTTP/3. Harmless if the firewall drops it: browsers fall back to TCP.
+      - "${RETICLE_BIND_ADDRESS:-0.0.0.0}:${RETICLE_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      # Certificates and ACME account keys. Losing this volume is survivable
+      # (Caddy obtains new ones) but Let's Encrypt rate-limits re-issuance.
+      - caddy-data:/data
+      - caddy-config:/config
+      # Only read in RETICLE_TLS_MODE=files.
+      - ${RETICLE_TLS_CERT_DIR:-./deploy/certs}:/certs:ro
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    # Lets the unprivileged Caddy process listen on 80 and 443 inside its own
+    # network namespace. Docker already defaults to this; saying so makes the
+    # stack behave the same under Podman and older engines.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "0"
+    networks:
+      - edge
+      - backend
+    mem_limit: ${RETICLE_WEB_MEMORY:-256m}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9180/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+      start_interval: 2s
+
+  # -------------------------------------------------------------------------
+  # One-off commands that need the data volume AND the internet — which the
+  # API container deliberately does not have. Not started by `up`. The content
+  # import is the reason it exists (docs/IMPORT.md):
+  #
+  #   mkdir -p import && sudo chown 10001 import
+  #   docker compose run --rm -e DOZUKI_TOKEN tools \
+  #       python -m app.importer export --site zmb.dozuki.com --out /import/zmb
+  #   docker compose run --rm tools \
+  #       python -m app.importer load --archive /import/zmb --dry-run
+  tools:
+    <<: *hardening
+    restart: "no"
+    profiles: [tools]
+    image: ${RETICLE_IMAGE_PREFIX:-ghcr.io/thomdehoog}/reticle-app:${RETICLE_VERSION:-latest}
+    env_file: .env
+    environment:
+      RETICLE_SECRET_KEY: ${RETICLE_SECRET_KEY:?Set RETICLE_SECRET_KEY in .env}
+      RETICLE_ENV_FILE: ""
+      RETICLE_DATABASE_URL: sqlite:////data/reticle.db
+      RETICLE_MEDIA_ROOT: /data/media
+      TMPDIR: /data/tmp
+      RETICLE_CORS_ORIGINS: ""
+    command: ["python", "-m", "app.importer", "--help"]
+    volumes:
+      - reticle-data:/data
+      # The export archive, on the host where you can look at it and keep it.
+      - ${RETICLE_IMPORT_DIR:-./import}:/import
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    networks:
+      - edge
+    healthcheck:
+      disable: true
+
+networks:
+  # Ordinary bridge with a route out: the published ports, and Caddy's calls to
+  # the certificate authority.
+  edge: {}
+  # No route to anywhere. The API has no business making outbound connections,
+  # so it is given no way to; and because the subnet is fixed, "requests from
+  # the proxy" is something RETICLE_TRUSTED_PROXIES can state exactly. Change
+  # RETICLE_SUBNET only if this range is already used on your network.
+  backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${RETICLE_SUBNET:-172.31.250.0/24}
+
+volumes:
+  # Everything that is yours: /data/reticle.db (+ -wal, -shm) and /data/media.
+  # Back it up with deploy/backup.sh, never by copying the volume while the
+  # stack runs. It must be on a local disk: SQLite's locking is not reliable on
+  # NFS or SMB.
+  reticle-data:
+  caddy-data:
+  caddy-config:

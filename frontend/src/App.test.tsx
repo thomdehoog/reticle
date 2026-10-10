@@ -204,7 +204,7 @@ describe('routes', () => {
     const user = userEvent.setup()
     const { location } = renderApp({ route: '/', server })
 
-    await user.type(await screen.findByLabelText('Search guides'), 'confocal 488{Enter}')
+    await user.type(await screen.findByLabelText('Search guides and wiki pages'), 'confocal 488{Enter}')
 
     expect(await screen.findByText('Results for “confocal 488”')).toBeInTheDocument()
     expect(location()).toBe('/search?q=confocal+488')

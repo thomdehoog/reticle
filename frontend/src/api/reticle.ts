@@ -19,7 +19,7 @@ import type {
   User,
   UserRef,
 } from '../domain/types'
-import type { ApiClient } from './client'
+import type { ApiClient, UploadOptions } from './client'
 
 /**
  * A type alias rather than an interface: TypeScript only gives aliases an
@@ -229,8 +229,9 @@ export class ReticleApi {
     return this.http.get<SearchResult[]>(`/search${queryString({ q: term })}`)
   }
 
-  uploadMedia(file: File): Promise<Media> {
-    return this.http.upload<Media>('/media', file)
+  /** One image or video; the server decides which from the bytes, not the name. */
+  uploadMedia(file: File, options?: UploadOptions): Promise<Media> {
+    return this.http.upload<Media>('/media', file, options)
   }
 
   /** Where the browser fetches a media item's bytes, for an `<img>` built from an id. */

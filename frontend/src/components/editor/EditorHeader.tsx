@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import { Link } from '@tanstack/react-router'
 
 import type { ContentStatus } from '../../domain/types'
 import type { SaveState } from '../../hooks/useAutosave'
@@ -15,14 +14,16 @@ const SAVE_LABELS: Record<SaveState, string> = {
 }
 
 interface EditorHeaderProps {
-  /** The breadcrumb's last entry: what kind of thing is being edited. */
-  crumb: string
+  /** The trail to what is being edited, ending in a word for the editor itself. */
+  breadcrumb: ReactNode
   title: string
   status: ContentStatus
   saveState: SaveState
   busy: DocumentAction | null
   /** A link to the published version, shown only while there is one. */
   viewLink: ReactNode
+  /** A link to the publish history. */
+  historyLink: ReactNode
   /** Archiving is an admin action; the server enforces it, this hides the button. */
   canArchive: boolean
   onPublish: () => void
@@ -32,12 +33,13 @@ interface EditorHeaderProps {
 
 /** The title bar both editors share: where you are, whether it is saved, what you can do. */
 export function EditorHeader({
-  crumb,
+  breadcrumb,
   title,
   status,
   saveState,
   busy,
   viewLink,
+  historyLink,
   canArchive,
   onPublish,
   onUnpublish,
@@ -48,22 +50,22 @@ export function EditorHeader({
   return (
     <div className="page-header">
       <div className="page-header__text">
-        <nav className="breadcrumb">
-          <Link to="/">Guides</Link>
-          <span className="breadcrumb__sep">/</span>
-          <span>{crumb}</span>
-        </nav>
+        {breadcrumb}
         <h1>{title}</h1>
       </div>
       <div className="page-actions">
         <StatusBadge status={status} />
+        {/* A live region that is always present: one that only appeared with
+            its first message would not be announced. */}
         <span
           className={`save-state${saveState === 'error' ? ' save-state--error' : ''}`}
           role="status"
+          aria-live="polite"
         >
           {SAVE_LABELS[saveState]}
         </span>
         {published && viewLink}
+        {historyLink}
         {canArchive && (
           <button
             className="button button--danger"

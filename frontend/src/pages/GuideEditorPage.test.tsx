@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -242,7 +242,7 @@ describe('GuideEditorPage', () => {
 
     const [first] = await bulletFields()
     await user.type(first, ' Typed and gone.')
-    await user.click(screen.getByRole('link', { name: 'Guides' }))
+    await user.click(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'Guides' }))
 
     await screen.findByRole('heading', { name: 'Guides' })
     await waitFor(() =>
@@ -263,12 +263,12 @@ describe('GuideEditorPage', () => {
       timeout: 4000,
     })
 
-    await user.click(screen.getByRole('link', { name: 'Guides' }))
+    await user.click(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'Guides' }))
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
     expect(screen.getByDisplayValue('Turn the key. Then wait.')).toBeInTheDocument()
 
     confirm.mockReturnValue(true)
-    await user.click(screen.getByRole('link', { name: 'Guides' }))
+    await user.click(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'Guides' }))
     await screen.findByRole('heading', { name: 'Guides' })
     /* Leaving discarded the local copy; it did not push it over the colleague's. */
     expect(server.state.guides[0].steps[0].bullets[0].text).toBe('Turn the key.')
@@ -280,7 +280,7 @@ describe('GuideEditorPage', () => {
     renderEditor(server)
 
     await screen.findByDisplayValue('Switch on the lasers')
-    await user.click(screen.getByRole('link', { name: 'Guides' }))
+    await user.click(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'Guides' }))
     await screen.findByRole('heading', { name: 'Your unpublished guides' })
 
     server.editGuideElsewhere('g-confocal', { summary: 'Rewritten while you were away.' })

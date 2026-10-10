@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { AnnotationShape, ANNOTATION_COLORS } from '../AnnotationOverlay'
 import { commitDrag } from '../../domain/annotation'
 import { newId } from '../../domain/guide'
-import type { Annotation, BulletColor, Media } from '../../domain/types'
+import type { Annotation, Bullet, BulletColor, Media } from '../../domain/types'
 import { useElementSize } from '../../hooks/useElementSize'
 import { IconTrash } from '../icons'
 import { Modal } from '../ui'
@@ -34,18 +34,46 @@ const SHAPES: { value: Annotation['shape']; label: string }[] = [
   { value: 'arrow', label: 'Arrow' },
 ]
 
+const COLOR_NAMES: Record<BulletColor, string> = {
+  black: 'Black',
+  red: 'Red',
+  orange: 'Orange',
+  yellow: 'Yellow',
+  green: 'Green',
+  light_blue: 'Light blue',
+  blue: 'Blue',
+  violet: 'Violet',
+}
+
+/** Keys pressed while typing belong to the text, not to the drawing. */
+function isTyping(target: EventTarget | null): boolean {
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
+}
+
 interface AnnotationEditorProps {
   media: Media
+  /**
+   * The bullets of the step this image belongs to. A shape exists to point at
+   * what one bullet is talking about, so the bullets are offered as the way to
+   * choose its colour.
+   */
+  bullets: Bullet[]
   onChange: (media: Media) => void
   onClose: () => void
 }
 
-export function AnnotationEditor({ media, onChange, onClose }: AnnotationEditorProps) {
+export function AnnotationEditor({ media, bullets, onChange, onClose }: AnnotationEditorProps) {
   const { ref, size } = useElementSize<HTMLDivElement>()
   const surfaceRef = useRef<HTMLDivElement>(null)
 
   const [shape, setShape] = useState<Annotation['shape']>('rectangle')
-  const [color, setColor] = useState<BulletColor>('red')
+  const written = bullets.filter((bullet) => bullet.text.trim() !== '')
+  /* Opens on the colour of the step's first coloured bullet — the likeliest
+     thing to be pointed at — and on red when the step is all black, which
+     disappears on the dark screenshots these mostly are. */
+  const [color, setColor] = useState<BulletColor>(
+    () => written.find((bullet) => bullet.color !== 'black')?.color ?? 'red',
+  )
   const [drawing, setDrawing] = useState<Annotation | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
@@ -59,6 +87,7 @@ export function AnnotationEditor({ media, onChange, onClose }: AnnotationEditorP
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (isTyping(event.target)) return
       if ((event.key === 'Delete' || event.key === 'Backspace') && selectedId) {
         event.preventDefault()
         removeSelected()
@@ -80,6 +109,8 @@ export function AnnotationEditor({ media, onChange, onClose }: AnnotationEditorP
   }
 
   function onPointerDown(event: ReactPointerEvent) {
+    /* A second finger, or a right click, is not the start of a shape. */
+    if (drawing || (event.pointerType === 'mouse' && event.button !== 0)) return
     const origin = fractionAt(event)
     if (!origin) return
 
@@ -131,7 +162,8 @@ export function AnnotationEditor({ media, onChange, onClose }: AnnotationEditorP
                 type="button"
                 className="swatch"
                 style={{ color: ANNOTATION_COLORS[option] }}
-                aria-label={option.replace('_', ' ')}
+                aria-label={COLOR_NAMES[option]}
+                title={COLOR_NAMES[option]}
                 aria-pressed={color === option}
                 onClick={() => setColor(option)}
               />
@@ -148,6 +180,28 @@ export function AnnotationEditor({ media, onChange, onClose }: AnnotationEditorP
             Delete shape
           </button>
         </div>
+
+        {written.length > 0 && (
+          <div className="annotate__bullets" role="group" aria-label="Match a bullet">
+            <span className="annotate__bullets-label">Draw for</span>
+            {written.map((bullet) => (
+              <button
+                key={bullet.id}
+                type="button"
+                className="annotate__bullet"
+                aria-pressed={bullet.color === color}
+                title={bullet.text}
+                onClick={() => setColor(bullet.color)}
+              >
+                <span
+                  className="annotate__bullet-dot"
+                  style={{ background: ANNOTATION_COLORS[bullet.color] }}
+                />
+                <span className="annotate__bullet-text">{bullet.text}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="annotate__surface" ref={surfaceRef}>
           <div className="annotated" ref={ref}>
@@ -195,6 +249,48 @@ export function AnnotationEditor({ media, onChange, onClose }: AnnotationEditorP
           Drag on the image to draw. Use the colour of the bullet the shape belongs to, so the
           instruction and the picture agree. Select a shape and press Delete to remove it.
         </p>
+
+        {/* The shapes again, as buttons: on the picture they can only be picked
+            with a pointer, and a keyboard user must be able to remove one too. */}
+        {annotations.length > 0 && (
+          <div className="annotate__shapes" role="group" aria-label="Shapes on this image">
+            {annotations.map((annotation, index) => (
+              <button
+                key={annotation.id}
+                type="button"
+                className="annotate__shape"
+                aria-pressed={annotation.id === selectedId}
+                onClick={() =>
+                  setSelectedId(annotation.id === selectedId ? null : annotation.id)
+                }
+              >
+                <span
+                  className="annotate__bullet-dot"
+                  style={{ background: ANNOTATION_COLORS[annotation.color] }}
+                />
+                {index + 1}. {COLOR_NAMES[annotation.color]} {annotation.shape}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="field">
+          <label className="field__label" htmlFor="image-description">
+            Description
+          </label>
+          <input
+            id="image-description"
+            className="input"
+            value={media.alt}
+            maxLength={1000}
+            placeholder="e.g. The laser key switch on the front of the power supply"
+            onChange={(event) => onChange({ ...media, alt: event.target.value })}
+          />
+          <span className="field__hint">
+            What the picture shows, for someone who cannot see it. Read out by screen readers and
+            shown if the image fails to load.
+          </span>
+        </div>
 
         <div className="page-actions">
           <button type="button" className="button button--primary" onClick={onClose}>

@@ -1,0 +1,9 @@
+# RETICLE_TLS_MODE=auto — a certificate from Let's Encrypt, obtained and renewed
+# by Caddy. Requires that RETICLE_DOMAIN resolves to this host in PUBLIC DNS and
+# that ports 80 and 443 are reachable from the internet: the certificate
+# authority connects back to prove you control the name. A host that is only
+# reachable inside the university network cannot pass that check — use `files`.
+{$RETICLE_DOMAIN} {
+	import hsts
+	import reticle
+}

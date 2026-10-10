@@ -1,0 +1,9 @@
+# RETICLE_TLS_MODE=files — a certificate issued by someone else (university IT),
+# read from the directory mounted at /certs (RETICLE_TLS_CERT_DIR on the host).
+# The certificate file must contain the full chain, leaf first. Caddy reads the
+# files once, at start: after replacing them, `docker compose restart web`.
+{$RETICLE_DOMAIN} {
+	tls /certs/{$RETICLE_TLS_CERT_FILE:fullchain.pem} /certs/{$RETICLE_TLS_KEY_FILE:privkey.pem}
+	import hsts
+	import reticle
+}

@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { useApi } from '../api/context'
 import { useSession } from '../auth/session'
 import { CategoryDialog } from '../components/CategoryDialog'
+import { CategoryOrderDialog } from '../components/CategoryOrderDialog'
 import { GuideRow, PageRow } from '../components/GuideRow'
 import { IconPlus } from '../components/icons'
 import { NewPageDialog } from '../components/NewPageDialog'
@@ -28,7 +29,7 @@ export function HomePage() {
   const { data: guides } = useSuspenseQuery(guideQueries.list(api))
   const { data: pages } = useSuspenseQuery(pageQueries.list(api))
 
-  const [dialog, setDialog] = useState<'page' | 'category' | null>(null)
+  const [dialog, setDialog] = useState<'page' | 'category' | 'order' | null>(null)
 
   const roots = buildBrowsableTree(categories)
   const hidden = categories.filter((category) => category.isHidden).sort(byOrder)
@@ -68,6 +69,11 @@ export function HomePage() {
                 New category
               </button>
             )}
+            {can('admin') && categories.length > 1 && (
+              <button className="button" type="button" onClick={() => setDialog('order')}>
+                Arrange categories
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -102,8 +108,11 @@ export function HomePage() {
       )}
 
       {articles.length > 0 && (
-        <section style={{ marginTop: '2.5rem' }}>
-          <h2 style={{ marginBottom: '0.75rem' }}>Wiki pages</h2>
+        <section className="section section--spaced">
+          <div className="section__head">
+            <h2 className="section__title">Wiki pages</h2>
+            <Link to="/wiki">All wiki pages</Link>
+          </div>
           <div className="card">
             {articles.map((page) => (
               <PageRow key={page.id} page={page} />
@@ -113,8 +122,8 @@ export function HomePage() {
       )}
 
       {can('author') && myDrafts.length > 0 && (
-        <section style={{ marginTop: '2.5rem' }}>
-          <h2 style={{ marginBottom: '0.75rem' }}>Your unpublished guides</h2>
+        <section className="section section--spaced">
+          <h2 className="section__title">Your unpublished guides</h2>
           <div className="card">
             {myDrafts.map((guide) => (
               <GuideRow key={guide.id} guide={guide} edit />
@@ -126,9 +135,9 @@ export function HomePage() {
       {/* Readers reach these guides through tags and never need the category
           itself. The people who file guides into one do. */}
       {can('author') && hidden.length > 0 && (
-        <section style={{ marginTop: '2.5rem' }}>
-          <h2 style={{ marginBottom: '0.25rem' }}>Hidden categories</h2>
-          <p className="page-header__sub" style={{ marginBottom: '0.75rem' }}>
+        <section className="section section--spaced">
+          <h2>Hidden categories</h2>
+          <p className="page-header__sub section__lead">
             Holding categories for guides that are found through tags. Readers do not see this list.
           </p>
           <div className="tag-row">
@@ -149,6 +158,9 @@ export function HomePage() {
       {dialog === 'page' && <NewPageDialog onClose={() => setDialog(null)} />}
       {dialog === 'category' && (
         <CategoryDialog categories={categories} onClose={() => setDialog(null)} />
+      )}
+      {dialog === 'order' && (
+        <CategoryOrderDialog categories={categories} onClose={() => setDialog(null)} />
       )}
     </>
   )

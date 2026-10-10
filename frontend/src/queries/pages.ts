@@ -23,6 +23,9 @@ export const pageKeys = {
    */
   landings: () => [...pageKeys.all, 'landing'] as const,
   landing: (categoryId: string) => [...pageKeys.landings(), categoryId] as const,
+  /** See `guideKeys.revisions`. */
+  revisions: (id: string) => [...pageKeys.all, 'revisions', id] as const,
+  revision: (id: string, version: number) => [...pageKeys.revisions(id), version] as const,
 }
 
 export const pageQueries = {
@@ -43,6 +46,19 @@ export const pageQueries = {
     queryOptions({
       queryKey: pageKeys.landing(categoryId),
       queryFn: () => api.getCategoryLandingPage(categoryId),
+    }),
+
+  revisions: (api: ReticleApi, id: string) =>
+    queryOptions({
+      queryKey: pageKeys.revisions(id),
+      queryFn: () => api.listPageRevisions(id),
+    }),
+
+  revision: (api: ReticleApi, id: string, version: number) =>
+    queryOptions({
+      queryKey: pageKeys.revision(id, version),
+      queryFn: () => api.getPageRevision(id, version),
+      staleTime: Infinity,
     }),
 }
 

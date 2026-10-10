@@ -1,6 +1,11 @@
 import { useMutation } from '@tanstack/react-query'
 
+import type { UploadOptions } from '../api/client'
 import { useApi } from '../api/context'
+
+export interface UploadRequest extends UploadOptions {
+  file: File
+}
 
 /**
  * Uploads touch no cached read: a new image is not listed anywhere until the
@@ -9,6 +14,6 @@ import { useApi } from '../api/context'
 export function useUploadMedia() {
   const api = useApi()
   return useMutation({
-    mutationFn: (file: File) => api.uploadMedia(file),
+    mutationFn: ({ file, ...options }: UploadRequest) => api.uploadMedia(file, options),
   })
 }

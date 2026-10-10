@@ -1,4 +1,8 @@
+import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+
+import { useApi } from '../../api/context'
+import { guideQueries } from '../../queries/guides'
 
 import { guideListBlock } from '../../domain/markdownEdit'
 import { Modal } from '../ui'
@@ -14,6 +18,16 @@ export function GuideListDialog({ onClose, onInsert }: GuideListDialogProps) {
   const [tags, setTags] = useState<string[]>([])
   const [heading, setHeading] = useState('')
 
+  /* The same request the finished block will make, asked now: the commonest
+     mistake with a guide list is one tag too many — a guide must carry all of
+     them — and an empty list is much easier to understand before inserting it. */
+  const api = useApi()
+  const matching = useQuery({
+    ...guideQueries.list(api, { tags: tags.join(',') }),
+    enabled: tags.length > 0,
+  })
+  const count = matching.data?.length
+
   return (
     <Modal title="Insert a guide list" onClose={onClose}>
       <p className="field__hint" style={{ marginBottom: '1rem' }}>
@@ -24,6 +38,15 @@ export function GuideListDialog({ onClose, onInsert }: GuideListDialogProps) {
       <div className="field">
         <span className="field__label">Tags</span>
         <TagInput tags={tags} onChange={setTags} />
+        <span className="field__hint" role="status">
+          {tags.length === 0 && 'Start typing to pick from the tags in use.'}
+          {tags.length > 0 && count === undefined && !matching.isError && 'Looking for guides…'}
+          {tags.length > 0 &&
+            count !== undefined &&
+            (count === 0
+              ? `No guide carries ${tags.length === 1 ? 'this tag' : 'all of these tags'} yet — the list will be empty until one does.`
+              : `${count} ${count === 1 ? 'guide carries' : 'guides carry'} ${tags.length === 1 ? 'this tag' : 'all of these tags'} right now.`)}
+        </span>
       </div>
 
       <div className="field">

@@ -477,3 +477,32 @@ class AuditLog(Base):
     @validates("ip_address")
     def _clip_ip_address(self, _key: str, value: str | None) -> str | None:
         return clip(value, IP_ADDRESS_LENGTH)
+
+
+class ImportRecord(Base):
+    """Which vendor item became which Reticle row, for the one-off content import.
+
+    The mapping lives in the database rather than in a file beside the export
+    because it describes *this* database: it is backed up, restored and rolled
+    back with the rows it points at, it commits in the same transaction as the
+    guide it records, and one export archive can be loaded into a test instance
+    and into production without either load mistaking the other's identifiers
+    for its own.
+
+    ``imported_updated_at`` is the ``updated_at`` the content carried when the
+    importer last wrote it. Any later edit in Reticle moves ``updated_at``, and
+    that difference is what stops a re-run from overwriting a colleague's work.
+    """
+
+    __tablename__ = "import_records"
+    __table_args__ = (UniqueConstraint("source", "kind", "vendor_id", name="uq_import_record_source_item"),)
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
+    source: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(16))
+    vendor_id: Mapped[str] = mapped_column(String(300))
+    reticle_id: Mapped[str] = mapped_column(String(26), index=True)
+    fingerprint: Mapped[str] = mapped_column(String(64), default="")
+    imported_updated_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, onupdate=utcnow)
