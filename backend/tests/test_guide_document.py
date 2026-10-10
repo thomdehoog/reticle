@@ -8,9 +8,25 @@ another.
 
 from __future__ import annotations
 
+from sqlalchemy import func, select
 from ulid import ULID
 
-from .conftest import bullet, create_guide, document_from, instant, step, upload_media
+import pytest
+
+from app.models import StepMedia, Tag
+
+from .conftest import (
+    annotation,
+    bullet,
+    create_guide,
+    document_from,
+    instant,
+    publish_guide,
+    save_guide,
+    step,
+    upload_media,
+    upload_video,
+)
 
 
 def test_put_returns_the_saved_document(author, category):
@@ -23,7 +39,8 @@ def test_put_returns_the_saved_document(author, category):
             title="Sample Preparation for CLEM",
             summary="Correlative workflow from fixation to imaging.",
             difficulty="difficult",
-            timeRequiredMinutes=90,
+            timeRequiredMinMinutes=30,
+            timeRequiredMaxMinutes=90,
             introduction="Read the safety sheet first.",
             conclusion="Log the session in the booking system.",
             steps=[step("Fix the sample", bullets=[bullet("Use 4% PFA", color="orange", icon="caution")])],
@@ -35,7 +52,8 @@ def test_put_returns_the_saved_document(author, category):
     assert body["title"] == "Sample Preparation for CLEM"
     assert body["summary"] == "Correlative workflow from fixation to imaging."
     assert body["difficulty"] == "difficult"
-    assert body["timeRequiredMinutes"] == 90
+    assert body["timeRequiredMinMinutes"] == 30
+    assert body["timeRequiredMaxMinutes"] == 90
     assert body["introduction"] == "Read the safety sheet first."
     assert body["conclusion"] == "Log the session in the booking system."
     assert body["steps"][0]["bullets"][0] == {
@@ -237,7 +255,12 @@ def test_an_unknown_media_id_is_rejected(author, category):
         f"/api/guides/{created['id']}",
         json=document_from(
             created,
-            steps=[step("Ghost", media=[{"id": str(ULID()), "url": "/api/media/x", "alt": "", "width": 1, "height": 1}])],
+            steps=[
+                step(
+                    "Ghost",
+                    media=[{"id": str(ULID()), "kind": "image", "url": "/api/media/x", "alt": "", "width": 1, "height": 1, "annotations": []}],
+                )
+            ],
         ),
     )
 
@@ -259,33 +282,17 @@ def test_alt_text_is_saved_through_the_document(author, category):
     assert author.get(f"/api/guides/{created['id']}").json()["steps"][0]["media"][0]["alt"] == media["alt"]
 
 
-def test_prerequisites_are_validated_and_stored_in_order(author, category):
-    first = create_guide(author, category.id, "Prerequisite One")
-    second = create_guide(author, category.id, "Prerequisite Two")
+def test_prerequisites_are_gone_from_the_model(author, category):
+    """Zero of ZMB's 257 guides used them. A client that still sends the field
+    is not refused — the editor round-trips whatever it holds — but nothing is
+    stored and nothing comes back."""
     target = create_guide(author, category.id, "Main Guide")
+    other = create_guide(author, category.id, "Other Guide")
 
-    body = author.put(
-        f"/api/guides/{target['id']}",
-        json=document_from(target, prerequisiteIds=[second["id"], first["id"]]),
-    ).json()
+    body = save_guide(author, target, prerequisiteIds=[other["id"]])
 
-    assert body["prerequisiteIds"] == [second["id"], first["id"]]
-
-
-def test_an_unknown_prerequisite_is_rejected(author, category):
-    created = create_guide(author, category.id)
-
-    response = author.put(f"/api/guides/{created['id']}", json=document_from(created, prerequisiteIds=[str(ULID())]))
-
-    assert response.status_code == 422
-
-
-def test_a_guide_cannot_be_its_own_prerequisite(author, category):
-    created = create_guide(author, category.id)
-
-    response = author.put(f"/api/guides/{created['id']}", json=document_from(created, prerequisiteIds=[created["id"]]))
-
-    assert response.status_code == 422
+    assert "prerequisiteIds" not in body
+    assert "prerequisiteIds" not in author.get(f"/api/guides/{target['id']}").json()
 
 
 def test_moving_a_guide_to_an_unknown_category_is_rejected(author, category):
@@ -331,15 +338,51 @@ def test_consecutive_autosaves_chain_without_conflicting(author, category):
     assert document["title"] == "Revision 3"
 
 
-def test_a_missing_updated_at_is_rejected_rather_than_assumed_current(author, category):
+def test_a_missing_expected_updated_at_is_rejected_rather_than_assumed_current(author, category):
+    """``updatedAt`` alone does not count: the token has its own name precisely
+    so that echoing the object back cannot pass for a concurrency check."""
     created = create_guide(author, category.id)
     body = document_from(created)
-    del body["updatedAt"]
+    del body["expectedUpdatedAt"]
 
     response = author.put(f"/api/guides/{created['id']}", json=body)
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_failed"
+    assert "expectedUpdatedAt" in response.json()["error"]["message"]
+
+
+def test_a_token_from_the_future_conflicts_too(author, category):
+    """Any mismatch means the client is not looking at the stored row."""
+    created = create_guide(author, category.id)
+
+    response = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, expectedUpdatedAt="2999-01-01T00:00:00.000000Z"),
+    )
+
+    assert response.status_code == 409
+
+
+def test_a_token_without_a_timezone_is_read_as_utc(author, category):
+    created = create_guide(author, category.id)
+
+    response = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, expectedUpdatedAt=created["updatedAt"].rstrip("Z")),
+    )
+
+    assert response.status_code == 200
+
+
+def test_publishing_moves_the_token_so_a_pre_publish_copy_is_stale(author, category):
+    created = create_guide(author, category.id)
+    saved = save_guide(author, created, steps=[step("One", bullets=[bullet("Text")])])
+    publish_guide(author, saved)
+
+    response = author.put(f"/api/guides/{created['id']}", json=document_from(saved, title="From the old copy"))
+
+    assert response.status_code == 409
 
 
 def test_the_save_records_who_edited_last(author, as_role, category):
@@ -405,9 +448,330 @@ def test_saving_an_unknown_guide_is_not_found(author, category):
 
 def test_a_published_guide_can_still_be_edited_and_the_reader_sees_the_new_text(author, viewer, category):
     created = create_guide(author, category.id)
-    author.post(f"/api/guides/{created['id']}/publish")
+    published = publish_guide(author, created)
 
-    fresh = author.get(f"/api/guides/{created['id']}").json()
-    author.put(f"/api/guides/{created['id']}", json=document_from(fresh, steps=[step("Added after publish")]))
+    save_guide(author, published, steps=[step("Added after publish")])
 
     assert [s["title"] for s in viewer.get(f"/api/guides/{created['slug']}").json()["steps"]] == ["Added after publish"]
+
+
+def test_an_empty_title_can_be_autosaved(author, category):
+    """Clearing the title to retype it must not make the autosave underneath
+    start failing; publishing is where a title becomes compulsory."""
+    created = create_guide(author, category.id)
+
+    saved = save_guide(author, created, title="")
+
+    assert saved["title"] == ""
+    assert saved["slug"] == created["slug"]
+
+
+# --------------------------------------------------------------------- tags
+
+
+def test_tags_are_slugged_sorted_and_created_on_first_use(author, category, db_session):
+    created = create_guide(author, category.id)
+
+    saved = save_guide(author, created, tags=["  LAS X ", "Stellaris", "confocal"])
+
+    assert saved["tags"] == ["confocal", "las-x", "stellaris"]
+    stored = {tag.slug: tag.name for tag in db_session.scalars(select(Tag))}
+    assert stored == {"las-x": "LAS X", "stellaris": "Stellaris", "confocal": "confocal"}
+
+
+def test_the_first_spelling_of_a_tag_stays_its_name(author, category, db_session):
+    first = create_guide(author, category.id, "First")
+    second = create_guide(author, category.id, "Second")
+
+    save_guide(author, first, tags=["LAS X"])
+    saved = save_guide(author, second, tags=["las x", "Las-X"])
+
+    assert saved["tags"] == ["las-x"]
+    assert [tag.name for tag in db_session.scalars(select(Tag))] == ["LAS X"]
+
+
+def test_the_slug_rule_matches_the_tag_input_in_the_frontend():
+    """``slugifyTag`` in ``TagInput.tsx`` claims to match the server. These are
+    the cases where a transliterating slugger would quietly disagree with it."""
+    from app.slugs import tag_slug
+
+    assert tag_slug("LAS X") == "las-x"
+    assert tag_slug("  3D / SIM  ") == "3d-sim"
+    assert tag_slug("Zürich") == "z-rich"
+    assert tag_slug("--confocal--") == "confocal"
+    assert tag_slug("!!!") == ""
+
+
+def test_tags_can_be_removed_and_replaced(author, category):
+    created = create_guide(author, category.id)
+    saved = save_guide(author, created, tags=["confocal", "stellaris"])
+
+    saved = save_guide(author, saved, tags=["stellaris", "fiji"])
+
+    assert saved["tags"] == ["fiji", "stellaris"]
+    assert save_guide(author, saved, tags=[])["tags"] == []
+
+
+def test_a_tag_with_no_letter_or_digit_is_rejected(author, category):
+    created = create_guide(author, category.id)
+
+    response = author.put(f"/api/guides/{created['id']}", json=document_from(created, tags=["confocal", " ?! "]))
+
+    assert response.status_code == 422
+    assert "tag" in response.json()["error"]["message"].lower()
+
+
+def test_at_most_thirty_tags_of_at_most_sixty_characters(author, category):
+    created = create_guide(author, category.id)
+
+    at_the_limit = save_guide(author, created, tags=[f"tag-{index:02d}" for index in range(29)] + ["x" * 60])
+    assert len(at_the_limit["tags"]) == 30
+
+    too_many = document_from(at_the_limit, tags=[f"tag-{index:02d}" for index in range(31)])
+    too_long = document_from(at_the_limit, tags=["x" * 61])
+    assert author.put(f"/api/guides/{created['id']}", json=too_many).status_code == 422
+    assert author.put(f"/api/guides/{created['id']}", json=too_long).status_code == 422
+
+
+def test_two_guides_introducing_the_same_tag_at_once_share_it(author, category, db_session):
+    """With two workers both saves can find the tag missing and both try to
+    create it. The loser must adopt the winner's row, not fail the save."""
+    from app import documents
+
+    winner = Tag(slug="lightsheet", name="Lightsheet")
+    db_session.add(winner)
+    db_session.commit()
+
+    adopted = documents._create_tag(db_session, "lightsheet", "lightsheet")
+
+    assert adopted.id == winner.id
+    assert db_session.scalars(select(Tag)).all() == [winner]
+
+
+# --------------------------------------------------------------- field rules
+
+
+def test_time_is_a_range_and_either_end_may_be_open(author, category):
+    created = create_guide(author, category.id)
+
+    saved = save_guide(author, created, timeRequiredMinMinutes=30, timeRequiredMaxMinutes=None)
+    assert (saved["timeRequiredMinMinutes"], saved["timeRequiredMaxMinutes"]) == (30, None)
+
+    saved = save_guide(author, saved, timeRequiredMinMinutes=None, timeRequiredMaxMinutes=90)
+    assert (saved["timeRequiredMinMinutes"], saved["timeRequiredMaxMinutes"]) == (None, 90)
+
+    saved = save_guide(author, saved, timeRequiredMinMinutes=45, timeRequiredMaxMinutes=45)
+    assert (saved["timeRequiredMinMinutes"], saved["timeRequiredMaxMinutes"]) == (45, 45)
+
+
+def test_a_backwards_or_negative_time_range_is_rejected(author, category):
+    created = create_guide(author, category.id)
+
+    backwards = document_from(created, timeRequiredMinMinutes=90, timeRequiredMaxMinutes=30)
+    negative = document_from(created, timeRequiredMinMinutes=-5)
+    fractional = document_from(created, timeRequiredMaxMinutes=12.5)
+
+    response = author.put(f"/api/guides/{created['id']}", json=backwards)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+    assert author.put(f"/api/guides/{created['id']}", json=negative).status_code == 422
+    assert author.put(f"/api/guides/{created['id']}", json=fractional).status_code == 422
+
+
+@pytest.mark.parametrize("color", ["black", "red", "orange", "yellow", "green", "light_blue", "blue", "violet"])
+def test_all_eight_bullet_colours_are_accepted(author, category, color):
+    created = create_guide(author, category.id)
+
+    saved = save_guide(author, created, steps=[step("Colour", bullets=[bullet("x", color=color)])])
+
+    assert saved["steps"][0]["bullets"][0]["color"] == color
+
+
+@pytest.mark.parametrize("icon", [None, "note", "caution", "reminder"])
+def test_the_three_flags_and_no_flag_are_accepted(author, category, icon):
+    created = create_guide(author, category.id)
+
+    saved = save_guide(author, created, steps=[step("Flag", bullets=[bullet("x", icon=icon)])])
+
+    assert saved["steps"][0]["bullets"][0]["icon"] == icon
+
+
+def test_the_retired_warning_flag_is_rejected(author, category):
+    created = create_guide(author, category.id)
+
+    response = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, steps=[step("Old", bullets=[bullet("x", icon="warning")])]),
+    )
+
+    assert response.status_code == 422
+
+
+# --------------------------------------------------------------- annotations
+
+
+def test_annotations_are_saved_on_the_image_within_its_step(author, category):
+    created = create_guide(author, category.id)
+    image = upload_media(author)
+    image["annotations"] = [
+        annotation("rectangle", "red", x=0.1, y=0.2, width=0.3, height=0.25),
+        annotation("arrow", "light_blue", x=0.9, y=0.9, width=-0.4, height=-0.5),
+        annotation("ellipse", "green", x=0, y=0, width=1, height=1),
+    ]
+
+    saved = save_guide(author, created, steps=[step("Annotated", media=[image])])
+
+    stored = saved["steps"][0]["media"][0]
+    assert set(stored) == {"id", "kind", "url", "alt", "width", "height", "annotations"}
+    assert [(a["shape"], a["color"]) for a in stored["annotations"]] == [
+        ("rectangle", "red"),
+        ("arrow", "light_blue"),
+        ("ellipse", "green"),
+    ]
+    assert set(stored["annotations"][0]) == {"id", "shape", "color", "x", "y", "width", "height"}
+    assert stored["annotations"][1]["width"] == -0.4
+    assert author.get(f"/api/guides/{created['id']}").json()["steps"][0]["media"][0] == stored
+
+
+def test_annotation_ids_from_the_client_are_kept_and_missing_ones_minted(author, category):
+    created = create_guide(author, category.id)
+    image = upload_media(author)
+    mine = str(ULID())
+    image["annotations"] = [{**annotation(), "id": mine}, annotation("ellipse")]
+
+    stored = save_guide(author, created, steps=[step("Ids", media=[image])])["steps"][0]["media"][0]["annotations"]
+
+    assert stored[0]["id"] == mine
+    assert stored[1]["id"] and stored[1]["id"] != mine
+
+
+def test_the_same_upload_reused_in_another_step_starts_clean(author, category, db_session):
+    """Annotations belong to the image *within that step*. A screenshot shown
+    twice must not carry the first step's arrows into the second."""
+    created = create_guide(author, category.id)
+    image = upload_media(author)
+    annotated = {**image, "alt": "Navigator button", "annotations": [annotation()]}
+    plain = {**image, "alt": "The whole window", "annotations": []}
+
+    saved = save_guide(author, created, steps=[step("First", media=[annotated]), step("Second", media=[plain])])
+
+    first, second = (s["media"][0] for s in saved["steps"])
+    assert first["id"] == second["id"] == image["id"]
+    assert len(first["annotations"]) == 1 and second["annotations"] == []
+    assert (first["alt"], second["alt"]) == ("Navigator button", "The whole window")
+    assert db_session.scalar(select(func.count()).select_from(StepMedia)) == 2
+
+
+def test_annotations_survive_an_autosave_that_does_not_touch_them(author, category):
+    created = create_guide(author, category.id)
+    image = {**upload_media(author), "annotations": [annotation("arrow", "violet")]}
+    saved = save_guide(author, created, steps=[step("Keep", media=[image])])
+
+    again = save_guide(author, saved, summary="Only the summary changed.")
+
+    assert again["steps"][0]["media"][0]["annotations"] == saved["steps"][0]["media"][0]["annotations"]
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        {"x": -0.01},
+        {"x": 1.01},
+        {"y": 2},
+        {"width": 1.5},
+        {"height": -1.5},
+        {"shape": "polygon"},
+        {"color": "chartreuse"},
+        {"id": "../../etc/passwd"},
+        {"x": "NaN"},
+    ],
+)
+def test_an_annotation_outside_the_rules_is_rejected(author, category, broken):
+    created = create_guide(author, category.id)
+    image = {**upload_media(author), "annotations": [{**annotation(), **broken}]}
+
+    response = author.put(
+        f"/api/guides/{created['id']}", json=document_from(created, steps=[step("Bad", media=[image])])
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+
+
+def test_at_most_fifty_annotations_per_image(author, category):
+    created = create_guide(author, category.id)
+    image = upload_media(author)
+
+    fifty = save_guide(author, created, steps=[step("Busy", media=[{**image, "annotations": [annotation()] * 50}])])
+    assert len(fifty["steps"][0]["media"][0]["annotations"]) == 50
+
+    response = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(fifty, steps=[step("Busier", media=[{**image, "annotations": [annotation()] * 51}])]),
+    )
+    assert response.status_code == 422
+
+
+def test_a_repeated_annotation_id_on_one_image_is_rejected(author, category):
+    created = create_guide(author, category.id)
+    repeated = {**annotation(), "id": str(ULID())}
+    image = {**upload_media(author), "annotations": [repeated, repeated]}
+
+    response = author.put(
+        f"/api/guides/{created['id']}", json=document_from(created, steps=[step("Twice", media=[image])])
+    )
+
+    assert response.status_code == 422
+
+
+# -------------------------------------------------------------------- videos
+
+
+def test_a_video_sits_in_a_step_like_an_image_and_counts_toward_the_cap(author, category):
+    created = create_guide(author, category.id)
+    clip = upload_video(author)
+    pictures = [upload_media(author) for _ in range(3)]
+
+    saved = save_guide(author, created, steps=[step("Mixed", media=[clip, *pictures[:2]])])
+    assert [m["kind"] for m in saved["steps"][0]["media"]] == ["video", "image", "image"]
+    assert saved["steps"][0]["media"][0]["width"] is None
+
+    response = author.put(
+        f"/api/guides/{created['id']}", json=document_from(saved, steps=[step("Too many", media=[clip, *pictures])])
+    )
+    assert response.status_code == 422
+    assert "3" in response.json()["error"]["message"]
+
+
+def test_a_video_cannot_carry_annotations(author, category):
+    created = create_guide(author, category.id)
+    clip = {**upload_video(author), "annotations": [annotation()]}
+
+    response = author.put(
+        f"/api/guides/{created['id']}", json=document_from(created, steps=[step("Clip", media=[clip])])
+    )
+
+    assert response.status_code == 422
+    assert "video" in response.json()["error"]["message"].lower()
+
+
+def test_the_same_file_twice_in_one_step_is_rejected(author, category):
+    created = create_guide(author, category.id)
+    image = upload_media(author)
+
+    response = author.put(
+        f"/api/guides/{created['id']}", json=document_from(created, steps=[step("Twice", media=[image, image])])
+    )
+
+    assert response.status_code == 422
+
+
+def test_document_ceilings_hold(author, category):
+    """One request must not be able to write tens of thousands of rows."""
+    created = create_guide(author, category.id)
+
+    too_many_steps = document_from(created, steps=[step(f"Step {index}") for index in range(201)])
+    too_many_bullets = document_from(created, steps=[step("One", bullets=[bullet("x")] * 201)])
+
+    assert author.put(f"/api/guides/{created['id']}", json=too_many_steps).status_code == 422
+    assert author.put(f"/api/guides/{created['id']}", json=too_many_bullets).status_code == 422

@@ -21,3 +21,10 @@ argon2-cffi~=25.1
 pillow~=12.3
 python-multipart~=0.0.32
 python-ulid~=4.0
+
+# Schema migrations. `python -m app.migrate` is the only command an operator
+# runs; alembic is what it drives.
+alembic~=1.20
+
+# PDF export of guides. Pure Python, BSD-licensed, no system libraries.
+reportlab~=5.0

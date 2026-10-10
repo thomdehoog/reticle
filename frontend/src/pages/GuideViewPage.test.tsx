@@ -1,18 +1,12 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { Route, Routes } from 'react-router-dom'
 
-import { createFakeServer, guideFixture } from '../test/fakeServer'
-import { renderWithApp } from '../test/harness'
-import { GuideViewPage } from './GuideViewPage'
+import { createFakeServer, guideFixture, userFixture } from '../test/fakeServer'
+import { renderApp } from '../test/harness'
 
 function renderGuide(server: ReturnType<typeof createFakeServer>) {
-  return renderWithApp(
-    <Routes>
-      <Route path="/g/:slug" element={<GuideViewPage />} />
-    </Routes>,
-    { route: '/g/confocal-startup', fetchImpl: server.fetchImpl },
-  )
+  return renderApp({ route: '/g/confocal-startup', server })
 }
 
 describe('GuideViewPage', () => {
@@ -61,7 +55,8 @@ describe('GuideViewPage', () => {
 
     expect(await screen.findByText('Very easy')).toBeInTheDocument()
     expect(screen.getByText('30 min – 1 h 30 min')).toBeInTheDocument()
-    expect(screen.getByText('Thom de Hoog')).toBeInTheDocument()
+    /* Scoped to the guide: the signed-in user's name is in the header too. */
+    expect(within(screen.getByRole('article')).getByText('Thom de Hoog')).toBeInTheDocument()
   })
 
   it('labels a caution in words, not by colour or icon alone', async () => {
@@ -116,6 +111,7 @@ describe('GuideViewPage', () => {
               media: [
                 {
                   id: 'm1',
+                  kind: 'image',
                   url: '/api/media/m1',
                   alt: 'Entrance',
                   width: 800,
@@ -124,6 +120,7 @@ describe('GuideViewPage', () => {
                 },
                 {
                   id: 'm2',
+                  kind: 'image',
                   url: '/api/media/m2',
                   alt: 'Reception',
                   width: 800,
@@ -153,5 +150,46 @@ describe('GuideViewPage', () => {
       '/t/stellaris',
     )
     expect(screen.getByRole('link', { name: 'confocal' })).toHaveAttribute('href', '/t/confocal')
+  })
+
+  it('records one read when the guide is opened, and one more for the next guide', async () => {
+    const live = { status: 'published', publishedAt: '2026-07-01T09:00:00Z' } as const
+    const other = guideFixture({ ...live, id: 'g-sted', slug: 'sted', title: 'STED alignment' })
+    const server = createFakeServer({ guides: [guideFixture(live), other] })
+    const user = userEvent.setup()
+    renderGuide(server)
+
+    await screen.findByRole('heading', { name: 'Confocal startup' })
+    await waitFor(() => expect(server.count('POST', '/guides/g-confocal/view')).toBe(1))
+
+    await user.click(screen.getByRole('link', { name: 'Light Microscopy' }))
+    await user.click(await screen.findByRole('link', { name: /STED alignment/ }))
+    await screen.findByRole('heading', { name: 'STED alignment' })
+
+    await waitFor(() => expect(server.count('POST', '/guides/g-sted/view')).toBe(1))
+    expect(server.count('POST', '/guides/g-confocal/view')).toBe(1)
+  })
+
+  it('reads a guide by its slug, and the editor link carries its id', async () => {
+    const server = createFakeServer()
+    renderGuide(server)
+
+    expect(await screen.findByRole('link', { name: 'Edit' })).toHaveAttribute(
+      'href',
+      '/g/g-confocal/edit',
+    )
+    expect(server.count('GET', '/guides/confocal-startup')).toBe(1)
+  })
+
+  it('offers a viewer no way into the editor', async () => {
+    const viewer = userFixture({ id: 'u-vera', displayName: 'Vera Viewer', role: 'viewer' })
+    const server = createFakeServer({
+      user: viewer,
+      guides: [guideFixture({ status: 'published', publishedAt: '2026-07-01T09:00:00Z' })],
+    })
+    renderGuide(server)
+
+    await screen.findByRole('heading', { name: 'Confocal startup' })
+    expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument()
   })
 })

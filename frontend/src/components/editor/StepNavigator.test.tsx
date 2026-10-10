@@ -62,6 +62,7 @@ function observer(): FakeIntersectionObserver {
 
 const IMAGE: Media = {
   id: 'm-key',
+  kind: 'image',
   url: '/api/media/m-key',
   alt: 'The laser key',
   width: 800,

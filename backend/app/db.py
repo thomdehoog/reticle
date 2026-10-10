@@ -15,6 +15,7 @@ from collections.abc import Iterator
 from datetime import datetime, timezone
 from typing import Any
 
+from fastapi import Request
 from sqlalchemy import DateTime, Engine, Text, TypeDecorator, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -71,13 +72,98 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+SQLITE_BUSY_TIMEOUT_MS = 5000
+"""How long a writer waits for the lock before giving up.
+
+SQLite admits one writer at a time. With more than one uvicorn worker two
+autosaves can arrive together, and without a timeout the second fails at once
+with "database is locked"; five seconds is far longer than any write here takes
+and short enough that a genuinely stuck writer still surfaces as an error.
+"""
+
+WRITE_INTENT = "reticle_write_intent"
+
+
+def is_sqlite(url: str) -> bool:
+    return url.startswith("sqlite")
+
+
+def is_memory_sqlite(url: str) -> bool:
+    return is_sqlite(url) and (url in {"sqlite://", "sqlite:///"} or ":memory:" in url)
+
+
 def build_engine(url: str) -> Engine:
-    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    return create_engine(url, connect_args=connect_args, future=True)
+    """Create the engine, with SQLite tuned for more than one process.
+
+    Three things are set on every SQLite connection, and they only make sense
+    together:
+
+    * **WAL** lets readers carry on while a writer holds the lock, which is the
+      difference between a guide opening instantly and a guide waiting for a
+      colleague's autosave.
+    * **A busy timeout** makes a second writer queue instead of failing.
+    * **The driver's implicit transactions are switched off**, and Reticle
+      issues ``BEGIN`` itself. A request that will write says so up front with
+      ``BEGIN IMMEDIATE``. The default deferred transaction reads first and
+      asks for the write lock later, and under WAL that upgrade is refused
+      outright — not queued, the busy timeout does not apply — whenever another
+      process committed in between. Every mutating request reads the session
+      row before it writes anything, so with two workers that refusal is not a
+      corner case, it is two people autosaving at the same time.
+
+    None of this applies to PostgreSQL, which gets a plain engine.
+    """
+    if not is_sqlite(url):
+        return create_engine(url, future=True)
+
+    engine = create_engine(url, connect_args={"check_same_thread": False}, future=True)
+    persistent = not is_memory_sqlite(url)
+
+    @event.listens_for(engine, "connect")
+    def _tune_sqlite(dbapi_connection: Any, connection_record: Any) -> None:
+        dbapi_connection.isolation_level = None
+        cursor = dbapi_connection.cursor()
+        cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+        if persistent:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
+
+    @event.listens_for(engine, "begin")
+    def _begin(connection: Any) -> None:
+        immediate = connection.get_execution_options().get(WRITE_INTENT, False)
+        connection.exec_driver_sql("BEGIN IMMEDIATE" if immediate else "BEGIN")
+
+    return engine
+
+
+def session_factories(bound: Engine) -> tuple[sessionmaker[Session], sessionmaker[Session]]:
+    """A factory for sessions that will write, and one for sessions that only read.
+
+    Both share one connection pool; the only difference is the execution option
+    that ``build_engine`` turns into ``BEGIN IMMEDIATE``.
+    """
+    writer = sessionmaker(bind=bound.execution_options(**{WRITE_INTENT: True}), autoflush=False, future=True)
+    reader = sessionmaker(bind=bound, autoflush=False, future=True)
+    return writer, reader
 
 
 engine = build_engine(get_settings().database_url)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, future=True)
+SessionLocal, ReadSessionLocal = session_factories(engine)
+
+
+def configure(url: str) -> Engine:
+    """Point the application at a different database.
+
+    The engine is built at import time because that is what a server wants;
+    this exists for the callers that need to choose afterwards — the migration
+    tests, and a script that works on a copy.
+    """
+    global engine, SessionLocal, ReadSessionLocal
+    engine.dispose()
+    engine = build_engine(url)
+    SessionLocal, ReadSessionLocal = session_factories(engine)
+    return engine
 
 
 @event.listens_for(Engine, "connect")
@@ -90,15 +176,14 @@ def _configure_sqlite(dbapi_connection: Any, connection_record: Any) -> None:
         cursor.close()
 
 
-def get_db() -> Iterator[Session]:
-    session = SessionLocal()
+READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def get_db(request: Request) -> Iterator[Session]:
+    """One session per request, opened for writing only when the verb can write."""
+    factory = ReadSessionLocal if request.method in READ_ONLY_METHODS else SessionLocal
+    session = factory()
     try:
         yield session
     finally:
         session.close()
-
-
-def init_db() -> None:
-    from . import models  # noqa: F401  -- registers the mappers before create_all
-
-    Base.metadata.create_all(engine)

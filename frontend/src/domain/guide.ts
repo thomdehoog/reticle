@@ -14,7 +14,10 @@ import {
   type BulletLevel,
   type Difficulty,
   type Guide,
+  MAX_GUIDE_TITLE_LENGTH,
   MAX_MEDIA_PER_STEP,
+  MAX_TAG_LENGTH,
+  MAX_TAGS_PER_GUIDE,
   type Step,
 } from './types'
 
@@ -148,6 +151,14 @@ export function formatDurationRange(
   return `${formatMinutes(low)} – ${formatMinutes(high)}`
 }
 
+export const REVERSED_RANGE_MESSAGE =
+  'The time required runs backwards: the first number is larger than the second.'
+
+/** True for an estimate like "90 to 30 minutes", which the server refuses to store. */
+export function isReversedRange(minMinutes: number | null, maxMinutes: number | null): boolean {
+  return minMinutes !== null && maxMinutes !== null && minMinutes > maxMinutes
+}
+
 export interface ValidationIssue {
   field: string
   message: string
@@ -157,12 +168,39 @@ export interface ValidationIssue {
  * Publish-time validation. Drafts are intentionally allowed to be incomplete —
  * an author must be able to save a half-written guide and come back tomorrow —
  * so these rules are applied when publishing, not when saving.
+ *
+ * The length and range limits are the exception in one respect: the server
+ * applies those to every save. They are listed here all the same, because
+ * publishing is where an author is told everything that still stands in the
+ * way, one sentence per problem.
  */
 export function validateForPublish(guide: Guide): ValidationIssue[] {
   const issues: ValidationIssue[] = []
 
   if (guide.title.trim() === '') {
     issues.push({ field: 'title', message: 'A guide needs a title before it can be published.' })
+  }
+  if (guide.title.length > MAX_GUIDE_TITLE_LENGTH) {
+    issues.push({
+      field: 'title',
+      message: `The title is ${guide.title.length} characters long; the limit is ${MAX_GUIDE_TITLE_LENGTH}.`,
+    })
+  }
+  if (guide.tags.length > MAX_TAGS_PER_GUIDE) {
+    issues.push({
+      field: 'tags',
+      message: `This guide has ${guide.tags.length} tags; the limit is ${MAX_TAGS_PER_GUIDE}.`,
+    })
+  }
+  const overlongTag = guide.tags.find((tag) => tag.length > MAX_TAG_LENGTH)
+  if (overlongTag) {
+    issues.push({
+      field: 'tags',
+      message: `The tag “${overlongTag}” is longer than ${MAX_TAG_LENGTH} characters.`,
+    })
+  }
+  if (isReversedRange(guide.timeRequiredMinMinutes, guide.timeRequiredMaxMinutes)) {
+    issues.push({ field: 'timeRequiredMinMinutes', message: REVERSED_RANGE_MESSAGE })
   }
   if (guide.categoryId.trim() === '') {
     issues.push({ field: 'categoryId', message: 'Choose a category so people can find this guide.' })

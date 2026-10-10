@@ -8,10 +8,11 @@
  * spellings.
  */
 
+import { useQuery } from '@tanstack/react-query'
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
 
-import { useApi } from '../../auth/AuthContext'
-import { useAsync } from '../../hooks/useAsync'
+import { useApi } from '../../api/context'
+import { tagQueries } from '../../queries/tags'
 import { IconClose } from '../icons'
 
 /** Matches the server's slug rule, so what you see is what gets stored. */
@@ -33,7 +34,7 @@ export function TagInput({ tags, onChange }: TagInputProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [draft, setDraft] = useState('')
 
-  const { data: known } = useAsync(() => api.listTags(), [api])
+  const { data: known } = useQuery(tagQueries.list(api))
 
   const suggestions = useMemo(() => {
     const typed = slugifyTag(draft)

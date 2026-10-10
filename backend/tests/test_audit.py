@@ -11,7 +11,17 @@ from sqlalchemy import select
 
 from app.models import AuditLog
 
-from .conftest import create_guide, document_from, image_bytes, step
+from .conftest import (
+    bullet,
+    create_guide,
+    create_page,
+    document_from,
+    image_bytes,
+    mp4_bytes,
+    publish_guide,
+    save_page,
+    step,
+)
 
 
 def entries(db_session):
@@ -63,7 +73,10 @@ def test_a_failed_login_for_an_unknown_account_records_no_actor(anon, db_session
 
 def test_the_guide_lifecycle_is_audited(author, admin, category, db_session):
     created = create_guide(author, category.id)
-    author.put(f"/api/guides/{created['id']}", json=document_from(created, steps=[step("One")]))
+    author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, steps=[step("One", bullets=[bullet("Text")])]),
+    )
     author.post(f"/api/guides/{created['id']}/publish")
     author.post(f"/api/guides/{created['id']}/unpublish")
     admin.delete(f"/api/guides/{created['id']}")
@@ -76,7 +89,7 @@ def test_the_guide_lifecycle_is_audited(author, admin, category, db_session):
 
 def test_the_publish_record_carries_the_version(author, category, db_session):
     created = create_guide(author, category.id)
-    author.post(f"/api/guides/{created['id']}/publish")
+    publish_guide(author, created)
 
     record = next(r for r in entries(db_session) if r.action == "guide.publish")
 
@@ -116,3 +129,44 @@ def test_rejected_writes_leave_no_audit_entry(viewer, category, db_session):
     viewer.post("/api/guides", json={"title": "Denied", "categoryId": category.id})
 
     assert [r.action for r in entries(db_session) if r.entity_type == "guide"] == []
+
+
+def test_the_page_lifecycle_is_audited_under_its_own_entity_type(author, admin, db_session):
+    created = create_page(author, "Booking Rules")
+    save_page(author, created, body="Book two weeks ahead.")
+    author.post(f"/api/pages/{created['id']}/publish")
+    author.post(f"/api/pages/{created['id']}/unpublish")
+    admin.delete(f"/api/pages/{created['id']}")
+
+    records = [r for r in entries(db_session) if r.entity_type == "page"]
+
+    assert [r.action for r in records] == ["page.create", "page.update", "page.publish", "page.unpublish", "page.archive"]
+    assert all(r.entity_id == created["id"] for r in records)
+    assert not [r for r in entries(db_session) if r.entity_type == "guide"]
+
+
+def test_a_refused_publish_leaves_no_audit_entry(author, category, db_session):
+    created = create_guide(author, category.id)
+    assert author.post(f"/api/guides/{created['id']}/publish").status_code == 422
+
+    assert [r.action for r in entries(db_session) if r.entity_type == "guide"] == ["guide.create"]
+
+
+def test_recording_a_view_is_not_audited(author, viewer, category, db_session):
+    """A view is not a change, and one row per page view would bury the trail."""
+    created = publish_guide(author, create_guide(author, category.id))
+    before = len(entries(db_session))
+
+    viewer.post(f"/api/guides/{created['id']}/view")
+
+    assert len(entries(db_session)) == before
+
+
+def test_a_video_upload_is_audited_as_a_video(author, db_session):
+    author.post("/api/media", files={"file": ("clip.mp4", mp4_bytes(), "video/mp4")})
+
+    record = next(r for r in entries(db_session) if r.action == "media.upload")
+
+    assert record.detail["kind"] == "video"
+    assert record.detail["contentType"] == "video/mp4"
+    assert record.actor_id is not None

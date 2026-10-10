@@ -1,51 +1,49 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { RouterProvider } from '@tanstack/react-router'
+import { useMemo } from 'react'
 
-import { AppShell } from './components/AppShell'
-import { useAuth } from './auth/AuthContext'
-import { AccountPage } from './pages/AccountPage'
-import { CategoryPage } from './pages/CategoryPage'
-import { GuideEditorPage } from './pages/GuideEditorPage'
-import { GuideViewPage } from './pages/GuideViewPage'
-import { HomePage } from './pages/HomePage'
+import type { ReticleApp } from './app/createApp'
+import { useSession } from './auth/session'
 import { LoginPage } from './pages/LoginPage'
-import { PageEditorPage } from './pages/PageEditorPage'
-import { PageViewPage } from './pages/PageViewPage'
-import { SearchPage } from './pages/SearchPage'
-import { TagPage } from './pages/TagPage'
-import { UsersPage } from './pages/UsersPage'
+import { createAppRouter } from './router'
 
 /**
  * Reticle has no public surface, so an unauthenticated visitor gets the login
  * screen whatever the URL says. Keeping the requested path in the address bar
- * means that after logging in, the very same render tree resolves the page they
+ * means that after logging in, the router simply resolves the page they
  * originally asked for — no redirect dance, no "returnTo" parameter to leak.
+ *
+ * That is also why the session gate sits outside the router instead of in a
+ * route guard: a guard would have to navigate somewhere to show the form, and
+ * here nothing navigates at all.
  */
-export function App() {
-  const { status, can } = useAuth()
+export function App({ app }: { app: ReticleApp }) {
+  const { status, user } = useSession()
 
   if (status === 'checking') {
     return <div className="spinner">Loading Reticle…</div>
   }
 
-  if (status === 'anonymous') {
+  if (!user) {
     return <LoginPage />
   }
 
-  return (
-    <AppShell>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/c/:slug" element={<CategoryPage />} />
-        <Route path="/g/:slug" element={<GuideViewPage />} />
-        <Route path="/g/:id/edit" element={<GuideEditorPage />} />
-        <Route path="/w/:slug" element={<PageViewPage />} />
-        <Route path="/w/:id/edit" element={<PageEditorPage />} />
-        <Route path="/t/:tag" element={<TagPage />} />
-        <Route path="/search" element={<SearchPage />} />
-        <Route path="/account" element={<AccountPage />} />
-        <Route path="/users" element={can('admin') ? <UsersPage /> : <Navigate to="/" replace />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AppShell>
+  return <SignedIn app={app} userId={user.id} />
+}
+
+/**
+ * A router per signed-in session, over the one shared history.
+ *
+ * A router remembers the routes it has loaded. Building a new one when the
+ * user changes means the next person to sign in on a shared workstation starts
+ * from the URL alone: their role guards run from scratch, and nothing the
+ * previous session matched or loaded is there to be shown first.
+ */
+function SignedIn({ app, userId }: { app: ReticleApp; userId: string }) {
+  const router = useMemo(
+    () => createAppRouter({ api: app.api, queryClient: app.queryClient }, app.history),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [app, userId],
   )
+
+  return <RouterProvider router={router} />
 }

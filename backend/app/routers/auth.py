@@ -5,30 +5,42 @@ that establishes a session cannot echo a token it has not been given yet. The
 protections that matter for it instead are the SameSite cookie, the dual
 throttle and the identical failure response.
 
+The throttle is built so that it cannot be turned on a colleague: see
+``security.login_is_throttled`` for how a browser the account has used before
+is kept out of reach of everybody else's wrong guesses.
+
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from fastapi import APIRouter, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session as DbSession
 
 from .. import audit, errors
 from ..auth import CurrentSession, CurrentUser, DbDep, client_address
-from ..models import User
+from ..db import utcnow
+from ..models import AuditLog, User
 from ..schemas import LoginIn, UserOut, user_out
 from ..security import (
     CSRF_COOKIE,
+    DEVICE_COOKIE,
+    DEVICE_COOKIE_MAX_AGE_SECONDS,
     SESSION_COOKIE,
+    LoginSubject,
     burn_password_time,
-    clear_failed_logins,
     create_session,
     email_fingerprint,
+    forgive_login_attempts,
     hash_password,
     login_is_throttled,
     needs_rehash,
-    prune_login_attempts,
-    record_failed_login,
+    new_device_token,
+    prune_if_due,
+    record_login_attempt,
     revoke_session,
     verify_password,
 )
@@ -66,37 +78,93 @@ def clear_session_cookies(response: Response, settings: Settings) -> None:
         response.delete_cookie(name, path="/", domain=settings.cookie_domain)
 
 
+def set_device_cookie(response: Response, token: str, settings: Settings) -> None:
+    """Remember that this browser has signed in to this account.
+
+    Scoped to the authentication endpoints because nothing else reads it, and
+    deliberately left in place at logout: its whole purpose is to be there the
+    next time somebody signs in.
+    """
+    response.set_cookie(
+        DEVICE_COOKIE,
+        token,
+        max_age=DEVICE_COOKIE_MAX_AGE_SECONDS,
+        path="/api/auth",
+        domain=settings.cookie_domain,
+        secure=settings.cookie_secure,
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def _audit_throttled_once(db: DbSession, address: str | None, email: str) -> None:
+    """Record that a source hit the throttle, once per window rather than per request.
+
+    A throttled request is by definition one of many. Writing an audit row for
+    each would let anybody who can reach the login form grow the audit table
+    without limit, at exactly the moment the trail is most worth reading.
+    """
+    since = utcnow() - timedelta(minutes=get_settings().login_attempt_window_minutes)
+    already = db.scalar(
+        select(func.count())
+        .select_from(AuditLog)
+        .where(
+            AuditLog.action == "auth.login_throttled",
+            AuditLog.ip_address == address,
+            AuditLog.created_at >= since,
+        )
+    )
+    if already:
+        return
+    audit.record(
+        db,
+        action="auth.login_throttled",
+        entity_type="auth",
+        ip_address=address,
+        detail={"emailDigest": email_fingerprint(email)},
+    )
+
+
 @router.post("/login", response_model=UserOut)
 def login(payload: LoginIn, request: Request, response: Response, db: DbDep) -> UserOut:
+    """Check a password, in three short transactions around one slow computation.
+
+    The attempt is counted and committed first, the password is verified with no
+    transaction open, and the outcome is written afterwards. Argon2 is slow on
+    purpose; holding the database's write lock while it runs would let a handful
+    of concurrent sign-ins stall every autosave in the building.
+    """
     settings = get_settings()
     email = payload.email.strip().lower()
     address = client_address(request)
+    device_token = request.cookies.get(DEVICE_COOKIE)
+    subject = LoginSubject.of(email, address, device_token)
 
-    if login_is_throttled(db, email, address):
-        audit.record(
-            db,
-            action="auth.login_throttled",
-            entity_type="auth",
-            ip_address=address,
-            detail={"emailDigest": email_fingerprint(email)},
-        )
+    prune_if_due(db)
+    if login_is_throttled(db, subject):
+        _audit_throttled_once(db, address, email)
         db.commit()
         raise errors.rate_limited()
 
+    attempt_ids = record_login_attempt(db, subject)
     user = db.scalars(select(User).where(User.email == email)).one_or_none()
-    authenticated = False
-    if user is None or not user.is_active:
-        burn_password_time()
-    else:
-        authenticated = verify_password(user.password_hash, payload.password)
+    user_id = user.id if user is not None else None
+    stored_hash = user.password_hash if user is not None and user.is_active else None
+    db.commit()
 
-    if not authenticated:
-        record_failed_login(db, email, address)
+    if stored_hash is None:
+        burn_password_time()
+        authenticated = False
+    else:
+        authenticated = verify_password(stored_hash, payload.password)
+
+    user = db.get(User, user_id) if authenticated else None
+    if user is None or not user.is_active:
         audit.record(
             db,
             action="auth.login_failed",
             entity_type="auth",
-            actor_id=user.id if user is not None else None,
+            actor_id=user_id,
             ip_address=address,
             detail={"emailDigest": email_fingerprint(email)},
         )
@@ -106,8 +174,7 @@ def login(payload: LoginIn, request: Request, response: Response, db: DbDep) -> 
     if needs_rehash(user.password_hash):
         user.password_hash = hash_password(payload.password)
 
-    clear_failed_logins(db, email, address)
-    prune_login_attempts(db)
+    forgive_login_attempts(db, subject, attempt_ids)
     session_row, token = create_session(db, user, address, request.headers.get("user-agent"))
     audit.record(
         db,
@@ -122,6 +189,8 @@ def login(payload: LoginIn, request: Request, response: Response, db: DbDep) -> 
     db.commit()
 
     set_session_cookies(response, token, csrf_token, settings)
+    if subject.device is None:
+        set_device_cookie(response, new_device_token(email), settings)
     return body
 
 

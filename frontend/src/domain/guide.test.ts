@@ -23,7 +23,15 @@ function threeSteps(): Step[] {
 }
 
 function media(id: string): Media {
-  return { id, url: `/api/media/${id}`, alt: '', width: 800, height: 600, annotations: [] }
+  return {
+    id,
+    kind: 'image',
+    url: `/api/media/${id}`,
+    alt: '',
+    width: 800,
+    height: 600,
+    annotations: [],
+  }
 }
 
 function guideFixture(overrides: Partial<Guide> = {}): Guide {

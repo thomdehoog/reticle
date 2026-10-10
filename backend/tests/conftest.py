@@ -267,8 +267,47 @@ def upload_media(client: ApiClient, payload: bytes | None = None, filename: str 
     return response.json()
 
 
+def mp4_bytes(size: int = 2048, major: bytes = b"isom", compatible: tuple[bytes, ...] = (b"isom", b"mp42")) -> bytes:
+    """Bytes that open with a genuine ISO-BMFF ``ftyp`` box.
+
+    Not a playable film — the server does not decode video, it recognises the
+    container — but exactly what the signature check has to accept, padded with
+    a ``free`` box so that sizes and ranges have something to measure.
+    """
+    brands = b"".join(compatible)
+    ftyp = (16 + len(brands)).to_bytes(4, "big") + b"ftyp" + major + b"\x00\x00\x02\x00" + brands
+    padding = max(size - len(ftyp) - 8, 0)
+    body = bytes(index % 251 for index in range(padding))
+    return ftyp + (8 + padding).to_bytes(4, "big") + b"free" + body
+
+
+def webm_bytes(doctype: bytes = b"webm", size: int = 1024) -> bytes:
+    """Bytes that open with an EBML header declaring the given document type."""
+    elements = (
+        b"\x42\x86\x81\x01"  # EBMLVersion 1
+        + b"\x42\xf7\x81\x01"  # EBMLReadVersion 1
+        + b"\x42\x82" + bytes([0x80 | len(doctype)]) + doctype  # DocType
+        + b"\x42\x87\x81\x04"  # DocTypeVersion 4
+    )
+    header = b"\x1a\x45\xdf\xa3" + bytes([0x80 | len(elements)]) + elements
+    return header + bytes(index % 249 for index in range(max(size - len(header), 0)))
+
+
+def upload_video(client: ApiClient, payload: bytes | None = None, filename: str = "clip.mp4") -> dict:
+    files = {"file": (filename, payload if payload is not None else mp4_bytes(), "video/mp4")}
+    response = client.post("/api/media", files=files)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 def create_guide(client: ApiClient, category_id: str, title: str = "Aligning the Confocal") -> dict:
     response = client.post("/api/guides", json={"title": title, "categoryId": category_id})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def create_page(client: ApiClient, title: str = "Booking Rules", **fields: Any) -> dict:
+    response = client.post("/api/pages", json={"title": title, **fields})
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -286,11 +325,59 @@ def instant(value: str) -> "datetime":
     return datetime.fromisoformat(value[:-1] + "+00:00")
 
 
-def document_from(guide: dict, **overrides: Any) -> dict:
-    """Round-trip a fetched guide into a ``PUT`` body, as the editor does."""
-    body = dict(guide)
+def document_from(content: dict, **overrides: Any) -> dict:
+    """Round-trip a fetched guide or page into a ``PUT`` body, as the editor does.
+
+    The frontend sends back the whole object plus ``expectedUpdatedAt``, the
+    ``updatedAt`` it last saw, and so does this.
+    """
+    body = dict(content)
+    body["expectedUpdatedAt"] = content["updatedAt"]
     body.update(overrides)
     return body
+
+
+def save_guide(client: ApiClient, guide: dict, **overrides: Any) -> dict:
+    response = client.put(f"/api/guides/{guide['id']}", json=document_from(guide, **overrides))
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def save_page(client: ApiClient, page: dict, **overrides: Any) -> dict:
+    response = client.put(f"/api/pages/{page['id']}", json=document_from(page, **overrides))
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def publish_guide(client: ApiClient, guide: dict) -> dict:
+    """Publish a guide, first giving it the one step publishing insists on.
+
+    Most tests that publish are about what publishing *does*, not about what it
+    requires, so they should not each have to assemble a valid document.
+    """
+    current = client.get(f"/api/guides/{guide['id']}").json()
+    if not current["steps"]:
+        save_guide(client, current, steps=[step("Do the thing", bullets=[bullet("Carefully.")])])
+    response = client.post(f"/api/guides/{guide['id']}/publish")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def published_guide(client: ApiClient, category_id: str, title: str = "Aligning the Confocal", **fields: Any) -> dict:
+    created = create_guide(client, category_id, title)
+    if fields:
+        save_guide(client, created, **fields)
+    return publish_guide(client, created)
+
+
+def published_page(client: ApiClient, title: str = "Booking Rules", body: str = "Some content.", **fields: Any) -> dict:
+    """Create, fill and publish a wiki page."""
+    create_fields = {key: fields[key] for key in ("categoryId", "isLanding") if key in fields}
+    created = create_page(client, title, **create_fields)
+    save_page(client, created, body=body, **fields)
+    response = client.post(f"/api/pages/{created['id']}/publish")
+    assert response.status_code == 200, response.text
+    return response.json()
 
 
 def step(title: str, bullets: list[dict] | None = None, media: list[dict] | None = None, step_id: str | None = None) -> dict:
@@ -310,3 +397,7 @@ def bullet(text: str, color: str = "black", icon: str | None = None, level: int 
     if bullet_id is not None:
         entry["id"] = bullet_id
     return entry
+
+
+def annotation(shape: str = "rectangle", color: str = "red", **geometry: float) -> dict:
+    return {"shape": shape, "color": color, "x": 0.1, "y": 0.2, "width": 0.3, "height": 0.25, **geometry}

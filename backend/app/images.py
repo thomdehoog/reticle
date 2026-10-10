@@ -1,4 +1,4 @@
-"""Upload validation and on-disk storage for images.
+"""Upload validation for images, and on-disk storage for all media.
 
 The rule this module exists to enforce is that nothing the uploader controls is
 ever trusted. The declared MIME type and the filename are discarded outright;
@@ -14,6 +14,7 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -43,6 +44,19 @@ point at which one upload can exhaust the host.
 """
 
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS_DEFAULT
+
+warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+"""Pillow warns at the cap and only raises at twice it. ``normalise`` refuses at
+the cap itself, so the warning would announce something already dealt with."""
+
+MAX_ANIMATION_FACTOR = 4
+"""How many times the single-frame pixel budget an animation may use in total.
+
+Re-encoding an animated GIF decodes every frame in turn. The per-frame cap
+bounds the memory; this bounds the time, because a few kilobytes can declare a
+thousand full-size frames and each one costs as much to process as a
+photograph.
+"""
 
 
 @dataclass(frozen=True)
@@ -113,6 +127,16 @@ def normalise(payload: bytes, max_dimension: int, max_pixels: int) -> Normalised
         raise errors.validation_failed(f"Images must be at most {max_dimension} pixels on each side.")
     if width * height > max_pixels:
         raise errors.validation_failed(too_many_pixels_message(max_pixels))
+
+    try:
+        with Image.open(BytesIO(payload)) as probe:
+            frames = getattr(probe, "n_frames", 1)
+    except Exception as exc:
+        raise errors.validation_failed("That file is not a readable image.") from exc
+    if width * height * frames > max_pixels * MAX_ANIMATION_FACTOR:
+        raise errors.validation_failed(
+            "That animation is too large to process. Shorten it, shrink it, or upload it as a video instead."
+        )
 
     try:
         with Image.open(BytesIO(payload)) as probe:

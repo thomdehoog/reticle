@@ -2,13 +2,13 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
-import { useAuth } from '../auth/AuthContext'
+import { useSession } from '../auth/session'
 import { createFakeServer } from '../test/fakeServer'
 import { renderWithApp } from '../test/harness'
 import { LoginPage } from './LoginPage'
 
 function SessionProbe() {
-  const { user } = useAuth()
+  const { user } = useSession()
   return <div data-testid="session">{user ? user.displayName : 'signed out'}</div>
 }
 

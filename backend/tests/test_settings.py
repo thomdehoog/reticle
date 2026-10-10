@@ -116,9 +116,27 @@ def test_secure_defaults_hold_when_nothing_is_configured(tmp_path, monkeypatch):
 
     assert settings.cookie_secure is True
     assert settings.trust_forwarded_for is False
+    assert settings.trusted_proxies == []
+    assert settings.debug is False
+    assert settings.demo_password is None
+    assert settings.max_request_bytes == 2 * 1024 * 1024
+    assert settings.max_video_bytes == 200 * 1024 * 1024
+    assert settings.max_image_pixels == 40_000_000
     assert settings.admin_password is None
     assert settings.max_upload_bytes == 20 * 1024 * 1024
     assert settings.max_image_dimension == 10_000
     assert settings.max_media_per_step == 3
     assert settings.min_password_length == 12
     assert settings.argon2_memory_cost_kib == 65536
+
+
+def test_trusted_proxies_load_as_a_comma_separated_line_or_a_json_array(tmp_path):
+    assert load(tmp_path, MINIMAL + "RETICLE_TRUSTED_PROXIES=127.0.0.1, ::1,10.0.0.0/8\n").trusted_proxies == [
+        "127.0.0.1", "::1", "10.0.0.0/8",
+    ]
+    assert load(tmp_path, MINIMAL + 'RETICLE_TRUSTED_PROXIES=["192.168.1.5"]\n').trusted_proxies == ["192.168.1.5"]
+    assert load(tmp_path, MINIMAL + "RETICLE_TRUSTED_PROXIES=\n").trusted_proxies == []
+
+
+def test_the_video_cap_is_configurable(tmp_path):
+    assert load(tmp_path, MINIMAL + "RETICLE_MAX_VIDEO_BYTES=52428800\n").max_video_bytes == 50 * 1024 * 1024

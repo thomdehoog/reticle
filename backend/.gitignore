@@ -1,0 +1,4 @@
+# SQLite in write-ahead mode keeps two companion files next to the database.
+# They are live runtime state, exactly like the database itself.
+*.db-wal
+*.db-shm

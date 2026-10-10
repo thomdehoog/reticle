@@ -5,3 +5,7 @@
 pytest~=9.1
 pytest-cov~=7.1
 httpx~=0.28
+
+# Reads the exported PDFs back, so the export tests can assert on their text
+# and drawing operators instead of on a byte count.
+pypdf~=6.20

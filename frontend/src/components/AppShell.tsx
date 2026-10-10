@@ -1,7 +1,7 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
+import { useEffect, useState, type FormEvent } from 'react'
 
-import { useAuth } from '../auth/AuthContext'
+import { useLogout, useSession } from '../auth/session'
 import { IconPlus, ReticleMark } from './icons'
 import { NewGuideDialog } from './NewGuideDialog'
 
@@ -13,16 +13,36 @@ function initials(displayName: string): string {
   return (first + last).toUpperCase()
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
-  const { user, logout, can } = useAuth()
+/**
+ * The search term in the address bar, or '' anywhere but the search page.
+ * Read loosely from the location because the header sits above every route.
+ */
+function useCurrentSearchTerm(): string {
+  return useRouterState({
+    select: (state) => {
+      const term = (state.location.search as { q?: unknown }).q
+      return typeof term === 'string' ? term : ''
+    },
+  })
+}
+
+/** The frame around every signed-in screen; the matched route renders in `<Outlet />`. */
+export function AppShell() {
+  const { user, can } = useSession()
+  const logout = useLogout()
   const navigate = useNavigate()
-  const [query, setQuery] = useState('')
+  const currentTerm = useCurrentSearchTerm()
+  const [query, setQuery] = useState(currentTerm)
   const [creating, setCreating] = useState(false)
+
+  /* Keeps the box honest when the term changes without it — a reload, or the
+     back button from one search to the previous one. */
+  useEffect(() => setQuery(currentTerm), [currentTerm])
 
   function onSearch(event: FormEvent) {
     event.preventDefault()
     const trimmed = query.trim()
-    if (trimmed !== '') navigate(`/search?q=${encodeURIComponent(trimmed)}`)
+    if (trimmed !== '') void navigate({ to: '/search', search: { q: trimmed } })
   }
 
   return (
@@ -69,12 +89,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span>{user?.displayName}</span>
         </Link>
 
-        <button className="button" type="button" onClick={() => void logout()}>
+        <button className="button" type="button" onClick={() => logout.mutate()}>
           Sign out
         </button>
       </header>
 
-      <main className="app__main">{children}</main>
+      <main className="app__main">
+        <Outlet />
+      </main>
 
       {creating && <NewGuideDialog onClose={() => setCreating(false)} />}
     </div>

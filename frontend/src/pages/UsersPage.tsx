@@ -1,10 +1,12 @@
+import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 
-import { useApi, useAuth } from '../auth/AuthContext'
+import { useApi } from '../api/context'
+import { useSession } from '../auth/session'
 import { IconPlus } from '../components/icons'
-import { ErrorAlert, Modal, Spinner } from '../components/ui'
+import { ErrorAlert, Modal } from '../components/ui'
 import type { Role } from '../domain/types'
-import { useAsync } from '../hooks/useAsync'
+import { useCreateUser, useUpdateUser, userQueries } from '../queries/users'
 
 const ROLE_LABELS: Record<Role, string> = {
   viewer: 'Viewer — can read published guides',
@@ -12,34 +14,25 @@ const ROLE_LABELS: Record<Role, string> = {
   admin: 'Admin — can also manage people and categories',
 }
 
-function NewUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const api = useApi()
+function NewUserDialog({ onClose }: { onClose: () => void }) {
+  const create = useCreateUser()
   const [email, setEmail] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [role, setRole] = useState<Role>('author')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<unknown>(null)
-  const [submitting, setSubmitting] = useState(false)
 
-  async function onSubmit(event: FormEvent) {
+  function onSubmit(event: FormEvent) {
     event.preventDefault()
-    setSubmitting(true)
-    setError(null)
-
-    try {
-      await api.createUser({ email: email.trim(), displayName: displayName.trim(), role, password })
-      onCreated()
-      onClose()
-    } catch (cause) {
-      setError(cause)
-      setSubmitting(false)
-    }
+    create.mutate(
+      { email: email.trim(), displayName: displayName.trim(), role, password },
+      { onSuccess: onClose },
+    )
   }
 
   return (
     <Modal title="Add a person" onClose={onClose}>
       <form onSubmit={onSubmit}>
-        <ErrorAlert error={error} />
+        <ErrorAlert error={create.error} />
 
         <div className="field">
           <label className="field__label" htmlFor="user-name">
@@ -106,8 +99,8 @@ function NewUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
         </div>
 
         <div className="page-actions">
-          <button className="button button--primary" type="submit" disabled={submitting}>
-            {submitting ? 'Adding…' : 'Add person'}
+          <button className="button button--primary" type="submit" disabled={create.isPending}>
+            {create.isPending ? 'Adding…' : 'Add person'}
           </button>
           <button className="button" type="button" onClick={onClose}>
             Cancel
@@ -120,23 +113,10 @@ function NewUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
 
 export function UsersPage() {
   const api = useApi()
-  const { user: currentUser } = useAuth()
-  const { data, error, loading, reload } = useAsync(() => api.listUsers(), [api])
+  const { user: currentUser } = useSession()
+  const { data: people } = useSuspenseQuery(userQueries.list(api))
+  const update = useUpdateUser()
   const [adding, setAdding] = useState(false)
-  const [changeError, setChangeError] = useState<unknown>(null)
-
-  async function changeRole(id: string, role: Role) {
-    setChangeError(null)
-    try {
-      await api.updateUser(id, { role })
-      reload()
-    } catch (cause) {
-      setChangeError(cause)
-    }
-  }
-
-  if (loading) return <Spinner />
-  if (error) return <ErrorAlert error={error} />
 
   return (
     <>
@@ -153,7 +133,7 @@ export function UsersPage() {
         </div>
       </div>
 
-      <ErrorAlert error={changeError} />
+      <ErrorAlert error={update.error} />
 
       <div className="card">
         <table className="table">
@@ -165,7 +145,7 @@ export function UsersPage() {
             </tr>
           </thead>
           <tbody>
-            {(data ?? []).map((person) => (
+            {people.map((person) => (
               <tr key={person.id}>
                 <td>{person.displayName}</td>
                 <td>{person.email}</td>
@@ -180,7 +160,9 @@ export function UsersPage() {
                         ? 'You cannot change your own role — ask another admin.'
                         : undefined
                     }
-                    onChange={(event) => void changeRole(person.id, event.target.value as Role)}
+                    onChange={(event) =>
+                      update.mutate({ id: person.id, changes: { role: event.target.value as Role } })
+                    }
                   >
                     <option value="viewer">Viewer</option>
                     <option value="author">Author</option>
@@ -193,7 +175,7 @@ export function UsersPage() {
         </table>
       </div>
 
-      {adding && <NewUserDialog onClose={() => setAdding(false)} onCreated={reload} />}
+      {adding && <NewUserDialog onClose={() => setAdding(false)} />}
     </>
   )
 }

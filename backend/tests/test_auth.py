@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import select
 
+from app.auth import AnyUser
 from app.models import Session as SessionRow
 from app.models import User
 from app.settings import get_settings
@@ -307,3 +308,60 @@ def test_every_route_is_behind_authentication():
     from app.main import unauthenticated_routes
 
     assert unauthenticated_routes() == []
+
+
+def test_the_authentication_sweep_actually_looks_at_the_routes():
+    """An empty list of holes proves nothing if the sweep inspected nothing.
+
+    That is not hypothetical: a FastAPI upgrade stopped flattening included
+    routers into ``app.routes``, and the sweep went on returning ``[]`` while
+    examining only the health probe. Every endpoint in the contract has to be
+    among the paths it visits.
+    """
+    from app.main import inspected_routes
+
+    assert set(inspected_routes()) >= {
+        "/api/health",
+        "/api/auth/login", "/api/auth/logout", "/api/auth/me",
+        "/api/categories", "/api/categories/{category_id}", "/api/categories/{category_id}/page",
+        "/api/tags",
+        "/api/guides", "/api/guides/{key}", "/api/guides/{guide_id}", "/api/guides/{key}/pdf",
+        "/api/guides/{item_id}/publish", "/api/guides/{item_id}/unpublish", "/api/guides/{item_id}/view",
+        "/api/guides/{item_id}", "/api/guides/{item_id}/revisions", "/api/guides/{item_id}/revisions/{version}",
+        "/api/pages", "/api/pages/{key}", "/api/pages/{page_id}",
+        "/api/pages/{item_id}/publish", "/api/pages/{item_id}/unpublish", "/api/pages/{item_id}/view",
+        "/api/pages/{item_id}", "/api/pages/{item_id}/revisions", "/api/pages/{item_id}/revisions/{version}",
+        "/api/search",
+        "/api/media", "/api/media/{media_id}",
+        "/api/users", "/api/users/{user_id}", "/api/users/{user_id}/password",
+    }
+
+
+def test_the_sweep_catches_an_unguarded_route_inside_an_included_router():
+    from fastapi import APIRouter, FastAPI
+    from starlette.routing import Mount, Route
+
+    from app.main import unauthenticated_routes
+
+    router = APIRouter(prefix="/api/things")
+    nested = APIRouter(prefix="/api/nested")
+
+    @router.get("/guarded")
+    def guarded(user: AnyUser) -> dict:
+        return {}  # pragma: no cover
+
+    @router.get("/open")
+    def left_open() -> dict:
+        return {}  # pragma: no cover
+
+    @nested.get("/also-open")
+    def also_open() -> dict:
+        return {}  # pragma: no cover
+
+    router.include_router(nested)
+    application = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    application.include_router(router)
+    application.routes.append(Route("/raw", endpoint=left_open))
+    application.routes.append(Mount("/static", app=left_open))
+
+    assert unauthenticated_routes(application) == ["/api/nested/also-open", "/api/things/open", "/raw", "/static"]

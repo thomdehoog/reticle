@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 
 import { ApiError } from '../api/client'
-import { useAuth } from '../auth/AuthContext'
+import { useLogin } from '../auth/session'
 import { ReticleMark } from '../components/icons'
 
 /**
@@ -12,7 +12,7 @@ import { ReticleMark } from '../components/icons'
  * has an account at ZMB.
  */
 export function LoginPage() {
-  const { login } = useAuth()
+  const login = useLogin()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -24,7 +24,7 @@ export function LoginPage() {
     setError(null)
 
     try {
-      await login(email.trim(), password)
+      await login.mutateAsync({ email: email.trim(), password })
     } catch (cause) {
       if (cause instanceof ApiError && cause.code === 'rate_limited') {
         setError('Too many attempts. Please wait a minute before trying again.')

@@ -10,13 +10,14 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from .images import MAX_IMAGE_PIXELS_DEFAULT
@@ -30,6 +31,32 @@ WILDCARD_ORIGIN_REFUSAL = (
     "asks — so any page a signed-in colleague happens to visit could read every guide in the "
     "institute. List the exact origins instead, for example https://guides.zmb.uzh.ch."
 )
+
+LEGACY_FORWARDING_REFUSAL = (
+    "RETICLE_TRUST_FORWARDED_FOR is no longer honoured on its own. A bare on/off switch was wrong in "
+    "both positions: on, it believed an X-Forwarded-For header from anybody, so any client could pick "
+    "its own login-throttle bucket or frame a colleague's address; off behind a proxy, it attributed "
+    "the whole institute to the proxy. Name the proxy instead, for example "
+    "RETICLE_TRUSTED_PROXIES=127.0.0.1, and remove RETICLE_TRUST_FORWARDED_FOR."
+)
+
+
+def split_list(value: object) -> object:
+    """Accept both a JSON array and a plain comma-separated line.
+
+    ``NoDecode`` on a list field is what makes this reachable: without it
+    pydantic-settings JSON-decodes list-typed values inside the source, before
+    any validator runs, and a comma-separated line in a ``.env`` file aborts
+    start-up instead of arriving here. Taking the decoding over means the
+    validator owns both forms, so the JSON one has to be parsed rather than
+    passed through.
+    """
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if text.startswith("["):
+        return json.loads(text)
+    return [item.strip() for item in text.split(",") if item.strip()]
 
 
 class Settings(BaseSettings):
@@ -65,10 +92,12 @@ class Settings(BaseSettings):
     login_max_attempts_per_ip: int = 20
     login_attempt_window_minutes: int = 15
 
+    trusted_proxies: Annotated[list[str], NoDecode] = []
     trust_forwarded_for: bool = False
 
     max_request_bytes: int = 2 * 1024 * 1024
     max_upload_bytes: int = 20 * 1024 * 1024
+    max_video_bytes: int = 200 * 1024 * 1024
     max_image_dimension: int = 10_000
     max_image_pixels: int = MAX_IMAGE_PIXELS_DEFAULT
     max_media_per_step: int = 3
@@ -81,25 +110,35 @@ class Settings(BaseSettings):
 
     admin_email: str = "admin@zmb.uzh.ch"
     admin_password: str | None = None
+    demo_password: str | None = None
 
-    @field_validator("cors_origins", mode="before")
+    @field_validator("cors_origins", "trusted_proxies", mode="before")
     @classmethod
-    def _split_origins(cls, value: object) -> object:
-        """Accept both a JSON array and a plain comma-separated line.
+    def _split_lists(cls, value: object) -> object:
+        return split_list(value)
 
-        ``NoDecode`` on the field is what makes this reachable: without it
-        pydantic-settings JSON-decodes list-typed values inside the source,
-        before any validator runs, and a comma-separated line in a ``.env`` file
-        aborts start-up instead of arriving here. Taking the decoding over means
-        this validator owns both forms, so the JSON one has to be parsed rather
-        than passed through.
+    @field_validator("trusted_proxies")
+    @classmethod
+    def _require_networks(cls, value: list[str]) -> list[str]:
+        """Fail at start-up on anything that is not an address or a CIDR block.
+
+        A typo here would otherwise be discovered as "the throttle locks
+        everyone out at once", weeks later and with nothing in the logs.
         """
-        if not isinstance(value, str):
-            return value
-        text = value.strip()
-        if text.startswith("["):
-            return json.loads(text)
-        return [origin.strip() for origin in text.split(",") if origin.strip()]
+        for entry in value:
+            try:
+                ipaddress.ip_network(entry, strict=False)
+            except ValueError as exc:
+                raise ValueError(
+                    f"RETICLE_TRUSTED_PROXIES entry {entry!r} is not an IP address or CIDR block."
+                ) from exc
+        return value
+
+    @model_validator(mode="after")
+    def _refuse_the_legacy_forwarding_switch(self) -> "Settings":
+        if self.trust_forwarded_for and not self.trusted_proxies:
+            raise ValueError(LEGACY_FORWARDING_REFUSAL)
+        return self
 
     @field_validator("cors_origins")
     @classmethod

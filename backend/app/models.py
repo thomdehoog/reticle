@@ -14,20 +14,26 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship, validates
 from ulid import ULID
 
 from .db import Base, JsonDocument, UtcDateTime, utcnow
 
 IP_ADDRESS_LENGTH = 45
+TAG_LENGTH = 60
 LOGIN_ATTEMPT_KEY_LENGTH = 370
 
 ROLES = ("viewer", "author", "admin")
-GUIDE_STATUSES = ("draft", "in_review", "published", "archived")
+CONTENT_STATUSES = ("draft", "in_review", "published", "archived")
 DIFFICULTIES = ("very_easy", "easy", "moderate", "difficult", "very_difficult")
-BULLET_COLORS = ("black", "red", "orange", "yellow", "green", "blue", "violet")
-BULLET_ICONS = ("note", "caution", "warning", "reminder")
+BULLET_COLORS = ("black", "red", "orange", "yellow", "green", "light_blue", "blue", "violet")
+BULLET_ICONS = ("note", "caution", "reminder")
+MEDIA_KINDS = ("image", "video")
+ANNOTATION_SHAPES = ("rectangle", "ellipse", "arrow")
+
+PUBLISHED = "published"
+ARCHIVED = "archived"
 
 ROLE_RANK = {role: rank for rank, role in enumerate(ROLES)}
 
@@ -87,7 +93,7 @@ class Session(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     csrf_token: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
-    expires_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
     revoked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(IP_ADDRESS_LENGTH), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(400), nullable=True)
@@ -114,7 +120,10 @@ class LoginAttempt(Base):
     """
 
     __tablename__ = "login_attempts"
-    __table_args__ = (Index("ix_login_attempts_scope_key_time", "scope", "key", "created_at"),)
+    __table_args__ = (
+        Index("ix_login_attempts_scope_key_time", "scope", "key", "created_at"),
+        Index("ix_login_attempts_created_at", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
     scope: Mapped[str] = mapped_column(String(8))
@@ -127,6 +136,13 @@ class LoginAttempt(Base):
 
 
 class Category(Base):
+    """A place a guide or page is filed.
+
+    ``is_hidden`` marks a holding category. ZMB keeps most guides in categories
+    nobody browses and surfaces them through tags, so the flag is a hint to the
+    navigation and deliberately nothing more: it grants and withholds no access.
+    """
+
     __tablename__ = "categories"
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
@@ -135,71 +151,158 @@ class Category(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     parent_id: Mapped[str | None] = mapped_column(ForeignKey("categories.id"), nullable=True, index=True)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, onupdate=utcnow)
 
     children: Mapped[list["Category"]] = relationship(back_populates="parent")
     parent: Mapped["Category | None"] = relationship(back_populates="children", remote_side=[id])
-    guides: Mapped[list["Guide"]] = relationship(back_populates="category")
 
 
-class Guide(Base):
-    __tablename__ = "guides"
+class Tag(Base):
+    """A label a guide is found by.
+
+    ``slug`` is the identity and ``name`` is whichever spelling arrived first.
+    There is no delete: a tag nobody carries simply stops being listed, which
+    costs one row and saves a class of "who removed my tag" questions.
+    """
+
+    __tablename__ = "tags"
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
+    slug: Mapped[str] = mapped_column(String(TAG_LENGTH), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(TAG_LENGTH))
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+
+class GuideTag(Base):
+    __tablename__ = "guide_tags"
+
+    guide_id: Mapped[str] = mapped_column(ForeignKey("guides.id", ondelete="CASCADE"), primary_key=True)
+    tag_id: Mapped[str] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True, index=True)
+
+
+class ContentMixin:
+    """The lifecycle a guide and a wiki page have in common.
+
+    Draft, publish, unpublish, archive, a version that counts publishes, a view
+    counter and the record of who touched it are one mechanism in ``content``;
+    these are the columns that mechanism reads and writes, declared once so the
+    two tables cannot drift apart.
+    """
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
     slug: Mapped[str] = mapped_column(String(240), unique=True, index=True)
     title: Mapped[str] = mapped_column(String(240))
     summary: Mapped[str] = mapped_column(Text, default="")
-    category_id: Mapped[str] = mapped_column(ForeignKey("categories.id"), index=True)
-    difficulty: Mapped[str] = mapped_column(String(20), default="moderate")
-    time_required_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    introduction: Mapped[str] = mapped_column(Text, default="")
-    conclusion: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(16), default="draft", index=True)
     version: Mapped[int] = mapped_column(Integer, default=0)
-    author_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
-    last_edited_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    view_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, index=True)
     published_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
-    category: Mapped[Category] = relationship(back_populates="guides")
-    author: Mapped[User] = relationship(foreign_keys=[author_id])
-    last_edited_by: Mapped[User] = relationship(foreign_keys=[last_edited_by_id])
+    @declared_attr
+    def author_id(cls) -> Mapped[str]:
+        return mapped_column(ForeignKey("users.id"), index=True)
+
+    @declared_attr
+    def last_edited_by_id(cls) -> Mapped[str]:
+        return mapped_column(ForeignKey("users.id"))
+
+    @declared_attr
+    def author(cls) -> Mapped[User]:
+        return relationship(User, foreign_keys=f"{cls.__name__}.author_id")
+
+    @declared_attr
+    def last_edited_by(cls) -> Mapped[User]:
+        return relationship(User, foreign_keys=f"{cls.__name__}.last_edited_by_id")
+
+    @property
+    def contributors(self) -> list[User]:
+        return [link.user for link in self.contributor_links]
+
+
+class ContributorMixin:
+    """One row per person who has saved a piece of content, in order of arrival."""
+
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+    @declared_attr
+    def user_id(cls) -> Mapped[str]:
+        return mapped_column(ForeignKey("users.id"), primary_key=True)
+
+    @declared_attr
+    def user(cls) -> Mapped[User]:
+        return relationship(User, lazy="joined")
+
+
+class RevisionMixin:
+    """An immutable copy of content as it read at the moment it was published.
+
+    Storing the rendered document rather than a diff means a citation of
+    "version 3" keeps resolving even after the live content has been
+    restructured beyond recognition.
+    """
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
+    version: Mapped[int] = mapped_column(Integer)
+    published_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonDocument)
+
+    @declared_attr
+    def published_by_id(cls) -> Mapped[str]:
+        return mapped_column(ForeignKey("users.id"))
+
+    @declared_attr
+    def published_by(cls) -> Mapped[User]:
+        return relationship(User, lazy="joined")
+
+
+class Guide(ContentMixin, Base):
+    __tablename__ = "guides"
+
+    category_id: Mapped[str] = mapped_column(ForeignKey("categories.id"), index=True)
+    difficulty: Mapped[str] = mapped_column(String(20), default="moderate")
+    time_required_min_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    time_required_max_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    introduction: Mapped[str] = mapped_column(Text, default="")
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+
+    category: Mapped[Category] = relationship()
     steps: Mapped[list["Step"]] = relationship(
         back_populates="guide",
         cascade="all, delete-orphan",
         order_by="Step.order_index",
     )
-    prerequisites: Mapped[list["GuidePrerequisite"]] = relationship(
-        back_populates="guide",
+    tags: Mapped[list[Tag]] = relationship(secondary="guide_tags", order_by="Tag.slug")
+    contributor_links: Mapped[list["GuideContributor"]] = relationship(
         cascade="all, delete-orphan",
-        order_by="GuidePrerequisite.order_index",
-        foreign_keys="GuidePrerequisite.guide_id",
+        order_by="GuideContributor.created_at, GuideContributor.user_id",
     )
     revisions: Mapped[list["GuideRevision"]] = relationship(
-        back_populates="guide",
         cascade="all, delete-orphan",
         order_by="GuideRevision.version.desc()",
     )
 
     @property
-    def prerequisite_ids(self) -> list[str]:
-        return [link.prerequisite_id for link in self.prerequisites]
+    def tag_slugs(self) -> list[str]:
+        return sorted(tag.slug for tag in self.tags)
 
 
-class GuidePrerequisite(Base):
-    """An ordered edge from a guide to a guide that should be read first."""
+class GuideContributor(ContributorMixin, Base):
+    __tablename__ = "guide_contributors"
 
-    __tablename__ = "guide_prerequisites"
-    __table_args__ = (UniqueConstraint("guide_id", "prerequisite_id", name="uq_guide_prerequisite"),)
+    owner_id: Mapped[str] = mapped_column(
+        "guide_id", ForeignKey("guides.id", ondelete="CASCADE"), primary_key=True
+    )
 
-    id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
-    guide_id: Mapped[str] = mapped_column(ForeignKey("guides.id", ondelete="CASCADE"), index=True)
-    prerequisite_id: Mapped[str] = mapped_column(ForeignKey("guides.id", ondelete="CASCADE"))
-    order_index: Mapped[int] = mapped_column(Integer, default=0)
 
-    guide: Mapped[Guide] = relationship(back_populates="prerequisites", foreign_keys=[guide_id])
+class GuideRevision(RevisionMixin, Base):
+    __tablename__ = "guide_revisions"
+    __table_args__ = (UniqueConstraint("guide_id", "version", name="uq_guide_revision_version"),)
+
+    owner_id: Mapped[str] = mapped_column("guide_id", ForeignKey("guides.id", ondelete="CASCADE"), index=True)
 
 
 class Step(Base):
@@ -222,10 +325,6 @@ class Step(Base):
         order_by="StepMedia.order_index",
     )
 
-    @property
-    def media(self) -> list["Media"]:
-        return [link.media for link in self.media_links]
-
 
 class Bullet(Base):
     __tablename__ = "bullets"
@@ -242,18 +341,21 @@ class Bullet(Base):
 
 
 class Media(Base):
-    """An uploaded image.
+    """An uploaded image or video.
 
     ``storage_path`` is relative to the configured media root and is generated
-    from the identifier, never from anything the uploader supplied.
+    from the identifier, never from anything the uploader supplied. ``alt`` is
+    what the uploader typed, if anything; the text a reader actually gets is
+    kept on the link that places the file in a step.
     """
 
     __tablename__ = "media"
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
+    kind: Mapped[str] = mapped_column(String(8), default="image")
     storage_path: Mapped[str] = mapped_column(String(300), unique=True)
     content_type: Mapped[str] = mapped_column(String(60))
-    byte_size: Mapped[int] = mapped_column(Integer)
+    byte_size: Mapped[int] = mapped_column(BigInteger)
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     alt: Mapped[str] = mapped_column(Text, default="")
@@ -265,7 +367,13 @@ class Media(Base):
 
 
 class StepMedia(Base):
-    """Ordered membership of a media item in a step, capped by the editor rule."""
+    """Ordered membership of a media item in a step, capped by the editor rule.
+
+    The alt text and the annotations live here rather than on ``Media``. A shape
+    drawn round a button belongs to the instruction it illustrates, so the same
+    screenshot reused in another step has to start clean instead of arriving
+    with somebody else's arrows on it.
+    """
 
     __tablename__ = "step_media"
     __table_args__ = (UniqueConstraint("step_id", "media_id", name="uq_step_media"),)
@@ -274,31 +382,80 @@ class StepMedia(Base):
     step_id: Mapped[str] = mapped_column(ForeignKey("steps.id", ondelete="CASCADE"), index=True)
     media_id: Mapped[str] = mapped_column(ForeignKey("media.id"), index=True)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
+    alt: Mapped[str] = mapped_column(Text, default="")
+    annotations: Mapped[list[dict[str, Any]]] = mapped_column(JsonDocument, default=list)
 
     step: Mapped[Step] = relationship(back_populates="media_links")
     media: Mapped[Media] = relationship(lazy="joined")
 
 
-class GuideRevision(Base):
-    """An immutable copy of a guide as it read at the moment it was published.
+class Page(ContentMixin, Base):
+    """A wiki page: long-form Markdown.
 
-    Storing the rendered document rather than a diff means a citation of
-    "version 3" keeps resolving even after the live guide has been restructured
-    beyond recognition.
+    A category's landing content is a page with ``is_landing`` set, rather than
+    a body column on ``Category``, so drafts, publishing and history are the
+    same mechanism for both. The partial unique index is the backstop for the
+    "one landing page per category" rule: the router checks first so it can say
+    something helpful, and the index is what holds when two requests check at
+    the same moment.
     """
 
-    __tablename__ = "guide_revisions"
-    __table_args__ = (UniqueConstraint("guide_id", "version", name="uq_guide_revision_version"),)
+    __tablename__ = "pages"
+    __table_args__ = (
+        Index(
+            "uq_pages_one_landing_per_category",
+            "category_id",
+            unique=True,
+            sqlite_where=text("is_landing = 1 AND status != 'archived'"),
+            postgresql_where=text("is_landing AND status != 'archived'"),
+        ),
+    )
 
-    id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
-    guide_id: Mapped[str] = mapped_column(ForeignKey("guides.id", ondelete="CASCADE"), index=True)
-    version: Mapped[int] = mapped_column(Integer)
-    published_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
-    published_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
-    document: Mapped[dict[str, Any]] = mapped_column(JsonDocument)
+    category_id: Mapped[str | None] = mapped_column(ForeignKey("categories.id"), nullable=True, index=True)
+    is_landing: Mapped[bool] = mapped_column(Boolean, default=False)
+    body: Mapped[str] = mapped_column(Text, default="")
+    hero_media_id: Mapped[str | None] = mapped_column(ForeignKey("media.id"), nullable=True, index=True)
 
-    guide: Mapped[Guide] = relationship(back_populates="revisions")
-    published_by: Mapped[User] = relationship()
+    category: Mapped[Category | None] = relationship()
+    contributor_links: Mapped[list["PageContributor"]] = relationship(
+        cascade="all, delete-orphan",
+        order_by="PageContributor.created_at, PageContributor.user_id",
+    )
+    revisions: Mapped[list["PageRevision"]] = relationship(
+        cascade="all, delete-orphan",
+        order_by="PageRevision.version.desc()",
+    )
+    media_links: Mapped[list["PageMedia"]] = relationship(cascade="all, delete-orphan")
+
+
+class PageContributor(ContributorMixin, Base):
+    __tablename__ = "page_contributors"
+
+    owner_id: Mapped[str] = mapped_column(
+        "page_id", ForeignKey("pages.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class PageRevision(RevisionMixin, Base):
+    __tablename__ = "page_revisions"
+    __table_args__ = (UniqueConstraint("page_id", "version", name="uq_page_revision_version"),)
+
+    owner_id: Mapped[str] = mapped_column("page_id", ForeignKey("pages.id", ondelete="CASCADE"), index=True)
+
+
+class PageMedia(Base):
+    """A media file a page's Markdown body points at.
+
+    The body is free text, so nothing in the schema says which uploads it shows.
+    Recording the ``/api/media/<id>`` references on every save turns "may this
+    viewer fetch this image" into a join, the same as it is for a guide step,
+    instead of a scan of every published body on every image request.
+    """
+
+    __tablename__ = "page_media"
+
+    page_id: Mapped[str] = mapped_column(ForeignKey("pages.id", ondelete="CASCADE"), primary_key=True)
+    media_id: Mapped[str] = mapped_column(ForeignKey("media.id"), primary_key=True, index=True)
 
 
 class AuditLog(Base):

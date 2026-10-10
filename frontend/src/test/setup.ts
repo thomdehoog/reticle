@@ -18,3 +18,10 @@ if (!('ResizeObserver' in globalThis)) {
   }
   globalThis.ResizeObserver = ResizeObserverStub
 }
+
+/**
+ * Likewise scrolling: jsdom has nothing to scroll and says so loudly on every
+ * call. The router restores scroll position after each navigation, which in a
+ * test is a no-op that should be a quiet one.
+ */
+window.scrollTo = () => {}

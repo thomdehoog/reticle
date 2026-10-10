@@ -74,9 +74,8 @@ for (const viewport of VIEWPORTS) {
 
   /**
    * Signing in legitimately produces a 401: the app asks who it is talking to
-   * before it has a session, twice over because StrictMode double-invokes the
-   * effect in dev. Those are expected, so the console watch starts clean here
-   * and anything recorded from now on is a genuine fault.
+   * before it has a session. That one is expected, so the console watch starts
+   * clean here and anything recorded from now on is a genuine fault.
    */
   consoleErrors.length = 0
 

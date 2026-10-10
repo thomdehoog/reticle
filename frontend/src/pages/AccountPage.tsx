@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from 'react'
 
 import { ApiError } from '../api/client'
-import { useApi, useAuth } from '../auth/AuthContext'
+import { useSession } from '../auth/session'
 import { ErrorAlert } from '../components/ui'
+import { useChangePassword } from '../queries/users'
 
 const MINIMUM_PASSWORD_LENGTH = 12
 
@@ -20,8 +21,8 @@ const ROLE_DESCRIPTIONS = {
  * shared secret stays valid indefinitely.
  */
 export function AccountPage() {
-  const api = useApi()
-  const { user } = useAuth()
+  const { user } = useSession()
+  const changePassword = useChangePassword()
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -29,7 +30,6 @@ export function AccountPage() {
   const [error, setError] = useState<unknown>(null)
   const [localError, setLocalError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
 
   if (!user) return null
 
@@ -48,9 +48,8 @@ export function AccountPage() {
       return
     }
 
-    setSubmitting(true)
     try {
-      await api.changePassword(user!.id, currentPassword, newPassword)
+      await changePassword.mutateAsync({ userId: user!.id, currentPassword, newPassword })
       setDone(true)
       setCurrentPassword('')
       setNewPassword('')
@@ -61,8 +60,6 @@ export function AccountPage() {
       } else {
         setError(cause)
       }
-    } finally {
-      setSubmitting(false)
     }
   }
 
@@ -147,8 +144,8 @@ export function AccountPage() {
               />
             </div>
 
-            <button className="button button--primary" type="submit" disabled={submitting}>
-              {submitting ? 'Changing…' : 'Change password'}
+            <button className="button button--primary" type="submit" disabled={changePassword.isPending}>
+              {changePassword.isPending ? 'Changing…' : 'Change password'}
             </button>
           </form>
         </div>

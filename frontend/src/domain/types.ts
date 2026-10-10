@@ -77,6 +77,11 @@ export interface Annotation {
 
 export interface Media {
   id: string
+  /**
+   * Videos are stored as uploaded and carry no pixel size or annotations; the
+   * kind is what tells a renderer not to treat one as a picture.
+   */
+  kind: 'image' | 'video'
   /** Server-relative path, e.g. /api/media/<id>. Never a data URI once saved. */
   url: string
   alt: string
@@ -87,6 +92,14 @@ export interface Media {
 
 /** A step carries at most three images; a fourth means it is really two steps. */
 export const MAX_MEDIA_PER_STEP = 3
+
+/**
+ * Limits the server enforces on every save. Mirrored here so the editor can
+ * say what is wrong next to the field, instead of relaying a refused save.
+ */
+export const MAX_GUIDE_TITLE_LENGTH = 240
+export const MAX_TAGS_PER_GUIDE = 30
+export const MAX_TAG_LENGTH = 60
 
 export interface Step {
   id: string

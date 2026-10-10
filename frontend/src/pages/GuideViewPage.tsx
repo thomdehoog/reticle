@@ -1,13 +1,19 @@
-import { Link, useParams } from 'react-router-dom'
+import { useSuspenseQuery } from '@tanstack/react-query'
+import { Link, getRouteApi } from '@tanstack/react-router'
 
-import { useApi, useAuth } from '../auth/AuthContext'
+import { useApi } from '../api/context'
+import { useSession } from '../auth/session'
 import { AnnotatedImage } from '../components/AnnotationOverlay'
 import { BulletList } from '../components/BulletList'
 import { IconEdit, IconPrint } from '../components/icons'
-import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
+import { StatusBadge } from '../components/ui'
 import { DIFFICULTY_LABELS, formatDurationRange } from '../domain/guide'
 import type { Step } from '../domain/types'
-import { useAsync } from '../hooks/useAsync'
+import { useRecordView } from '../hooks/useRecordView'
+import { categoryQueries } from '../queries/categories'
+import { guideQueries } from '../queries/guides'
+
+const route = getRouteApi('/g/$slug')
 
 function StepBlock({ step, number }: { step: Step; number: number }) {
   return (
@@ -39,23 +45,16 @@ function StepBlock({ step, number }: { step: Step; number: number }) {
 }
 
 export function GuideViewPage() {
-  const { slug = '' } = useParams()
+  const { slug } = route.useParams()
   const api = useApi()
-  const { can } = useAuth()
+  const { can } = useSession()
+  const { data: guide } = useSuspenseQuery(guideQueries.detail(api, slug))
+  const { data: categories } = useSuspenseQuery(categoryQueries.list(api))
 
-  const { data, error, loading } = useAsync(
-    async () => {
-      const [guide, categories] = await Promise.all([api.getGuide(slug), api.listCategories()])
-      return { guide, categories }
-    },
-    [api, slug],
-  )
+  /* Reading is counted here and nowhere else, so opening a guide in the editor
+     does not inflate its own figure. */
+  useRecordView(guide.id, (id) => api.recordGuideView(id))
 
-  if (loading) return <Spinner />
-  if (error) return <ErrorAlert error={error} />
-  if (!data) return <EmptyState>That guide does not exist.</EmptyState>
-
-  const { guide, categories } = data
   const category = categories.find((candidate) => candidate.id === guide.categoryId)
 
   /**
@@ -72,7 +71,9 @@ export function GuideViewPage() {
         {category && (
           <>
             <span className="breadcrumb__sep">/</span>
-            <Link to={`/c/${category.slug}`}>{category.name}</Link>
+            <Link to="/c/$slug" params={{ slug: category.slug }}>
+              {category.name}
+            </Link>
           </>
         )}
       </nav>
@@ -98,7 +99,7 @@ export function GuideViewPage() {
             Print
           </button>
           {can('author') && (
-            <Link className="button" to={`/g/${guide.id}/edit`}>
+            <Link className="button" to="/g/$id/edit" params={{ id: guide.id }}>
               <IconEdit />
               Edit
             </Link>
@@ -156,7 +157,7 @@ export function GuideViewPage() {
       {guide.tags.length > 0 && (
         <div className="tag-row">
           {guide.tags.map((tag) => (
-            <Link key={tag} className="tag" to={`/t/${encodeURIComponent(tag)}`}>
+            <Link key={tag} className="tag" to="/t/$tag" params={{ tag }}>
               {tag}
             </Link>
           ))}

@@ -1,8 +1,11 @@
+import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
 
-import { useApi } from '../auth/AuthContext'
-import { useCategories } from '../hooks/useCategories'
+import { useApi } from '../api/context'
+import { categoryQueries } from '../queries/categories'
+import { useCreateGuide } from '../queries/guides'
+import { CategoryOptions } from './editor/CategoryOptions'
 import { ErrorAlert, Modal } from './ui'
 
 /**
@@ -14,32 +17,29 @@ import { ErrorAlert, Modal } from './ui'
 export function NewGuideDialog({ onClose }: { onClose: () => void }) {
   const api = useApi()
   const navigate = useNavigate()
-  const { data: categories } = useCategories()
+  const { data: categories = [] } = useQuery(categoryQueries.list(api))
+  const create = useCreateGuide()
 
   const [title, setTitle] = useState('')
   const [categoryId, setCategoryId] = useState('')
-  const [error, setError] = useState<unknown>(null)
-  const [submitting, setSubmitting] = useState(false)
 
-  async function onSubmit(event: FormEvent) {
+  function onSubmit(event: FormEvent) {
     event.preventDefault()
-    setSubmitting(true)
-    setError(null)
-
-    try {
-      const guide = await api.createGuide(title.trim(), categoryId)
-      navigate(`/g/${guide.id}/edit`)
-      onClose()
-    } catch (cause) {
-      setError(cause)
-      setSubmitting(false)
-    }
+    create.mutate(
+      { title: title.trim(), categoryId },
+      {
+        onSuccess: (guide) => {
+          void navigate({ to: '/g/$id/edit', params: { id: guide.id } })
+          onClose()
+        },
+      },
+    )
   }
 
   return (
     <Modal title="New guide" onClose={onClose}>
       <form onSubmit={onSubmit}>
-        <ErrorAlert error={error} />
+        <ErrorAlert error={create.error} />
 
         <div className="field">
           <label className="field__label" htmlFor="new-guide-title">
@@ -70,17 +70,13 @@ export function NewGuideDialog({ onClose }: { onClose: () => void }) {
             <option value="" disabled>
               Choose a category…
             </option>
-            {(categories ?? []).map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
+            <CategoryOptions categories={categories} />
           </select>
         </div>
 
         <div className="page-actions">
-          <button className="button button--primary" type="submit" disabled={submitting}>
-            {submitting ? 'Creating…' : 'Create and start writing'}
+          <button className="button button--primary" type="submit" disabled={create.isPending}>
+            {create.isPending ? 'Creating…' : 'Create and start writing'}
           </button>
           <button className="button" type="button" onClick={onClose}>
             Cancel

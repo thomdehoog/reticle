@@ -1,27 +1,12 @@
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSuspenseQuery } from '@tanstack/react-query'
+import { getRouteApi } from '@tanstack/react-router'
 
-import { useApi } from '../auth/AuthContext'
-import { GuideRow } from '../components/GuideRow'
-import { EmptyState, ErrorAlert, Spinner, StatusBadge } from '../components/ui'
-import type { PageSummary } from '../domain/types'
-import { useAsync } from '../hooks/useAsync'
+import { useApi } from '../api/context'
+import { GuideRow, PageRow } from '../components/GuideRow'
+import { EmptyState } from '../components/ui'
+import { searchQueries } from '../queries/search'
 
-/** A wiki result. Labelled, because "guide" and "page" behave differently. */
-function PageRow({ page }: { page: PageSummary }) {
-  return (
-    <Link className="guide-row" to={`/w/${page.slug}`}>
-      <div className="guide-row__main">
-        <div className="guide-row__title">{page.title}</div>
-        {page.summary && <div className="guide-row__summary">{page.summary}</div>}
-        <div className="guide-row__meta">
-          <span className="result-kind">Wiki page</span>
-          {page.isLanding && <span>Category landing page</span>}
-        </div>
-      </div>
-      {page.status !== 'published' && <StatusBadge status={page.status} />}
-    </Link>
-  )
-}
+const route = getRouteApi('/search')
 
 /**
  * Search spans both content types.
@@ -32,16 +17,10 @@ function PageRow({ page }: { page: PageSummary }) {
  * behind the other.
  */
 export function SearchPage() {
-  const [params] = useSearchParams()
-  const query = params.get('q') ?? ''
+  const { q: query } = route.useSearch()
   const api = useApi()
+  const { data: results } = useSuspenseQuery(searchQueries.results(api, query))
 
-  const { data, error, loading } = useAsync(
-    () => (query === '' ? Promise.resolve([]) : api.search(query)),
-    [api, query],
-  )
-
-  const results = data ?? []
   const guides = results.flatMap((result) => (result.kind === 'guide' ? [result.guide] : []))
   const pages = results.flatMap((result) => (result.kind === 'page' ? [result.page] : []))
 
@@ -56,10 +35,7 @@ export function SearchPage() {
         </div>
       </div>
 
-      {loading && query !== '' && <Spinner />}
-      <ErrorAlert error={error} />
-
-      {!loading && !error && query !== '' && results.length === 0 && (
+      {query !== '' && results.length === 0 && (
         <EmptyState>
           Nothing matches “{query}”. Try an instrument name, or browse by tag from any guide.
         </EmptyState>

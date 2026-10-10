@@ -182,23 +182,28 @@ describe('validateForPublish — what it lets through', () => {
   it('accepts a step that is only an image, with no words at all', () => {
     const withImage = step({
       bullets: [createBullet({ text: '' })],
-      media: [{ id: 'm1', url: '/api/media/m1', alt: '', width: 1, height: 1, annotations: [] }],
+      media: [
+        {
+          id: 'm1',
+          kind: 'image',
+          url: '/api/media/m1',
+          alt: '',
+          width: 1,
+          height: 1,
+          annotations: [],
+        },
+      ],
     })
     expect(validateForPublish(guide({ steps: [withImage] }))).toEqual([])
   })
 
   /**
-   * DEFECT (moderate): publish-time validation checks title, category and step
-   * emptiness — src/domain/guide.ts:158-188 — but not the limits the server
-   * enforces, so `Publish` can only discover them by failing. A title over 240
-   * characters (backend/app/schemas.py:339), more than 50 tags
-   * (MAX_TAGS_PER_GUIDE), or a minimum longer than the maximum
-   * (`_assert_sane_time_range`, backend/app/documents.py:107-112) all pass the
-   * client check and are then refused by the save that publishing performs
-   * first — with a server sentence in a page-level red alert rather than a
-   * message against the field that is wrong.
+   * The limits the server enforces on a save — title length, tag count, a
+   * minimum no longer than the maximum — are named by the publish check too.
+   * Otherwise `Publish` could only discover them by failing, with a server
+   * sentence in a page-level alert instead of one that says which field.
    */
-  it.fails('catches the limits the server will refuse, before asking it', () => {
+  it('catches the limits the server will refuse, before asking it', () => {
     const overlong = guide({
       title: 'x'.repeat(300),
       tags: Array.from({ length: 60 }, (_, i) => `tag-${i}`),

@@ -1,9 +1,13 @@
-import { Link, useParams } from 'react-router-dom'
+import { useSuspenseQuery } from '@tanstack/react-query'
+import { Link, getRouteApi } from '@tanstack/react-router'
 
-import { useApi } from '../auth/AuthContext'
+import { useApi } from '../api/context'
 import { GuideRow } from '../components/GuideRow'
-import { EmptyState, ErrorAlert, Spinner } from '../components/ui'
-import { useAsync } from '../hooks/useAsync'
+import { EmptyState } from '../components/ui'
+import { guideQueries } from '../queries/guides'
+import { tagQueries } from '../queries/tags'
+
+const route = getRouteApi('/t/$tag')
 
 /**
  * Every guide carrying a tag, wherever it lives.
@@ -13,18 +17,15 @@ import { useAsync } from '../hooks/useAsync'
  * it with its siblings.
  */
 export function TagPage() {
-  const { tag = '' } = useParams()
+  const { tag } = route.useParams()
   const api = useApi()
+  const { data: guides } = useSuspenseQuery(guideQueries.list(api, { tags: tag }))
+  const { data: tags } = useSuspenseQuery(tagQueries.list(api))
 
-  const { data, error, loading } = useAsync(
-    () => api.listGuides({ tags: tag }),
-    [api, tag],
-  )
-
-  if (loading) return <Spinner />
-  if (error) return <ErrorAlert error={error} />
-
-  const guides = data ?? []
+  /* The URL carries the slug; the heading shows the tag as it was first
+     written ("LAS X", not "las-x") when the server knows it. A tag no visible
+     guide carries is not listed, and falls back to the slug. */
+  const name = tags.find((candidate) => candidate.slug === tag)?.name ?? tag
 
   return (
     <>
@@ -36,7 +37,7 @@ export function TagPage() {
 
       <div className="page-header">
         <div className="page-header__text">
-          <h1>{tag}</h1>
+          <h1>{name}</h1>
           <p className="page-header__sub">
             {guides.length} {guides.length === 1 ? 'guide carries' : 'guides carry'} this tag.
           </p>
@@ -44,7 +45,7 @@ export function TagPage() {
       </div>
 
       {guides.length === 0 ? (
-        <EmptyState>No published guides are tagged “{tag}”.</EmptyState>
+        <EmptyState>No published guides are tagged “{name}”.</EmptyState>
       ) : (
         <div className="card">
           {guides.map((guide) => (

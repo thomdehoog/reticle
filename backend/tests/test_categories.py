@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .conftest import create_guide
+from .conftest import create_guide, create_page, published_page, save_page
 
 
 def test_any_authenticated_role_can_list_categories(viewer, category):
@@ -17,6 +17,7 @@ def test_any_authenticated_role_can_list_categories(viewer, category):
             "description": "Confocal, widefield and superresolution systems.",
             "parentId": None,
             "orderIndex": 0,
+            "isHidden": False,
         }
     ]
 
@@ -145,3 +146,86 @@ def test_creating_a_category_without_a_name_is_rejected(admin):
 
 def test_a_blank_name_is_rejected(admin):
     assert admin.post("/api/categories", json={"name": "   "}).status_code == 422
+
+
+def test_a_holding_category_can_be_created_hidden_and_toggled(admin):
+    created = admin.post("/api/categories", json={"name": "Confocal - hidden guides", "isHidden": True}).json()
+    assert created["isHidden"] is True
+
+    shown = admin.patch(f"/api/categories/{created['id']}", json={"isHidden": False}).json()
+    assert shown["isHidden"] is False
+    assert admin.patch(f"/api/categories/{created['id']}", json={"name": "Renamed"}).json()["isHidden"] is False
+
+
+def test_hiding_a_category_is_navigation_not_access_control(admin, author, viewer):
+    """Its guides are still listed, searched and read like any others."""
+    hidden = admin.post("/api/categories", json={"name": "Holding", "isHidden": True}).json()
+    from .conftest import published_guide
+
+    guide = published_guide(author, hidden["id"], "Tile Scan", tags=["confocal"])
+
+    assert [c["id"] for c in viewer.get("/api/categories").json()] == [hidden["id"]]
+    assert [g["id"] for g in viewer.get("/api/guides", params={"tags": "confocal"}).json()] == [guide["id"]]
+    assert [g["id"] for g in viewer.get("/api/guides", params={"categoryId": hidden["id"]}).json()] == [guide["id"]]
+    assert viewer.get(f"/api/guides/{guide['slug']}").status_code == 200
+    assert [r["guide"]["id"] for r in viewer.get("/api/search", params={"q": "tile"}).json()] == [guide["id"]]
+
+
+def test_deleting_a_category_that_still_holds_a_page_conflicts(admin, category):
+    create_page(admin, "Filed here", categoryId=category.id)
+
+    response = admin.delete(f"/api/categories/{category.id}")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
+    assert "page" in response.json()["error"]["message"].lower()
+
+
+def test_an_archived_page_still_pins_its_category(admin, category):
+    """Archiving is a soft delete; the row still points at the category."""
+    page = create_page(admin, "Landing", categoryId=category.id, isLanding=True)
+    admin.delete(f"/api/pages/{page['id']}")
+
+    assert admin.delete(f"/api/categories/{category.id}").status_code == 409
+
+
+def test_a_category_with_no_landing_page_answers_null_not_an_error(viewer, category):
+    response = viewer.get(f"/api/categories/{category.id}/page")
+
+    assert response.status_code == 200
+    assert response.json() is None
+
+
+def test_the_landing_page_of_a_category_is_returned_in_full(viewer, author, category):
+    published = published_page(author, "Light Microscopy", body="# Welcome", categoryId=category.id, isLanding=True)
+    published_page(author, "An ordinary page in the category", categoryId=category.id)
+
+    body = viewer.get(f"/api/categories/{category.id}/page").json()
+
+    assert body["id"] == published["id"]
+    assert body["isLanding"] is True
+    assert body["body"] == "# Welcome"
+
+
+def test_a_draft_landing_page_is_null_for_a_viewer_and_visible_to_an_author(viewer, author, category):
+    draft = create_page(author, "Being written", categoryId=category.id, isLanding=True)
+    save_page(author, draft, body="Not ready.")
+
+    assert viewer.get(f"/api/categories/{category.id}/page").json() is None
+    assert author.get(f"/api/categories/{category.id}/page").json()["id"] == draft["id"]
+
+
+def test_an_archived_landing_page_is_null_for_everyone(admin, author, category):
+    page = published_page(author, "Old landing", categoryId=category.id, isLanding=True)
+    admin.delete(f"/api/pages/{page['id']}")
+
+    assert author.get(f"/api/categories/{category.id}/page").json() is None
+    assert admin.get(f"/api/categories/{category.id}/page").json() is None
+
+
+def test_the_landing_page_of_an_unknown_category_is_not_found(viewer):
+    assert viewer.get("/api/categories/01JQNOTAREALULID00000000/page").status_code == 404
+
+
+def test_the_landing_page_endpoint_requires_a_session(anon, category):
+    assert anon.get(f"/api/categories/{category.id}/page").status_code == 401

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Cookie, Depends, Request
@@ -37,13 +38,12 @@ _untrusted_forwarding_warned = False
 def parse_ip_address(value: str | None) -> str | None:
     """Accept a candidate address only if it really is one.
 
-    ``X-Forwarded-For`` stays client-supplied even where a proxy is declared: a
-    proxy that appends rather than overwrites leaves whatever the caller sent
-    sitting in front of its own entry. Every consumer of this value writes it
-    down — ``login_attempts.key``, ``audit_log.ip_address``,
-    ``sessions.ip_address`` — so anything that is not an IP address is dropped
-    here rather than persisted, which is also what keeps a 45-character column
-    from being handed a kilobyte of attacker-chosen text.
+    ``X-Forwarded-For`` is client-supplied text until proven otherwise. Every
+    consumer of this value writes it down — ``login_attempts.key``,
+    ``audit_log.ip_address``, ``sessions.ip_address`` — so anything that is not
+    an IP address is dropped here rather than persisted, which is also what
+    keeps a 45-character column from being handed a kilobyte of attacker-chosen
+    text.
     """
     if not value:
         return None
@@ -53,43 +53,79 @@ def parse_ip_address(value: str | None) -> str | None:
         return None
 
 
-def _warn_about_untrusted_forwarding(peer: str | None) -> None:
+@lru_cache(maxsize=8)
+def _networks(entries: tuple[str, ...]) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    return tuple(ipaddress.ip_network(entry, strict=False) for entry in entries)
+
+
+def is_trusted_proxy(address: str | None) -> bool:
+    """Whether an address is one of the proxies the operator has named."""
+    parsed = parse_ip_address(address)
+    if parsed is None:
+        return False
+    candidate = ipaddress.ip_address(parsed)
+    networks = _networks(tuple(get_settings().trusted_proxies))
+    return any(candidate.version == network.version and candidate in network for network in networks)
+
+
+def _warn_about_untrusted_forwarding(peer: str) -> None:
     """Say once that the throttle is counting the proxy, not the caller.
 
-    This is the misconfiguration that looks like nothing at all. With
-    ``trust_forwarded_for`` off behind a reverse proxy — which is the deployment
-    the README describes — every request reports the proxy's address, so the
-    per-address login limit buckets the entire institute and twenty mistyped
-    passwords lock everybody out at once. Nothing in the logs says so unless
-    something says so.
+    This is the misconfiguration that looks like nothing at all. Behind a
+    reverse proxy that Reticle has not been told about, every request reports
+    the proxy's address, so the per-source login limit buckets the entire
+    institute and twenty mistyped passwords lock everybody out at once. Nothing
+    in the logs says so unless something says so.
     """
     global _untrusted_forwarding_warned
     if _untrusted_forwarding_warned:
         return
     _untrusted_forwarding_warned = True
     logger.warning(
-        "Requests carry X-Forwarded-For but RETICLE_TRUST_FORWARDED_FOR is false, so every caller is "
-        "being attributed to %s and the per-address login throttle now covers all of them at once. "
-        "Set RETICLE_TRUST_FORWARDED_FOR=true if — and only if — that proxy overwrites the header "
-        "rather than appending to it.",
-        peer or "the peer address",
+        "Requests from %s carry X-Forwarded-For, but that address is not in RETICLE_TRUSTED_PROXIES, so "
+        "the header is ignored and every caller is being attributed to %s. If that is your reverse proxy, "
+        "set RETICLE_TRUSTED_PROXIES=%s.",
+        peer,
+        peer,
+        peer,
     )
 
 
 def client_address(request: Request) -> str | None:
     """The address the throttle counts against and the audit trail records.
 
-    ``X-Forwarded-For`` is only consulted when the operator has declared that
-    Reticle sits behind a proxy that rewrites it; trusting it unconditionally
-    would let any client pick its own throttle bucket.
+    ``X-Forwarded-For`` is believed only when the connection itself comes from a
+    proxy the operator has listed in ``RETICLE_TRUSTED_PROXIES``, and then it is
+    read from the right. Each proxy appends the address it saw, so the rightmost
+    entries are the ones written by machinery we trust and everything to their
+    left is whatever the client chose to send. Walking leftwards past the
+    trusted hops and stopping at the first address that is not one of them
+    yields the real caller whether the proxy overwrites the header or appends
+    to it — which matters, because appending is nginx's default and taking the
+    leftmost entry there means taking the attacker's word for who they are.
+
+    That in turn is what keeps the login throttle honest in both directions: a
+    client cannot mint itself a fresh bucket per request, and cannot spend a
+    colleague's allowance by claiming their address.
     """
-    forwarded = request.headers.get(FORWARDED_HEADER)
-    if get_settings().trust_forwarded_for:
-        if forwarded:
-            return parse_ip_address(forwarded.split(",")[0])
-    elif forwarded:
-        _warn_about_untrusted_forwarding(request.client.host if request.client else None)
-    return request.client.host if request.client else None
+    peer = request.client.host if request.client else None
+    forwarded = ",".join(request.headers.getlist(FORWARDED_HEADER))
+    if not forwarded:
+        return peer
+
+    if not is_trusted_proxy(peer):
+        parsed_peer = parse_ip_address(peer)
+        if parsed_peer is not None and ipaddress.ip_address(parsed_peer).is_loopback:
+            _warn_about_untrusted_forwarding(parsed_peer)
+        return peer
+
+    for hop in reversed(forwarded.split(",")):
+        address = parse_ip_address(hop)
+        if address is None:
+            break
+        if not is_trusted_proxy(address):
+            return address
+    return peer
 
 
 def get_session_row(

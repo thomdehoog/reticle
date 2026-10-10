@@ -15,97 +15,124 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
 from . import errors
-from .db import utcnow
-from .models import (
-    Bullet,
-    Category,
-    Guide,
-    GuidePrerequisite,
-    Media,
-    Step,
-    StepMedia,
-    User,
-    is_valid_id,
-    new_id,
-)
-from .schemas import BulletIn, GuideDocumentIn, StepIn
+from .models import Bullet, Category, Guide, Media, Step, StepMedia, Tag, is_valid_id, new_id
+from .schemas import AnnotationIn, BulletIn, GuideDocumentIn, StepIn
 from .settings import get_settings
+from .slugs import tag_slug
 
 
-def next_updated_at(previous: datetime) -> datetime:
-    """Guarantee a strictly increasing ``updatedAt``.
+def apply_document(db: DbSession, guide: Guide, payload: GuideDocumentIn) -> None:
+    """Write the document onto the guide.
 
-    The concurrency token is the timestamp itself, so two saves landing inside
-    one tick of the system clock must not compare equal; if they did, the second
-    author's stale copy would be accepted as current.
+    The references a document makes — its category, its media, its tags — are
+    resolved before the first attribute is assigned, and nothing is committed
+    here: a document refused part-way is discarded with the session.
     """
-    now = utcnow()
-    floor = previous + timedelta(microseconds=1)
-    return max(now, floor)
-
-
-def assert_not_stale(guide: Guide, client_seen: datetime) -> None:
-    seen = client_seen if client_seen.tzinfo is not None else client_seen.replace(tzinfo=timezone.utc)
-    if guide.updated_at > seen:
-        raise errors.conflict(
-            "This guide changed after you opened it. Reload to pick up the newer version before saving."
-        )
-
-
-def apply_document(db: DbSession, guide: Guide, payload: GuideDocumentIn, actor: User) -> None:
     settings = get_settings()
-
-    assert_not_stale(guide, payload.updated_at)
 
     category = db.get(Category, payload.category_id)
     if category is None:
         raise errors.validation_failed("That category does not exist.")
 
-    prerequisite_ids = _validated_prerequisites(db, guide, payload.prerequisite_ids)
     media_by_id = _validated_media(db, payload, settings.max_media_per_step)
+    tags = resolve_tags(db, normalised_tags(payload.tags))
 
     guide.title = payload.title.strip()
     guide.summary = payload.summary
     guide.category_id = category.id
     guide.difficulty = payload.difficulty
-    guide.time_required_minutes = payload.time_required_minutes
+    guide.time_required_min_minutes = payload.time_required_min_minutes
+    guide.time_required_max_minutes = payload.time_required_max_minutes
     guide.introduction = payload.introduction
     guide.conclusion = payload.conclusion
-    guide.last_edited_by_id = actor.id
-    guide.updated_at = next_updated_at(guide.updated_at)
+    guide.tags = tags
 
-    _sync_prerequisites(db, guide, prerequisite_ids)
     _sync_steps(db, guide, payload.steps, media_by_id)
 
 
-def _validated_prerequisites(db: DbSession, guide: Guide, requested: list[str]) -> list[str]:
-    ordered: list[str] = []
-    for candidate in requested:
-        if candidate in ordered:
-            continue
-        if candidate == guide.id:
-            raise errors.validation_failed("A guide cannot be its own prerequisite.")
-        if not is_valid_id(candidate) or db.get(Guide, candidate) is None:
-            raise errors.validation_failed("A prerequisite guide does not exist.")
-        ordered.append(candidate)
-    return ordered
+def normalised_tags(raw: list[str]) -> dict[str, str]:
+    """Map each tag's slug to the spelling it arrived with, dropping repeats.
+
+    A tag with no letter or digit in it has no slug, so it could never be
+    linked to, listed or asked for by a wiki page; it is refused rather than
+    quietly discarded, because the author typed it expecting it to work.
+    """
+    tags: dict[str, str] = {}
+    for entry in raw:
+        name = entry.strip()
+        slug = tag_slug(name)
+        if not slug:
+            raise errors.validation_failed("A tag needs at least one letter or digit.")
+        tags.setdefault(slug, name)
+    return tags
+
+
+def resolve_tags(db: DbSession, tags: dict[str, str]) -> list[Tag]:
+    """Fetch the tags that exist and create the ones that do not.
+
+    The first spelling seen becomes the display name and is never overwritten,
+    which is what stops "LAS X" drifting to "las x" because one author was in a
+    hurry. Creation runs inside a savepoint: with two workers, two guides can
+    introduce the same tag in the same instant, and the loser of that race
+    should pick up the winner's row rather than fail the whole save.
+    """
+    if not tags:
+        return []
+    existing = {tag.slug: tag for tag in db.scalars(select(Tag).where(Tag.slug.in_(tags)))}
+    resolved: list[Tag] = []
+    for slug, name in tags.items():
+        tag = existing.get(slug)
+        if tag is None:
+            tag = _create_tag(db, slug, name)
+        resolved.append(tag)
+    return resolved
+
+
+def _create_tag(db: DbSession, slug: str, name: str) -> Tag:
+    tag = Tag(slug=slug, name=name)
+    try:
+        with db.begin_nested():
+            db.add(tag)
+            db.flush()
+    except IntegrityError:
+        return db.scalars(select(Tag).where(Tag.slug == slug)).one()
+    return tag
+
+
+def assert_publishable(guide: Guide) -> None:
+    """What a guide must have before readers may be shown it.
+
+    The message names the step, by number and by title, because "a step is
+    empty" sends an author hunting through forty of them.
+    """
+    if not guide.title.strip():
+        raise errors.validation_failed("Give the guide a title before publishing it.")
+    if not guide.steps:
+        raise errors.validation_failed("A guide needs at least one step before it can be published.")
+    for number, step in enumerate(guide.steps, start=1):
+        has_text = any(bullet.text.strip() for bullet in step.bullets)
+        if not has_text and not step.media_links:
+            title = step.title.strip()
+            label = f'Step {number} ("{title}")' if title else f"Step {number}"
+            raise errors.validation_failed(
+                f"{label} has neither text nor an image. Add a bullet or a picture, or delete the step."
+            )
 
 
 def _validated_media(db: DbSession, payload: GuideDocumentIn, cap: int) -> dict[str, Media]:
     referenced: set[str] = set()
     for step in payload.steps:
         if len(step.media) > cap:
-            raise errors.validation_failed(f"A step may hold at most {cap} images.")
+            raise errors.validation_failed(f"A step may hold at most {cap} images or videos.")
         seen: set[str] = set()
         for item in step.media:
             if item.id in seen:
-                raise errors.validation_failed("The same image is attached to a step twice.")
+                raise errors.validation_failed("The same file is attached to a step twice.")
             seen.add(item.id)
             referenced.add(item.id)
 
@@ -117,15 +144,39 @@ def _validated_media(db: DbSession, payload: GuideDocumentIn, cap: int) -> dict[
     missing = referenced - media_by_id.keys()
     if missing:
         raise errors.validation_failed("One or more images referenced by this guide no longer exist.")
+
+    for step in payload.steps:
+        for item in step.media:
+            if item.annotations and media_by_id[item.id].kind != "image":
+                raise errors.validation_failed("A video cannot carry annotations.")
     return media_by_id
 
 
-def _sync_prerequisites(db: DbSession, guide: Guide, prerequisite_ids: list[str]) -> None:
-    for link in list(guide.prerequisites):
-        db.delete(link)
-    db.flush()
-    for index, prerequisite_id in enumerate(prerequisite_ids):
-        db.add(GuidePrerequisite(guide_id=guide.id, prerequisite_id=prerequisite_id, order_index=index))
+def _stored_annotations(annotations: list[AnnotationIn]) -> list[dict]:
+    """The annotations as they are kept on the step-media link.
+
+    Identifiers the client minted are kept so a shape stays selected across an
+    autosave; they only have to be unique within their own image.
+    """
+    stored: list[dict] = []
+    seen: set[str] = set()
+    for annotation in annotations:
+        annotation_id = annotation.id or new_id()
+        if annotation_id in seen:
+            raise errors.validation_failed("The same annotation appears twice on an image.")
+        seen.add(annotation_id)
+        stored.append(
+            {
+                "id": annotation_id,
+                "shape": annotation.shape,
+                "color": annotation.color,
+                "x": annotation.x,
+                "y": annotation.y,
+                "width": annotation.width,
+                "height": annotation.height,
+            }
+        )
+    return stored
 
 
 def _claim_id(db: DbSession, model: type, candidate: str | None, owned: set[str], label: str) -> str:
@@ -211,6 +262,12 @@ def _sync_steps(db: DbSession, guide: Guide, steps_in: list[StepIn], media_by_id
             bullet.level = bullet_in.level
 
         for position, item in enumerate(step_in.media):
-            media = media_by_id[item.id]
-            media.alt = item.alt
-            db.add(StepMedia(step_id=step.id, media_id=media.id, order_index=position))
+            db.add(
+                StepMedia(
+                    step_id=step.id,
+                    media_id=media_by_id[item.id].id,
+                    order_index=position,
+                    alt=item.alt,
+                    annotations=_stored_annotations(item.annotations),
+                )
+            )

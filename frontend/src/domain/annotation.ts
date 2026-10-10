@@ -5,8 +5,9 @@
  * about what a dragged shape becomes are worth testing directly rather than
  * through a simulated pointer gesture.
  *
- * Every coordinate is a fraction of the image in 0..1. Storing pixels would
- * pin an annotation to whatever screen it was drawn on.
+ * Every coordinate is a fraction of the image: a position in 0..1, an extent in
+ * -1..1 (only an arrow's is ever negative). Storing pixels would pin an
+ * annotation to whatever screen it was drawn on.
  */
 
 import type { Annotation } from './types'
@@ -50,10 +51,18 @@ export function normaliseAnnotation(annotation: Annotation): Annotation {
     }
   }
 
-  const left = clampFraction(Math.min(annotation.x, annotation.x + annotation.width))
-  const top = clampFraction(Math.min(annotation.y, annotation.y + annotation.height))
-  const right = clampFraction(Math.max(annotation.x, annotation.x + annotation.width))
-  const bottom = clampFraction(Math.max(annotation.y, annotation.y + annotation.height))
+  /* Each corner is brought onto the image before the two are compared, so a
+     corner that is off it — or is not a number at all — cannot leave the far
+     edge on the wrong side of the near one. */
+  const nearX = clampFraction(annotation.x)
+  const farX = clampFraction(annotation.x + annotation.width)
+  const nearY = clampFraction(annotation.y)
+  const farY = clampFraction(annotation.y + annotation.height)
+
+  const left = Math.min(nearX, farX)
+  const top = Math.min(nearY, farY)
+  const right = Math.max(nearX, farX)
+  const bottom = Math.max(nearY, farY)
 
   return {
     ...annotation,
@@ -70,4 +79,18 @@ export function isMeaningfulDrag(annotation: Annotation): boolean {
     Math.abs(annotation.width) > MINIMUM_DRAG_FRACTION ||
     Math.abs(annotation.height) > MINIMUM_DRAG_FRACTION
   )
+}
+
+/**
+ * What a finished drag becomes: the stored shape, or null when there is nothing
+ * worth keeping.
+ *
+ * The size test is applied to the *stored* shape, not the raw drag. A drag made
+ * entirely off the image is long enough to pass as deliberate, then clamps to a
+ * shape of no size at all — one that would be saved, counted on the image's
+ * badge, and impossible to click on to delete.
+ */
+export function commitDrag(annotation: Annotation): Annotation | null {
+  const stored = normaliseAnnotation(annotation)
+  return isMeaningfulDrag(stored) ? stored : null
 }

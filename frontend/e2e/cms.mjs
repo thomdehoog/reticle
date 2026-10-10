@@ -172,7 +172,8 @@ for (const [index, spec] of STEPS.entries()) {
   for (const bullet of spec.bullets.filter((entry) => entry.icon)) {
     const label = bullet.icon.charAt(0).toUpperCase() + bullet.icon.slice(1)
     const flagged = await block.locator('.bullet--flagged', { hasText: bullet.text }).count()
-    const announced = await block.getByText(`${label}:`).count()
+    /* The flag is announced in words, in its own element next to the text. */
+    const announced = await block.locator('.bullet__flag-label', { hasText: label }).count()
     record(`step ${index + 1} ${bullet.icon} flag`, flagged > 0 && announced > 0)
   }
 }

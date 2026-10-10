@@ -34,3 +34,19 @@ def unique_slug(value: str, exists: Callable[[str], bool], fallback: str = "unti
     while exists(f"{base}-{suffix}"):
         suffix += 1
     return f"{base}-{suffix}"
+
+
+_NON_TAG = re.compile(r"[^a-z0-9]+")
+
+
+def tag_slug(value: str) -> str:
+    """The identity of a tag: lower-case, hyphenated, and nothing else.
+
+    This is deliberately not :func:`slugify`. The tag input in the frontend
+    applies exactly this rule before it sends anything, and the two have to
+    agree character for character or a tag typed in the editor would file the
+    guide under a different tag from the one the wiki page asks for. An empty
+    result means the text had no letter or digit in it, which the caller
+    refuses.
+    """
+    return _NON_TAG.sub("-", value.strip().lower()).strip("-")

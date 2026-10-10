@@ -71,6 +71,14 @@ export class ApiClient {
     this.onUnauthenticated = options.onUnauthenticated
   }
 
+  /**
+   * The address of a resource the browser fetches by itself — a download link
+   * or an image source — where there is no request for this client to send.
+   */
+  url(path: string): string {
+    return `${this.baseUrl}${path}`
+  }
+
   get<T>(path: string): Promise<T> {
     return this.send<T>('GET', path)
   }

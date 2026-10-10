@@ -17,6 +17,7 @@ import type {
   SearchResult,
   Tag,
   User,
+  UserRef,
 } from '../domain/types'
 import type { ApiClient } from './client'
 
@@ -43,7 +44,31 @@ export type PageQuery = {
 export interface RevisionSummary {
   version: number
   publishedAt: string
-  publishedBy: { id: string; displayName: string }
+  publishedBy: UserRef
+}
+
+export interface CategoryInput {
+  name: string
+  description?: string
+  parentId?: string | null
+  isHidden?: boolean
+}
+
+export type CategoryChanges = Partial<
+  Pick<Category, 'name' | 'description' | 'parentId' | 'orderIndex' | 'isHidden'>
+>
+
+export interface NewUserInput {
+  email: string
+  displayName: string
+  role: Role
+  password: string
+}
+
+export interface NewPageInput {
+  title: string
+  categoryId?: string | null
+  isLanding?: boolean
 }
 
 function queryString(params: Record<string, string | undefined>): string {
@@ -74,19 +99,11 @@ export class ReticleApi {
     return this.http.get<Category[]>('/categories')
   }
 
-  createCategory(input: {
-    name: string
-    description?: string
-    parentId?: string | null
-    isHidden?: boolean
-  }): Promise<Category> {
+  createCategory(input: CategoryInput): Promise<Category> {
     return this.http.post<Category>('/categories', input)
   }
 
-  updateCategory(
-    id: string,
-    changes: Partial<Pick<Category, 'name' | 'description' | 'parentId' | 'orderIndex' | 'isHidden'>>,
-  ): Promise<Category> {
+  updateCategory(id: string, changes: CategoryChanges): Promise<Category> {
     return this.http.patch<Category>(`/categories/${id}`, changes)
   }
 
@@ -130,6 +147,19 @@ export class ReticleApi {
     return this.http.delete<void>(`/guides/${id}`)
   }
 
+  /**
+   * Counts one read. A separate call rather than a side effect of `getGuide`,
+   * so opening a guide in the editor does not inflate its own view count.
+   */
+  recordGuideView(id: string): Promise<void> {
+    return this.http.post<void>(`/guides/${id}/view`)
+  }
+
+  /** A link, not a request: the browser downloads the PDF with the session cookie. */
+  guidePdfUrl(idOrSlug: string): string {
+    return this.http.url(`/guides/${encodeURIComponent(idOrSlug)}/pdf`)
+  }
+
   listGuideRevisions(id: string): Promise<RevisionSummary[]> {
     return this.http.get<RevisionSummary[]>(`/guides/${id}/revisions`)
   }
@@ -146,16 +176,16 @@ export class ReticleApi {
     return this.http.get<Page>(`/pages/${encodeURIComponent(idOrSlug)}`)
   }
 
-  /** The landing page for a category, or null when it has not been written yet. */
+  /**
+   * The landing page for a category, or null when there is none this user may
+   * see — the server answers 200 with a JSON `null`, not 404, so "no landing
+   * page" is an ordinary result rather than an error to catch.
+   */
   getCategoryLandingPage(categoryId: string): Promise<Page | null> {
     return this.http.get<Page | null>(`/categories/${categoryId}/page`)
   }
 
-  createPage(input: {
-    title: string
-    categoryId?: string | null
-    isLanding?: boolean
-  }): Promise<Page> {
+  createPage(input: NewPageInput): Promise<Page> {
     return this.http.post<Page>('/pages', input)
   }
 
@@ -174,8 +204,20 @@ export class ReticleApi {
     return this.http.post<Page>(`/pages/${id}/unpublish`)
   }
 
+  archivePage(id: string): Promise<void> {
+    return this.http.delete<void>(`/pages/${id}`)
+  }
+
+  recordPageView(id: string): Promise<void> {
+    return this.http.post<void>(`/pages/${id}/view`)
+  }
+
   listPageRevisions(id: string): Promise<RevisionSummary[]> {
     return this.http.get<RevisionSummary[]>(`/pages/${id}/revisions`)
+  }
+
+  getPageRevision(id: string, version: number): Promise<Page> {
+    return this.http.get<Page>(`/pages/${id}/revisions/${version}`)
   }
 
   /** Every tag in use, with counts, for the tag picker and guide-list embeds. */
@@ -191,16 +233,16 @@ export class ReticleApi {
     return this.http.upload<Media>('/media', file)
   }
 
+  /** Where the browser fetches a media item's bytes, for an `<img>` built from an id. */
+  mediaUrl(id: string): string {
+    return this.http.url(`/media/${encodeURIComponent(id)}`)
+  }
+
   listUsers(): Promise<User[]> {
     return this.http.get<User[]>('/users')
   }
 
-  createUser(input: {
-    email: string
-    displayName: string
-    role: Role
-    password: string
-  }): Promise<User> {
+  createUser(input: NewUserInput): Promise<User> {
     return this.http.post<User>('/users', input)
   }
 

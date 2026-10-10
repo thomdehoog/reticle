@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
 import { AnnotationShape, ANNOTATION_COLORS } from '../AnnotationOverlay'
-import { isMeaningfulDrag, normaliseAnnotation } from '../../domain/annotation'
+import { commitDrag } from '../../domain/annotation'
 import { newId } from '../../domain/guide'
 import type { Annotation, BulletColor, Media } from '../../domain/types'
 import { useElementSize } from '../../hooks/useElementSize'
@@ -98,9 +98,10 @@ export function AnnotationEditor({ media, onChange, onClose }: AnnotationEditorP
   function onPointerUp() {
     if (!drawing) return
 
-    if (isMeaningfulDrag(drawing)) {
-      onChange({ ...media, annotations: [...annotations, normaliseAnnotation(drawing)] })
-      setSelectedId(drawing.id)
+    const stored = commitDrag(drawing)
+    if (stored) {
+      onChange({ ...media, annotations: [...annotations, stored] })
+      setSelectedId(stored.id)
     }
     setDrawing(null)
   }

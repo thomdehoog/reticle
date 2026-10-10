@@ -1,4 +1,4 @@
-"""The category tree.
+"""The category tree, and each category's landing page.
 
 Categories are returned flat and the client assembles the tree from
 ``parentId``. That keeps the endpoint a single query no matter how deep ZMB
@@ -14,11 +14,12 @@ from fastapi import APIRouter, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
-from .. import audit, errors
+from .. import audit, content, errors
 from ..auth import AdminUser, AnyUser, DbDep, client_address
-from ..models import Category, Guide
-from ..schemas import CategoryCreateIn, CategoryOut, CategoryPatchIn, category_out
+from ..models import Category, Guide, Page
+from ..schemas import CategoryCreateIn, CategoryOut, CategoryPatchIn, PageOut, category_out, page_out
 from ..slugs import unique_slug
+from .pages import PAGES
 
 router = APIRouter(prefix="/api/categories", tags=["categories"])
 
@@ -76,6 +77,7 @@ def create_category(payload: CategoryCreateIn, request: Request, db: DbDep, user
         description=payload.description,
         parent_id=payload.parent_id,
         order_index=_next_order_index(db, payload.parent_id),
+        is_hidden=payload.is_hidden,
     )
     db.add(category)
     db.flush()
@@ -124,6 +126,9 @@ def patch_category(
     if "order_index" in changed and payload.order_index is not None:
         category.order_index = payload.order_index
 
+    if "is_hidden" in changed and payload.is_hidden is not None:
+        category.is_hidden = payload.is_hidden
+
     audit.record(
         db,
         action="category.update",
@@ -137,6 +142,23 @@ def patch_category(
     return category_out(category)
 
 
+@router.get("/{category_id}/page", response_model=PageOut | None)
+def read_landing_page(category_id: str, db: DbDep, user: AnyUser) -> PageOut | None:
+    """The category's landing page, or ``null`` when the caller can see none.
+
+    An unwritten landing page is the normal state of most categories, so its
+    absence is an answer rather than an error: the frontend falls back to the
+    plain listing without having to treat a 404 as success.
+    """
+    category = _load(db, category_id)
+    page = db.scalars(
+        select(Page)
+        .where(Page.category_id == category.id, Page.is_landing.is_(True), content.visible_to(Page, user))
+        .options(*PAGES.eager())
+    ).first()
+    return None if page is None else page_out(page)
+
+
 @router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 def delete_category(category_id: str, request: Request, db: DbDep, user: AdminUser) -> Response:
     category = _load(db, category_id)
@@ -147,7 +169,15 @@ def delete_category(category_id: str, request: Request, db: DbDep, user: AdminUs
 
     guides = db.scalar(select(func.count()).select_from(Guide).where(Guide.category_id == category.id))
     if guides:
-        raise errors.conflict("Move the guides in this category somewhere else first.")
+        raise errors.conflict(
+            "Move the guides in this category somewhere else first. Archived guides count: they still belong to it."
+        )
+
+    pages = db.scalar(select(func.count()).select_from(Page).where(Page.category_id == category.id))
+    if pages:
+        raise errors.conflict(
+            "Move the pages in this category somewhere else first, including its landing page and any archived ones."
+        )
 
     audit.record(
         db,
