@@ -39,7 +39,11 @@ services:
     <<: *hardening
     # `docker compose pull` fetches this image; `docker compose build` builds
     # it from this checkout and gives it the same name.
-    image: ${RETICLE_IMAGE_PREFIX:-ghcr.io/thomdehoog}/reticle-app:${RETICLE_VERSION:-latest}
+    #
+    # There is deliberately no default version, and in particular not
+    # `latest`: which release a server runs is a decision, written down in
+    # .env, and changed with deploy/upgrade.sh — which backs up first.
+    image: ${RETICLE_IMAGE_PREFIX:-ghcr.io/thomdehoog}/reticle-app:${RETICLE_VERSION:?Set RETICLE_VERSION in .env to the release to run, e.g. 1.0.0 - or to dev when you build from a git checkout}
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -64,6 +68,12 @@ services:
       RETICLE_COOKIE_SECURE: ${RETICLE_COOKIE_SECURE:-true}
       RETICLE_WORKERS: ${RETICLE_WORKERS:-2}
       RETICLE_DEBUG: "false"
+      # Normally empty. A release that has to migrate an existing database
+      # refuses to start unless a backup was taken within the hour, or this
+      # is 1 — which deploy/upgrade.sh sets for the one command that needs it.
+      # It belongs on a command line, never in .env: there it would switch
+      # the safeguard off for every upgrade to come.
+      RETICLE_ALLOW_MIGRATE: ${RETICLE_ALLOW_MIGRATE:-}
     volumes:
       - reticle-data:/data
     tmpfs:
@@ -89,7 +99,7 @@ services:
   # Caddy: TLS, the static frontend, and the reverse proxy for /api.
   web:
     <<: *hardening
-    image: ${RETICLE_IMAGE_PREFIX:-ghcr.io/thomdehoog}/reticle-web:${RETICLE_VERSION:-latest}
+    image: ${RETICLE_IMAGE_PREFIX:-ghcr.io/thomdehoog}/reticle-web:${RETICLE_VERSION:?Set RETICLE_VERSION in .env}
     build:
       context: .
       dockerfile: frontend/Dockerfile
@@ -150,7 +160,7 @@ services:
     <<: *hardening
     restart: "no"
     profiles: [tools]
-    image: ${RETICLE_IMAGE_PREFIX:-ghcr.io/thomdehoog}/reticle-app:${RETICLE_VERSION:-latest}
+    image: ${RETICLE_IMAGE_PREFIX:-ghcr.io/thomdehoog}/reticle-app:${RETICLE_VERSION:?Set RETICLE_VERSION in .env}
     env_file: .env
     environment:
       RETICLE_SECRET_KEY: ${RETICLE_SECRET_KEY:?Set RETICLE_SECRET_KEY in .env}
@@ -173,8 +183,15 @@ services:
 
 networks:
   # Ordinary bridge with a route out: the published ports, and Caddy's calls to
-  # the certificate authority.
-  edge: {}
+  # the certificate authority. The subnet is fixed for one reason: a reverse
+  # proxy on this same host reaches Caddy from this network's gateway address
+  # (the first one, 172.31.251.1), and RETICLE_UPSTREAM_PROXIES has to be able
+  # to name it — docs/DEPLOYMENT.md, section 5. Change RETICLE_EDGE_SUBNET only
+  # if this range is already used on your network.
+  edge:
+    ipam:
+      config:
+        - subnet: ${RETICLE_EDGE_SUBNET:-172.31.251.0/24}
   # No route to anywhere. The API has no business making outbound connections,
   # so it is given no way to; and because the subnet is fixed, "requests from
   # the proxy" is something RETICLE_TRUSTED_PROXIES can state exactly. Change
@@ -187,6 +204,7 @@ networks:
 
 volumes:
   # Everything that is yours: /data/reticle.db (+ -wal, -shm) and /data/media.
+  # (Also on it, and nobody's loss: the upload spool /data/tmp and caches.)
   # Back it up with deploy/backup.sh, never by copying the volume while the
   # stack runs. It must be on a local disk: SQLite's locking is not reliable on
   # NFS or SMB.

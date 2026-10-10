@@ -122,7 +122,8 @@ describe('PageViewPage', () => {
     renderApp({ route: '/w/choosing-an-objective', server })
 
     const article = await screen.findByRole('article')
-    expect(article.querySelector('img')).toHaveAttribute('src', '/api/media/m-hero')
+    /* The copy sized for a screen, not the upload as it arrived. */
+    expect(article.querySelector('img')).toHaveAttribute('src', '/api/media/m-hero?size=display')
   })
 
   it('gives the hero image the description its author wrote', async () => {
@@ -135,7 +136,7 @@ describe('PageViewPage', () => {
     const article = await screen.findByRole('article')
     expect(within(article).getByRole('img', { name: 'Two users at the Stellaris 5' })).toHaveAttribute(
       'src',
-      '/api/media/m-hero',
+      '/api/media/m-hero?size=display',
     )
   })
 

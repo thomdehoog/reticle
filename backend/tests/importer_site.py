@@ -120,6 +120,10 @@ def line(text_raw: str, bullet: str = "black", level: int = 0, rendered: str | N
     }
 
 
+def hidden(entry: Any, field: str, private: set[int]) -> bool:
+    return isinstance(entry, dict) and isinstance(entry.get(field), int) and entry[field] in private
+
+
 class FakeSite:
     """Routes, pictures and a request log."""
 
@@ -128,6 +132,10 @@ class FakeSite:
         self.lists: dict[str, list[Any]] = {}
         self.files: dict[str, tuple[bytes, str]] = {}
         self.private_guides: set[int] = set()
+        self.private_wikis: set[int] = set()
+        self.anonymous_api = True
+        self.addresses: dict[str, list[str]] = {}
+        self.lookups: list[str] = []
         self.failures: dict[str, list[httpx.Response | Exception]] = {}
         self.requests: list[httpx.Request] = []
         self.images: dict[int, dict[str, Any]] = {}
@@ -470,6 +478,11 @@ class FakeSite:
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
 
+    def resolve(self, host: str) -> list[str]:
+        """Stands in for the name server: every host is on the public internet unless a test says otherwise."""
+        self.lookups.append(host)
+        return self.addresses.get(host, ["93.184.216.34"])
+
     def paths(self, method: str = "GET") -> list[str]:
         return [request.url.path.removeprefix(API) for request in self.requests if request.method == method and request.url.host == HOST]
 
@@ -505,6 +518,8 @@ class FakeSite:
         if cookie is not None and cookie != SESSION_COOKIE:
             return httpx.Response(401, json={"message": "Session expired"})
         signed_in = authorization is not None or cookie is not None
+        if not signed_in and not self.anonymous_api and not (request.method == "POST" and path == "/user/token"):
+            return httpx.Response(401, json={"message": "Authentication required"})
 
         if request.method == "POST" and path == "/user/token":
             body = json.loads(request.content)
@@ -525,7 +540,9 @@ class FakeSite:
                 return httpx.Response(400, json={"message": "limit out of range"})
             window = self.lists[path][offset : offset + limit]
             if path == "/guides" and not (signed_in and query.get("includePrivate") == "true"):
-                window = [entry for entry in window if entry["guideid"] not in self.private_guides]
+                window = [entry for entry in window if not hidden(entry, "guideid", self.private_guides)]
+            if path.startswith("/wikis/") and not signed_in:
+                window = [entry for entry in window if not hidden(entry, "wikiid", self.private_wikis)]
             return httpx.Response(200, json=window)
 
         if path.startswith("/guides/"):
@@ -544,7 +561,7 @@ def write_archive(directory: Path, site: FakeSite | None = None, token: str | No
     from app.importer.exporter import Exporter
 
     site = site or FakeSite()
-    with DozukiClient(HOST, token=token, transport=site.transport(), delay=0, sleep=lambda seconds: None) as client:
+    with DozukiClient(HOST, token=token, transport=site.transport(), delay=0, sleep=lambda seconds: None, resolve=site.resolve) as client:
         Exporter(client, Archive(directory), log=lambda message: None).run()
     return site
 

@@ -135,7 +135,12 @@ export function PageDetailsPanel({ page, categories, onChange, onError }: PageDe
             {page.heroMediaId && (
               /* Described by the field below, which is right next to it; an
                  alt here would have a screen reader say the same words twice. */
-              <img className="hero-preview" src={api.mediaUrl(page.heroMediaId)} alt="" />
+              <img
+                className="hero-preview"
+                src={api.mediaDisplayUrl(page.heroMediaId)}
+                alt=""
+                decoding="async"
+              />
             )}
             <div className="page-actions">
               <button

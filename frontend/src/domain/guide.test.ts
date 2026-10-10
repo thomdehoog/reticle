@@ -27,6 +27,7 @@ function media(id: string): Media {
     id,
     kind: 'image',
     url: `/api/media/${id}`,
+    displayUrl: `/api/media/${id}?size=display`,
     alt: '',
     width: 800,
     height: 600,
@@ -61,6 +62,7 @@ function guideFixture(overrides: Partial<Guide> = {}): Guide {
     updatedAt: '2026-07-31T08:00:00Z',
     publishedAt: null,
     version: 0,
+    hasUnpublishedChanges: false,
     ...overrides,
   }
 }

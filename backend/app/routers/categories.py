@@ -14,10 +14,18 @@ from fastapi import APIRouter, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
-from .. import audit, content, errors
+from .. import audit, content, errors, published
 from ..auth import AdminUser, AnyUser, DbDep, client_address
-from ..models import Category, Guide, Page
-from ..schemas import CategoryCreateIn, CategoryOut, CategoryPatchIn, PageOut, category_out, page_out
+from ..models import Category, Guide, Page, PageRevision, PublishedGuide, PublishedPage
+from ..schemas import (
+    CategoryCreateIn,
+    CategoryOut,
+    CategoryPatchIn,
+    ContentView,
+    PageOut,
+    category_out,
+    page_out,
+)
 from ..slugs import unique_slug
 from .pages import PAGES
 
@@ -143,14 +151,33 @@ def patch_category(
 
 
 @router.get("/{category_id}/page", response_model=PageOut | None)
-def read_landing_page(category_id: str, db: DbDep, user: AnyUser) -> PageOut | None:
+def read_landing_page(
+    category_id: str, db: DbDep, user: AnyUser, view: ContentView | None = None
+) -> PageOut | None:
     """The category's landing page, or ``null`` when the caller can see none.
 
     An unwritten landing page is the normal state of most categories, so its
     absence is an answer rather than an error: the frontend falls back to the
     plain listing without having to treat a 404 as success.
+
+    Like any page it is the published snapshot for a viewer (and for an author
+    who asks with ``?view=published``), and which page *is* the landing page is
+    then the snapshot's say too: a page whose unpublished edit moves it to
+    another category is still this category's landing page for readers until
+    that edit is published. Two snapshots can claim one category for a moment
+    in that way; the more recently published wins.
     """
     category = _load(db, category_id)
+    if content.serves_published(user, view):
+        found = db.execute(
+            content.published_statement(PAGES, PageRevision)
+            .join(PageRevision, PageRevision.id == PublishedPage.revision_id)
+            .where(PublishedPage.category_id == category.id, PublishedPage.is_landing.is_(True))
+            .order_by(Page.published_at.desc(), Page.id.desc())
+        ).first()
+        if found is None:
+            return None
+        return PAGES.from_snapshot(found[2].document, found[0], reveal_changes=user.role != "viewer")
     page = db.scalars(
         select(Page)
         .where(Page.category_id == category.id, Page.is_landing.is_(True), content.visible_to(Page, user))
@@ -177,6 +204,18 @@ def delete_category(category_id: str, request: Request, db: DbDep, user: AdminUs
     if pages:
         raise errors.conflict(
             "Move the pages in this category somewhere else first, including its landing page and any archived ones."
+        )
+
+    # A guide or page can have been moved out in an edit that is not published
+    # yet. Readers are still being shown it here, so the category is still in use.
+    published.withdraw_stale(db)
+    still_published = db.scalar(
+        select(func.count()).select_from(PublishedGuide).where(PublishedGuide.category_id == category.id)
+    ) + db.scalar(select(func.count()).select_from(PublishedPage).where(PublishedPage.category_id == category.id))
+    if still_published:
+        raise errors.conflict(
+            "Something that was moved out of this category is still published in it. "
+            "Publish or discard those unpublished changes first."
         )
 
     audit.record(

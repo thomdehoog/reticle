@@ -19,6 +19,7 @@ const image = (id: string, overrides: Partial<Media> = {}): Media => ({
   id,
   kind: 'image',
   url: `/api/media/${id}`,
+  displayUrl: `/api/media/${id}?size=display`,
   alt: `Picture ${id}`,
   width: 800,
   height: 600,
@@ -30,6 +31,7 @@ const video = (id: string, overrides: Partial<Media> = {}): Media => ({
   id,
   kind: 'video',
   url: `/api/media/${id}`,
+  displayUrl: `/api/media/${id}`,
   alt: '',
   width: null,
   height: null,
@@ -140,17 +142,62 @@ describe('step media in the reader', () => {
     expect(picture).toHaveAttribute('width', '1280')
     expect(picture).toHaveAttribute('height', '800')
   })
+
+  it('loads the copy sized for a screen, lazily and without blocking the page', async () => {
+    const server = createFakeServer({
+      user: VIEWER,
+      guides: [guideWith([image('a', { width: 8000, height: 5000 })])],
+    })
+    renderApp({ route: '/g/confocal-startup', server })
+
+    const picture = await screen.findByRole('img', { name: 'Picture a' })
+    expect(picture).toHaveAttribute('src', '/api/media/a?size=display')
+    expect(picture).toHaveAttribute('loading', 'lazy')
+    expect(picture).toHaveAttribute('decoding', 'async')
+    /* The original's proportions reserve the right space for the smaller file too. */
+    expect(picture).toHaveAttribute('width', '8000')
+    expect(picture).toHaveAttribute('height', '5000')
+  })
+
+  it('offers the original of a large picture at full size, and only of a large one', async () => {
+    const server = createFakeServer({
+      user: VIEWER,
+      guides: [
+        guideWith([
+          image('big', { width: 8000, height: 5000, alt: 'The stitched overview' }),
+          image('small', { width: 1280, height: 800 }),
+        ]),
+      ],
+    })
+    renderApp({ route: '/g/confocal-startup', server })
+
+    const link = await screen.findByRole('link', { name: /Open full size/ })
+    expect(link).toHaveAttribute('href', '/api/media/big')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAccessibleName(/^Open full size ?: The stitched overview \(opens in a new tab\)$/)
+    expect(screen.getAllByRole('link', { name: /Open full size/ })).toHaveLength(1)
+  })
+
+  it('still shows a picture from a snapshot that has no display address of its own', async () => {
+    const legacy = { ...image('old'), displayUrl: undefined } as unknown as Media
+    const server = createFakeServer({ user: VIEWER, guides: [guideWith([legacy])] })
+    renderApp({ route: '/g/confocal-startup', server })
+
+    expect(await screen.findByRole('img', { name: 'Picture old' })).toHaveAttribute(
+      'src',
+      '/api/media/old',
+    )
+  })
 })
 
 describe('the reader\'s actions', () => {
-  it('links to the PDF as a plain download', async () => {
+  it('offers the PDF as a button and asks for nothing until it is pressed', async () => {
     const server = createFakeServer({ user: VIEWER, guides: [guideWith([])] })
     renderApp({ route: '/g/confocal-startup', server })
 
-    const pdf = await screen.findByRole('link', { name: 'PDF' })
-    expect(pdf).toHaveAttribute('href', '/api/guides/confocal-startup/pdf')
-    expect(pdf).toHaveAttribute('download')
-    /* A link the browser follows, not a request the app makes. */
+    expect(await screen.findByRole('button', { name: 'PDF' })).toBeEnabled()
+    /* The export is rationed; a page that fetched it on arrival would spend a
+       reader's turn on a file they may not want. */
     expect(server.requests.some((request) => request.path.endsWith('/pdf'))).toBe(false)
   })
 

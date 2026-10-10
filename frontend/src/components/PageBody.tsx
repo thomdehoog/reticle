@@ -21,7 +21,12 @@ export function PageBody({ page }: { page: Page }) {
            value too — it tells a screen reader the picture is decoration —
            and it is also what a version published before pages could carry a
            description arrives as, since that snapshot has no such field. */
-        <img className="wiki-hero" src={api.mediaUrl(page.heroMediaId)} alt={page.heroAlt ?? ''} />
+        <img
+          className="wiki-hero"
+          src={api.mediaDisplayUrl(page.heroMediaId)}
+          alt={page.heroAlt ?? ''}
+          decoding="async"
+        />
       )}
 
       <LazyMarkdownBody body={page.body} />

@@ -25,6 +25,8 @@ from app.importer.exporter import Exporter, best_encoding, category_titles, enco
 from .importer_site import API, CDN, EMAIL, GOOD_TOKEN, HOST, PASSWORD, SESSION_COOKIE, VIDEO_STORE, FakeSite, write_archive
 
 BACKEND = Path(__file__).resolve().parent.parent
+CREDENTIAL_HEADERS = {"authorization", "cookie", "x-app-id"}
+LISTINGS = {"/categories/all", "/guides", "/wikis/CATEGORY", "/wikis/INFO", "/wikis/ITEM", "/wikis/WIKI"}
 
 
 class Run:
@@ -38,6 +40,7 @@ class Run:
             environ={} if environ is None else environ,
             transport=site.transport(),
             sleep=self.sleeps.append,
+            resolve=site.resolve,
             out=self.lines.append,
         )
         self.text = "\n".join(self.lines)
@@ -60,7 +63,7 @@ def signed_in() -> dict[str, str]:
 
 def client_for(site: FakeSite, sleeps: list[float] | None = None, **options) -> DozukiClient:
     recorded = sleeps if sleeps is not None else []
-    return DozukiClient(HOST, transport=site.transport(), sleep=recorded.append, **{"delay": 0, **options})
+    return DozukiClient(HOST, transport=site.transport(), sleep=recorded.append, **{"delay": 0, "resolve": site.resolve, **options})
 
 
 # ---------------------------------------------------------------- a complete export
@@ -151,9 +154,14 @@ def test_the_token_goes_to_the_api_host_and_nowhere_else(site, out_dir):
 
     api_requests = [request for request in site.requests if request.url.host == HOST]
     other_requests = [request for request in site.requests if request.url.host != HOST]
-    assert api_requests and other_requests
-    assert all(request.headers["Authorization"] == f"api {GOOD_TOKEN}" and request.headers["X-App-Id"] == "app-42" for request in api_requests)
-    assert all("Authorization" not in request.headers and "X-App-Id" not in request.headers for request in other_requests)
+    signed = [request for request in api_requests if "Authorization" in request.headers]
+    unsigned = [request for request in api_requests if "Authorization" not in request.headers]
+    assert signed and other_requests
+    assert all(request.headers["Authorization"] == f"api {GOOD_TOKEN}" and request.headers["X-App-Id"] == "app-42" for request in signed)
+    assert {request.url.path.removeprefix(API) for request in unsigned} == {"/guides", "/wikis/CATEGORY", "/wikis/WIKI", "/wikis/INFO"}, (
+        "the only API requests without the token are the listing passes that ask what an anonymous visitor sees"
+    )
+    assert all(not CREDENTIAL_HEADERS & set(request.headers) for request in unsigned + other_requests)
     assert {request.url.host for request in other_requests} == {"d3t0tbmlie281e.cloudfront.net", "dozuki-prod-us-east-1-guide-objects.s3.amazonaws.com"}
 
 
@@ -184,7 +192,10 @@ def test_a_browser_session_cookie_can_stand_in_for_a_token(site, out_dir):
     assert run.status == 0, run.text
     assert "Using the browser session cookie from DOZUKI_SESSION_COOKIE" in run.text
     assert [entry["guideid"] for entry in run.archive.read_json(Archive.guide_index())] == [15, 27, 422, 430]
-    assert all(request.headers.get("Cookie") == SESSION_COOKIE for request in site.requests if request.url.host == HOST)
+    with_cookie = [request for request in site.requests if "Cookie" in request.headers]
+    assert with_cookie and all(request.headers["Cookie"] == SESSION_COOKIE and request.url.host == HOST for request in with_cookie)
+    without = [request for request in site.requests if request.url.host == HOST and "Cookie" not in request.headers]
+    assert {request.url.path.removeprefix(API) for request in without} <= LISTINGS, "only the anonymous listing passes go without it"
     assert all("Cookie" not in request.headers for request in site.requests if request.url.host != HOST)
     assert not any(SESSION_COOKIE.encode() in path.read_bytes() for path in out_dir.rglob("*") if path.is_file())
     assert SESSION_COOKIE not in run.text
@@ -284,8 +295,8 @@ def test_a_listing_that_refuses_large_pages_is_read_in_smaller_ones(site, out_di
 
     assert run.status == 0, run.text
     limits = lambda path: [request.url.params["limit"] for request in site.requests if request.url.path == f"{API}{path}" and "limit" in request.url.params]
-    assert limits("/wikis/CATEGORY") == ["200", "100", "100"]
-    assert limits("/wikis/WIKI") == ["200", "100", "20", "20"]
+    assert limits("/wikis/CATEGORY") == ["200", "100", "100"] * 2, "once signed in, once anonymously"
+    assert limits("/wikis/WIKI") == ["200", "100", "20", "20"] * 2
     assert "  /wikis/WIKI: a page of 100 was refused (GET /wikis/WIKI: HTTP 400); trying 20" in run.lines
     assert run.archive.manifest()["counts"]["wiki"]["ok"] == 6
 
@@ -321,12 +332,7 @@ def test_a_second_run_skips_everything_already_on_disk(site, out_dir):
     again = Run(site, out_dir, environ=signed_in())
 
     assert again.status == 0, again.text
-    absent = {key.split(":", 1)[1] for key, entry in before["items"].items() if entry["status"] == "absent"}
-    asked_again = set(site.paths()) - {"/categories/all", "/guides", "/wikis/CATEGORY", "/wikis/INFO", "/wikis/ITEM", "/wikis/WIKI"}
-    assert asked_again and all(path.startswith(("/categories/", "/wikis/CATEGORY/")) for path in asked_again)
-    assert {path.rsplit("/", 1)[-1] for path in asked_again if path.startswith("/categories/")} <= absent, (
-        "only what the site said it does not have is asked for again"
-    )
+    assert set(site.paths()) == LISTINGS, "only the listings are read again: nothing on disk, and nothing the site said it does not have"
     assert all(request.url.host == HOST for request in site.requests), "no media file is downloaded twice"
     after = again.archive.manifest()
     assert after["items"]["image-file:507"] == before["items"]["image-file:507"]
@@ -580,13 +586,16 @@ def test_a_refusal_from_a_media_host_is_not_mistaken_for_a_rejected_token(site, 
     assert run.archive.manifest()["items"]["image-file:507"]["error"] == "download Guid000000000507.full: not visible without signing in (HTTP 401)"
 
 
-def test_a_token_rejected_during_a_download_from_the_api_host_stops_the_run(site, out_dir):
+def test_a_media_file_on_the_api_host_itself_is_still_downloaded_without_credentials(site, out_dir):
     site.documents["/media/images/900"]["image"]["original"] = f"https://{HOST}{API}/blob/900"
     site.fail("/blob/900", httpx.Response(401))
 
-    run = Run(site, out_dir, environ=signed_in())
+    run = Run(site, out_dir, environ={**signed_in(), "DOZUKI_APP_ID": "app-42"})
 
-    assert run.status == 2 and "rejected the API token" in run.text
+    assert run.status == 1, "a file is missing; the token was never shown to that URL, so it was not rejected either"
+    assert run.archive.manifest()["items"]["image-file:900"]["error"] == "download 900: not visible without signing in (HTTP 401)"
+    (download,) = [request for request in site.requests if request.url.path == f"{API}/blob/900"]
+    assert not CREDENTIAL_HEADERS & set(download.headers)
 
 
 @pytest.mark.parametrize("path", ["/categories/all", "/wikis/WIKI"])
@@ -691,7 +700,8 @@ def test_an_image_whose_metadata_is_unavailable_is_still_downloaded_from_the_gui
     assert run.status == 1
     items = run.archive.manifest()["items"]
     assert items["image-meta:903"]["status"] == "failed"
-    assert items["image-file:903"]["status"] == "ok" and items["image-file:903"]["path"] == "files/images/903.bin"
+    assert items["image-file:903"]["status"] == "ok" and items["image-file:903"]["path"] == "files/images/903.png", "named by what its first bytes are"
+    assert items["image-file:903"]["content_type"] == "image/png" and items["image-file:903"]["declared_content_type"] == "application/octet-stream"
 
 
 def test_image_ids_named_only_in_wiki_text_are_resolved_through_the_metadata(site, out_dir):

@@ -164,6 +164,7 @@ export function AnnotatedImage({
         src={src}
         alt={alt}
         loading="lazy"
+        decoding="async"
         width={width ?? undefined}
         height={height ?? undefined}
       />

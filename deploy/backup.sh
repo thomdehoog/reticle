@@ -8,7 +8,10 @@
 # Safe while people are working. The database is copied through SQLite's
 # online-backup API inside the application container — never by copying
 # reticle.db, which in WAL mode is one of three files that are only consistent
-# together. The site stays up throughout.
+# together. The site stays up throughout. A video that is being uploaded while
+# this runs is left for the next backup; it does not make this one fail. What
+# exactly is taken from the media directory is decided in one place, at the
+# top of deploy/docker/dbtool.py.
 #
 # Archives older than RETICLE_BACKUP_KEEP_DAYS (default 14) are then removed
 # from the same directory — but only after this run has succeeded, so a
@@ -60,6 +63,14 @@ printf '%s\n' "$listing" | grep -qx 'reticle.db' || die "the archive contains no
 
 mv "$partial" "$archive"
 trap - EXIT INT TERM
+
+# Tell the installation that a backup of the database as it now is exists on
+# this side. A release that has to migrate the database starts only if that
+# was within the last hour (or when deploy/upgrade.sh vouches for it). Not
+# fatal: the archive is good either way, and an image from before this
+# existed does not know the command.
+in_app reticle-entrypoint backup-confirm </dev/null 2>/dev/null ||
+    echo "note: could not record the backup inside the installation; a pending upgrade will ask for deploy/upgrade.sh" >&2
 
 files="$(printf '%s\n' "$listing" | grep -c '^media/.*[^/]$' || true)"
 size="$(du -h "$archive" | cut -f1)"

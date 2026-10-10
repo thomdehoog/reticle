@@ -13,13 +13,13 @@ GUIDE_FIELDS = {
     "id", "slug", "title", "summary", "categoryId", "tags", "difficulty",
     "timeRequiredMinMinutes", "timeRequiredMaxMinutes", "introduction", "conclusion",
     "status", "steps", "author", "lastEditedBy", "contributors", "viewCount",
-    "createdAt", "updatedAt", "publishedAt", "version",
+    "createdAt", "updatedAt", "publishedAt", "version", "hasUnpublishedChanges",
 }
 
 SUMMARY_FIELDS = {
     "id", "slug", "title", "summary", "categoryId", "tags", "difficulty",
     "timeRequiredMinMinutes", "timeRequiredMaxMinutes", "status", "stepCount",
-    "author", "viewCount", "updatedAt", "publishedAt",
+    "author", "viewCount", "updatedAt", "publishedAt", "hasUnpublishedChanges",
 }
 
 

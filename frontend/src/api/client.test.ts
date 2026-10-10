@@ -133,4 +133,56 @@ describe('ApiClient', () => {
     expect(error.code).toBe('forbidden')
     expect(error.status).toBe(403)
   })
+
+  it('downloads a file as a blob, through the same request and error handling', async () => {
+    const { fetchImpl, calls } = fakeTransport(
+      () => new Response('%PDF-1.4', { headers: { 'Content-Type': 'application/pdf' } }),
+    )
+
+    const blob = await new ApiClient({ fetchImpl }).download('/guides/g1/pdf?view=published')
+
+    expect(await blob.text()).toBe('%PDF-1.4')
+    expect(calls[0].url).toBe('/api/guides/g1/pdf?view=published')
+    expect(calls[0].init).toMatchObject({ method: 'GET', credentials: 'same-origin' })
+  })
+
+  it('turns a refused download into an error, so it is never saved as the file', async () => {
+    const onUnauthenticated = vi.fn()
+    const { fetchImpl } = fakeTransport(() => errorResponse('not_authenticated', 'Sign in.', 401))
+    const client = new ApiClient({ fetchImpl, onUnauthenticated })
+
+    const error = (await client.download('/guides/g1/pdf').catch((e: unknown) => e)) as ApiError
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error.code).toBe('not_authenticated')
+    expect(onUnauthenticated).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads how long a busy server asked it to wait', async () => {
+    const busy = (retryAfter?: string) => () =>
+      new Response(JSON.stringify({ error: { code: 'rate_limited', message: 'Busy.' } }), {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(retryAfter === undefined ? {} : { 'Retry-After': retryAfter }),
+        },
+      })
+    const failure = async (retryAfter?: string) =>
+      (await new ApiClient({ fetchImpl: fakeTransport(busy(retryAfter)).fetchImpl })
+        .download('/guides/g1/pdf')
+        .catch((e: unknown) => e)) as ApiError
+
+    expect((await failure('5')).retryAfterSeconds).toBe(5)
+    expect((await failure(' 12 ')).retryAfterSeconds).toBe(12)
+    expect((await failure('0')).retryAfterSeconds).toBe(0)
+    expect((await failure()).retryAfterSeconds).toBeNull()
+    /* The date form, and nonsense, are "the server did not say". */
+    expect((await failure('Wed, 21 Oct 2026 07:28:00 GMT')).retryAfterSeconds).toBeNull()
+    expect((await failure('-3')).retryAfterSeconds).toBeNull()
+    expect((await failure('5')).code).toBe('rate_limited')
+  })
+
+  it('has no waiting time on an ordinary error', () => {
+    expect(new ApiError('not_found', 'Not found.', 404).retryAfterSeconds).toBeNull()
+  })
 })

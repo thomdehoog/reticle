@@ -19,6 +19,19 @@ concurrency:
 permissions:
   contents: read
 
+# Two rules for whoever edits this file, both about what a workflow is allowed
+# to trust:
+#
+#   1. Actions are pinned to a full commit SHA, with the release it belongs to
+#      in a comment. A tag such as @v4 can be moved to different code by
+#      whoever controls that repository; a commit cannot. Dependabot
+#      (.github/dependabot.yml) proposes the updates, SHA and comment together.
+#   2. No workflow expression (dollar sign, two braces) inside a `run:`
+#      script. An expression is pasted into the script as text before the
+#      shell sees it, so a branch or tag name containing a command
+#      substitution would be executed. Values reach a script through `env:`
+#      and are used there as "$VARIABLES".
+
 env:
   NODE_VERSION: '22'
   # The version the application image runs (backend/Dockerfile).
@@ -32,14 +45,39 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: backend/requirements*.txt
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/requirements-dev.txt
 
+      # Exactly what the image installs: every package at the locked version,
+      # every file checked against its locked hash.
+      - name: Install the locked dependencies
+        run: pip install --require-hashes -r requirements.lock
+
+      # requirements.txt is what people edit; requirements.lock is what gets
+      # installed. If somebody adds or raises a dependency and forgets to
+      # regenerate the lock, the freshly installed environment no longer
+      # satisfies requirements.txt, and this says so (offline: --no-index
+      # leaves pip nothing to resolve from but what is already installed).
+      # The fix is printed with the failure.
+      - name: The lock is in step with requirements.txt
+        run: |
+          if ! pip install --no-index --dry-run -r requirements.txt; then
+            echo "::error file=backend/requirements.lock::requirements.lock does not satisfy requirements.txt. Regenerate it (Python 3.13, Linux): cd backend && pip-compile --generate-hashes --strip-extras --output-file=requirements.lock requirements.txt"
+            exit 1
+          fi
+          pip check
+
+      # The test tools on top. Everything requirements.txt asks for is already
+      # there at its locked version, so this adds pytest and friends only.
       - run: pip install -r requirements-dev.txt
 
       # The tests set their own environment (tests/conftest.py) and give every
@@ -55,9 +93,11 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -74,7 +114,7 @@ jobs:
       - name: Production build
         run: npx vite build
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: frontend-dist
           path: frontend/dist
@@ -99,15 +139,17 @@ jobs:
       RETICLE_E2E_EMAIL: ci@example.org
       RETICLE_E2E_PASSWORD: ci-only-password-not-real
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/requirements.lock
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -115,7 +157,7 @@ jobs:
 
       - name: Install backend
         working-directory: backend
-        run: pip install -r requirements.txt
+        run: pip install --require-hashes -r requirements.lock
 
       - name: Install frontend
         working-directory: frontend
@@ -170,7 +212,7 @@ jobs:
 
       # Screenshots are the fastest way to see why a run failed, so keep them
       # whatever the outcome.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: e2e-screenshots
@@ -188,15 +230,17 @@ jobs:
     env:
       BASE: http://localhost:8080
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Lint the operations scripts
         run: shellcheck -s sh -x deploy/*.sh deploy/docker/*.sh
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Build the application image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: backend/Dockerfile
@@ -207,7 +251,7 @@ jobs:
           cache-to: type=gha,scope=reticle-app,mode=max
 
       - name: Build the web image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: frontend/Dockerfile
@@ -220,14 +264,21 @@ jobs:
       - name: Image sizes
         run: docker image ls --format 'table {{.Repository}}:{{.Tag}}\t{{.Size}}' | grep -E 'REPOSITORY|reticle'
 
-      - name: Compose refuses to start without its two required settings
+      # Each on its own: Compose need not report every missing variable at
+      # once. RETICLE_VERSION is the third because "whatever is newest" is not
+      # a version: there is no implicit `latest`.
+      - name: Compose refuses to start without its three required settings
         run: |
-          if docker compose config -q 2>refusal.txt; then
-            echo "compose.yaml accepted an empty configuration" >&2
-            exit 1
-          fi
-          grep -q RETICLE_SECRET_KEY refusal.txt
-          grep -q RETICLE_DOMAIN refusal.txt
+          complete() {
+            env RETICLE_DOMAIN=localhost RETICLE_SECRET_KEY=0123456789abcdef0123 RETICLE_VERSION=ci "$@"
+          }
+          for missing in RETICLE_DOMAIN RETICLE_SECRET_KEY RETICLE_VERSION; do
+            if complete "$missing=" docker compose config -q 2>refusal.txt; then
+              echo "compose.yaml accepted a configuration without $missing" >&2
+              exit 1
+            fi
+            grep -q "$missing" refusal.txt
+          done
 
       # The local-trial configuration from the README: plain http on localhost.
       - name: Write .env
@@ -328,11 +379,21 @@ jobs:
           sys.exit(1 if not rows or rows[0][0] == "203.0.113.99" else 0)
           PY
 
+      # The backup must not care that somebody is uploading a video while it
+      # runs: the file being written is left out, and the run succeeds.
       - name: Backup, destroy the data, restore
         run: |
           set -x
+          docker compose exec -T -d app sh -c \
+            'mkdir -p /data/media/zz/zz && dd if=/dev/urandom of=/data/media/zz/zz/01UPLOADINFLIGHT.mp4 bs=64k count=4000 2>/dev/null'
           deploy/backup.sh
           archive="$(ls backups/reticle-*.tar.gz | tail -n 1)"
+          gzip -dc "$archive" | tar -tf - > listing.txt
+          grep -q '^media/.*[^/]$' listing.txt
+          if grep -q UPLOADINFLIGHT listing.txt; then
+            echo "the backup archived a file that was still being written" >&2
+            exit 1
+          fi
           docker compose down --volumes
           docker compose up -d --no-build --wait --wait-timeout 120
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
@@ -343,10 +404,21 @@ jobs:
           curl -sf -b jar.txt -o guides.json "$BASE/api/guides"
           grep -q 'Tile Scan' guides.json
 
+      # A release that would migrate an existing database must refuse to start
+      # without a backup; one that has nothing to migrate must never be held
+      # up. Only the second half can be shown with one image: the first needs
+      # two releases with different schemas (done by hand, PLAN_AND_PROGRESS).
+      - name: A restart with no schema change is not held up
+        run: |
+          test "$(docker compose exec -T app reticle-entrypoint schema-state | cut -d' ' -f1)" = current
+          docker compose restart app
+          docker compose up -d --no-build --wait --wait-timeout 120
+          test "$(curl -sf "$BASE/api/health")" = '{"status":"ok"}'
+
       # The same browser test as above, but through Caddy and under the real
       # Content-Security-Policy. A console error — which is what a CSP
       # violation is — fails it.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -367,7 +439,7 @@ jobs:
         if: failure()
         run: docker compose logs --no-color --tail 200
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: compose-screenshots

@@ -11,6 +11,7 @@ interface Doc {
   version: number
   updatedAt: string
   publishedAt: string | null
+  hasUnpublishedChanges: boolean
   text: string
 }
 
@@ -21,6 +22,7 @@ const INITIAL: Doc = {
   version: 0,
   updatedAt: 't0',
   publishedAt: null,
+  hasUnpublishedChanges: false,
   text: 'a',
 }
 

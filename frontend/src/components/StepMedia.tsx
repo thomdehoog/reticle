@@ -1,3 +1,4 @@
+import { hasLargerOriginal } from '../domain/media'
 import type { Media } from '../domain/types'
 import { AnnotatedImage } from './AnnotationOverlay'
 
@@ -29,14 +30,30 @@ function MediaItem({ item }: { item: Media }) {
     )
   }
 
+  /* What is drawn is the display copy: sharp at any size a step shows it,
+     and a fraction of the bytes of a stitched panel. Annotations are fractions
+     of the picture, so they sit in the same place on either file. The
+     original is one click away for the reader who wants every pixel. */
   return (
-    <AnnotatedImage
-      src={item.url}
-      alt={item.alt}
-      annotations={item.annotations}
-      width={item.width}
-      height={item.height}
-    />
+    <figure className="step__figure">
+      <AnnotatedImage
+        src={item.displayUrl ?? item.url}
+        alt={item.alt}
+        annotations={item.annotations}
+        width={item.width}
+        height={item.height}
+      />
+      {hasLargerOriginal(item) && (
+        <figcaption className="step__full-size">
+          <a href={item.url} target="_blank" rel="noreferrer noopener">
+            Open full size
+            <span className="visually-hidden">
+              {item.alt ? `: ${item.alt}` : ' image'} (opens in a new tab)
+            </span>
+          </a>
+        </figcaption>
+      )}
+    </figure>
   )
 }
 

@@ -6,6 +6,11 @@
  * then read it back as a reader. The point is not that the buttons respond —
  * it is that what comes out the other end is exactly what was typed in.
  *
+ * Then the promise the README makes about publishing: the published guide is
+ * edited, and the test checks that readers go on seeing the published version
+ * — in the reader, as a viewer — while the author is told changes are pending,
+ * can preview them, discard them, make them again and publish them.
+ *
  * It then does the same for the wiki: writes a page with the toolbar, embeds
  * a guide list by tag, publishes it, and checks the guide shows up inside it.
  *
@@ -19,7 +24,7 @@
  */
 
 import { chromium } from 'playwright'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -70,8 +75,31 @@ function record(step, ok, detail = '') {
 const browser = await chromium.launch({
   executablePath: process.env.RETICLE_E2E_CHROMIUM || undefined,
 })
-const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+const context = await browser.newContext({
+  viewport: { width: 1440, height: 1000 },
+  acceptDownloads: true,
+})
 const page = await context.newPage()
+
+/**
+ * A second person, signed in as a viewer on a phone, kept open for the whole
+ * run: several checks below are about what a reader sees *while* the author is
+ * in the middle of something. Null when no viewer account was given.
+ */
+let viewerContext = null
+let viewer = null
+async function asViewer() {
+  if (!VIEWER_EMAIL) return null
+  if (viewer) return viewer
+  viewerContext = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  viewer = await viewerContext.newPage()
+  await viewer.goto(BASE, { waitUntil: 'networkidle' })
+  await viewer.getByLabel('Email').fill(VIEWER_EMAIL)
+  await viewer.getByLabel('Password').fill(PASSWORD)
+  await viewer.getByRole('button', { name: 'Sign in' }).click()
+  await viewer.waitForSelector('.category-card', { timeout: 15000 })
+  return viewer
+}
 
 const consoleErrors = []
 page.on('console', (message) => {
@@ -338,12 +366,17 @@ record(
   (await reader.getByRole('img', { name: 'The acquisition window' }).count()) === 1,
 )
 
-const pdfHref = await page.getByRole('link', { name: 'PDF' }).getAttribute('href')
-const pdfAnswer = await page.evaluate(async (url) => {
-  const response = await fetch(url)
-  return `${response.status} ${response.headers.get('content-type')}`
-}, pdfHref)
-record('PDF downloads', pdfAnswer.startsWith('200 application/pdf'), pdfAnswer)
+const [pdfDownload] = await Promise.all([
+  page.waitForEvent('download', { timeout: 30000 }),
+  page.getByRole('button', { name: 'PDF' }).click(),
+])
+const pdfFile = await pdfDownload.path()
+const pdfOpening = pdfFile ? readFileSync(pdfFile).subarray(0, 5).toString('latin1') : ''
+record(
+  'PDF downloads',
+  pdfDownload.suggestedFilename().endsWith('.pdf') && pdfOpening === '%PDF-',
+  `${pdfDownload.suggestedFilename()} starting ${JSON.stringify(pdfOpening)}`,
+)
 
 /* The new tag is shown as it was typed; the reused one under its own name. */
 const tagLinks = await page.locator('.guide .tag-row .tag').allInnerTexts()
@@ -379,6 +412,129 @@ record(
   'a published version opens read-only',
   (await page.locator('.step').count()) === STEPS.length &&
     (await page.getByRole('link', { name: 'Edit' }).count()) === 0,
+)
+
+/* ---------------------------------------------- editing what is published */
+
+/**
+ * "Editing a published guide never breaks the version people are reading."
+ * The first bullet is rewritten and saved; nothing a reader can reach may
+ * change until it is published.
+ */
+const ORIGINAL_BULLET = STEPS[0].bullets[0].text
+const EDITED_BULLET = `Turn the key to position III instead (${RUN}).`
+const firstBulletField = () => page.locator('.editor-step').first().locator('textarea').first()
+const readerText = (target) => target.locator('.guide').innerText()
+
+await page.goto(publishedUrl, { waitUntil: 'networkidle' })
+await page.getByRole('link', { name: 'Edit' }).click()
+await page.waitForSelector('.editor-step')
+record(
+  'the editor says readers have this version, and has nothing to publish',
+  (await page.getByText('Readers see this version (1)').count()) === 1 &&
+    (await page.getByRole('button', { name: 'Publish update' }).isDisabled()),
+)
+
+await firstBulletField().fill(EDITED_BULLET)
+await page.getByText('Unpublished changes — readers still see version 1').waitFor({ timeout: 5000 })
+await page.waitForSelector('text=All changes saved', { timeout: 10000 })
+record(
+  'a saved edit is reported as unpublished, not as live',
+  (await page.getByText('Unpublished changes — readers still see version 1').count()) === 1 &&
+    (await page.getByRole('button', { name: 'Discard changes' }).count()) === 1,
+)
+await page.screenshot({ path: join(SHOTS, 'cms-6-editor-unpublished.png'), fullPage: true })
+
+const reader1 = await asViewer()
+if (reader1) {
+  await reader1.goto(publishedUrl, { waitUntil: 'networkidle' })
+  await reader1.waitForSelector('.step')
+  const seen = await readerText(reader1)
+  record(
+    'a viewer still reads the published version while the edit is pending',
+    seen.includes(ORIGINAL_BULLET) && !seen.includes(EDITED_BULLET) && !/unpublished/i.test(seen),
+  )
+  await reader1.goto(`${BASE}/search?q=${encodeURIComponent('position III')}`, { waitUntil: 'networkidle' })
+  record(
+    'a viewer cannot find the unpublished text by searching for it',
+    (await reader1.locator('.guide-row', { hasText: TITLE }).count()) === 0,
+  )
+}
+
+await page.getByRole('link', { name: 'View', exact: true }).click()
+await page.waitForSelector('.changes-notice')
+const behind = await readerText(page)
+record(
+  'the author\'s reader shows what readers see, and says changes are pending',
+  behind.includes(ORIGINAL_BULLET) &&
+    !behind.includes(EDITED_BULLET) &&
+    (await page.locator('.changes-notice').innerText()).includes('Readers see version 1'),
+)
+await page.screenshot({ path: join(SHOTS, 'cms-7-reader-pending.png'), fullPage: true })
+
+await page.getByRole('link', { name: 'Preview changes' }).click()
+await page.waitForSelector('.revision-banner')
+const previewed = await readerText(page)
+record(
+  'the preview shows the working copy, bannered as a preview',
+  previewed.includes(EDITED_BULLET) &&
+    /[?&]preview=true/.test(page.url()) &&
+    (await page.locator('.revision-banner').innerText()).includes('Preview of unpublished changes'),
+)
+await page.screenshot({ path: join(SHOTS, 'cms-8-reader-preview.png'), fullPage: true })
+
+await page.getByRole('link', { name: 'Back to what readers see' }).click()
+await page.waitForSelector('.changes-notice')
+record('the preview leads back to the published version', (await readerText(page)).includes(ORIGINAL_BULLET))
+
+/* Tag listings mark it for the author; the row is still the guide. */
+await page.goto(`${BASE}/t/${TAGS[0]}`, { waitUntil: 'networkidle' })
+record(
+  'lists mark the guide as having unpublished changes',
+  (await page.locator('.guide-row', { hasText: TITLE }).locator('.badge--changes').count()) === 1,
+)
+
+/* Discard: the editor goes back to what was published. */
+await page.goto(publishedUrl, { waitUntil: 'networkidle' })
+await page.locator('.changes-notice').getByRole('link', { name: 'Edit' }).click()
+await page.waitForSelector('.editor-step')
+page.once('dialog', (dialog) => dialog.accept())
+await page.getByRole('button', { name: 'Discard changes' }).click()
+await page.getByText('Readers see this version (1)').waitFor({ timeout: 10000 })
+record(
+  'discarding puts the published text back in the editor',
+  (await firstBulletField().inputValue()) === ORIGINAL_BULLET &&
+    (await page.getByRole('button', { name: 'Discard changes' }).count()) === 0,
+)
+
+/* And again, this time for real. */
+await firstBulletField().fill(EDITED_BULLET)
+await page.getByText('Unpublished changes — readers still see version 1').waitFor({ timeout: 5000 })
+await page.getByRole('button', { name: 'Publish update' }).click()
+await page.waitForURL(/\/g\/[^/?]+$/, { timeout: 15000 })
+await page.waitForSelector('.step')
+const republished = await readerText(page)
+record(
+  'publishing the update shows it in the reader with nothing pending',
+  republished.includes(EDITED_BULLET) && (await page.locator('.changes-notice').count()) === 0,
+)
+
+const reader2 = await asViewer()
+if (reader2) {
+  await reader2.goto(publishedUrl, { waitUntil: 'networkidle' })
+  await reader2.waitForSelector('.step')
+  const seen = await readerText(reader2)
+  record(
+    'a viewer now reads the new version',
+    seen.includes(EDITED_BULLET) && !seen.includes(ORIGINAL_BULLET),
+  )
+}
+
+await page.getByRole('link', { name: 'History' }).click()
+await page.waitForSelector('.revision-list__row')
+record(
+  'one discard and one publish later, the history has exactly two versions',
+  (await page.locator('.revision-list__row').count()) === 2,
 )
 
 /* --------------------------------------------------------------------- wiki */
@@ -468,15 +624,7 @@ await context.close()
 
 /* ----------------------------------------------------------------- as viewer */
 
-if (VIEWER_EMAIL) {
-  const viewerContext = await browser.newContext({ viewport: { width: 390, height: 844 } })
-  const viewer = await viewerContext.newPage()
-  await viewer.goto(BASE, { waitUntil: 'networkidle' })
-  await viewer.getByLabel('Email').fill(VIEWER_EMAIL)
-  await viewer.getByLabel('Password').fill(PASSWORD)
-  await viewer.getByRole('button', { name: 'Sign in' }).click()
-  await viewer.waitForSelector('.category-card', { timeout: 15000 })
-
+if (await asViewer()) {
   await viewer.goto(publishedUrl, { waitUntil: 'networkidle' })
   await viewer.waitForSelector('.step')
   record(

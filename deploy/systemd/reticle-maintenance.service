@@ -1,0 +1,26 @@
+# Weekly housekeeping for Reticle: uploads nothing refers to any more, expired
+# sessions and sign-in attempts, stale cached PDFs. Install with:
+#
+#   sudo cp deploy/systemd/reticle-maintenance.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now reticle-maintenance.timer
+#
+# Adjust the two paths if the installation is not in /opt/reticle.
+# Check it:   systemctl list-timers reticle-maintenance.timer
+#             journalctl -u reticle-maintenance.service -n 40
+#
+# The command line below is deliberately bare: how old an unreferenced file
+# must be before it goes is the application's default. To change it, see
+# `deploy/maintenance.sh purge-orphans --help` and add the option here.
+
+[Unit]
+Description=Reticle housekeeping (unreferenced media, expired sessions, stale caches)
+Requires=docker.service
+After=docker.service reticle-backup.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/reticle
+ExecStart=/opt/reticle/deploy/maintenance.sh purge-orphans
+Nice=10
+IOSchedulingClass=idle

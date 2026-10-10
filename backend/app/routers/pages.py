@@ -19,13 +19,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from .. import audit, content, errors
+from .. import audit, content, errors, published
 from ..auth import AnyUser, AuthorUser, DbDep, client_address
-from ..models import Page, PageContributor, PageRevision
+from ..models import Page, PageContributor, PageRevision, PublishedPage
 from ..pages import apply_document, assert_publishable, validated_placement
 from ..schemas import (
     MAX_SEARCH_TERM_CHARS,
     ContentStatus,
+    ContentView,
     PageCreateIn,
     PageDocumentIn,
     PageOut,
@@ -55,6 +56,12 @@ PAGES = content.ContentKind(
     out_model=PageOut,
     serialise=page_out,
     assert_publishable=assert_publishable,
+    projection_model=PublishedPage,
+    project=published.project_page,
+    unproject=published.clear_page,
+    from_snapshot=published.page_from_snapshot,
+    fingerprint=published.page_fingerprint,
+    restore=published.restore_page,
     eager=_detail_options,
 )
 
@@ -96,18 +103,25 @@ def list_pages(
     status_filter: ContentStatus | None = Query(default=None, alias="status"),
     q: str | None = Query(default=None, max_length=MAX_SEARCH_TERM_CHARS),
 ) -> list[PageSummaryOut]:
-    statement = select(Page).where(content.visible_to(Page, user))
+    """Pages by title: the published snapshots for a viewer, the working copies for an author."""
+    as_published = content.serves_published(user)
+    side = PublishedPage if as_published else Page
+    statement = (
+        content.published_statement(PAGES) if as_published else select(Page).where(content.visible_to(Page, user))
+    )
 
     if status_filter is not None:
         statement = statement.where(Page.status == status_filter)
     if category_id is not None:
-        statement = statement.where(Page.category_id == category_id)
+        statement = statement.where(side.category_id == category_id)
 
     term = (q or "").strip()
     if term:
-        statement = statement.where(or_(content.contains(Page.title, term), content.contains(Page.summary, term)))
+        statement = statement.where(or_(content.contains(side.title, term), content.contains(side.summary, term)))
 
-    statement = statement.order_by(func.lower(Page.title), Page.id)
+    statement = statement.order_by(func.lower(side.title), Page.id)
+    if as_published:
+        return [published.page_summary(page, projection) for page, projection in db.execute(statement)]
     return [page_summary_out(page) for page in db.scalars(statement)]
 
 
@@ -144,8 +158,12 @@ def create_page(payload: PageCreateIn, request: Request, db: DbDep, user: Author
 
 
 @router.get("/{key}", response_model=PageOut)
-def read_page(key: str, db: DbDep, user: AnyUser) -> PageOut:
-    return page_out(content.load_visible(db, PAGES, user, key))
+def read_page(key: str, db: DbDep, user: AnyUser, view: ContentView | None = None) -> Any:
+    """A page: the published snapshot for a viewer, the working copy for an author.
+
+    ``?view=published`` gives an author exactly what a viewer is given.
+    """
+    return content.read(db, PAGES, user, key, view)
 
 
 @router.put("/{page_id}", response_model=PageOut)
@@ -171,6 +189,7 @@ def save_page(
         detail={"bodyLength": len(payload.body), "isLanding": page.is_landing},
     )
     with landing_race_is_a_conflict(db):
+        page = content.settle_changes(db, PAGES, page)
         db.commit()
     return page_out(page)
 

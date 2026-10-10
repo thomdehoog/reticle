@@ -13,8 +13,9 @@ import pytest
 from pypdf import PdfReader
 from sqlalchemy import select
 
-from app import pdf
+from app import images, pdf
 from app.models import Media
+from app.settings import get_settings
 
 from .conftest import (
     annotation,
@@ -393,22 +394,302 @@ def test_an_unknown_guide_has_no_pdf(author):
     assert author.get("/api/guides/no-such-guide/pdf").status_code == 404
 
 
-def test_exports_queue_and_then_give_up_rather_than_pile_up(author, category, monkeypatch):
-    """Rendering is the costliest thing a reader can ask for. When every slot is
-    busy the next request waits briefly and is then told to come back."""
+# ------------------------------------------------- an export that cannot start
+
+
+@pytest.fixture()
+def every_slot_taken():
+    """Hold every render slot, as other people's exports in progress would."""
+    held = [pdf._render_slots.acquire(blocking=False) for _ in range(pdf.MAX_CONCURRENT_RENDERS)]
+    assert all(held)
+    yield
+    for _ in held:
+        pdf._render_slots.release()
+
+
+def test_a_busy_export_is_refused_at_once_and_says_when_to_come_back(author, category, every_slot_taken):
+    """Rendering is the costliest thing a reader can ask for. A request that
+    cannot start used to wait for up to twenty seconds, holding a thread and a
+    database connection while it did; now it is told immediately."""
+    import time
+
     created = create_guide(author, category.id)
-    monkeypatch.setattr(pdf, "RENDER_WAIT_SECONDS", 0.01)
-    held = [pdf._render_slots.acquire(timeout=1) for _ in range(pdf.MAX_CONCURRENT_RENDERS)]
-    try:
-        assert all(held)
-        response = author.get(f"/api/guides/{created['id']}/pdf")
-    finally:
-        for _ in held:
-            pdf._render_slots.release()
+
+    started = time.monotonic()
+    response = author.get(f"/api/guides/{created['id']}/pdf")
+    elapsed = time.monotonic() - started
 
     assert response.status_code == 429
     assert response.json()["error"]["code"] == "rate_limited"
+    assert response.headers["retry-after"] == str(pdf.RETRY_AFTER_SECONDS)
+    assert elapsed < 1.0, "nothing waits for a slot"
+
+
+def test_a_refused_export_has_loaded_nothing(author, category, every_slot_taken, db_session):
+    """The slot is asked for before the document is read: a request that is
+    going to be turned away costs one short lookup, not a 200-step guide."""
+    from sqlalchemy import event
+
+    created = create_guide(author, category.id)
+    save_guide(author, created, steps=[step("One", bullets=[bullet("Text")])])
+    statements: list[str] = []
+    engine = db_session.get_bind()
+    record = lambda conn, cursor, statement, *rest: statements.append(statement)  # noqa: E731
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        assert author.get(f"/api/guides/{created['id']}/pdf").status_code == 429
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    assert not any("FROM steps" in statement or "FROM bullets" in statement for statement in statements)
+    assert not any("guide_revisions" in statement for statement in statements)
+
+
+def test_the_slots_are_free_again_after_a_refusal_and_after_a_failure(author, category, monkeypatch):
+    created = create_guide(author, category.id)
+    held = [pdf._render_slots.acquire(blocking=False) for _ in range(pdf.MAX_CONCURRENT_RENDERS)]
+    assert author.get(f"/api/guides/{created['id']}/pdf").status_code == 429
+    for _ in held:
+        pdf._render_slots.release()
     assert author.get(f"/api/guides/{created['id']}/pdf").status_code == 200
+
+    def explode(*args):
+        raise errors.validation_failed("layout failed")
+
+    from app import errors
+
+    with monkeypatch.context() as patched:
+        patched.setattr(pdf, "build", explode)
+        assert author.get(f"/api/guides/{created['id']}/pdf").status_code == 422
+    assert author.get(f"/api/guides/{created['id']}/pdf").status_code == 200, "neither the slot nor the user's turn leaked"
+    assert pdf._exporting_users == set()
+
+
+def test_one_person_gets_one_export_at_a_time(author, category):
+    """Two slots protect the server from a crowd; without this one member of
+    the crowd could hold both."""
+    created = create_guide(author, category.id)
+    me = author.get("/api/auth/me").json()["id"]
+
+    with pdf.render_slot(me):
+        refused = author.get(f"/api/guides/{created['id']}/pdf")
+
+    assert refused.status_code == 429
+    assert "of yours" in refused.json()["error"]["message"]
+    assert refused.headers["retry-after"] == str(pdf.RETRY_AFTER_SECONDS)
+    assert author.get(f"/api/guides/{created['id']}/pdf").status_code == 200
+
+
+def test_somebody_elses_export_does_not_count_against_me(author, category):
+    created = create_guide(author, category.id)
+
+    with pdf.render_slot("01JQSOMEBODYELSE00000000000"):
+        assert author.get(f"/api/guides/{created['id']}/pdf").status_code == 200
+
+
+def test_an_unknown_guide_is_not_found_even_when_the_export_is_busy(author, every_slot_taken):
+    assert author.get("/api/guides/no-such-guide/pdf").status_code == 404
+
+
+# ----------------------------------------------------------------- the cache
+
+
+@pytest.fixture()
+def renders(monkeypatch):
+    """Count how often a PDF is actually laid out."""
+    calls = []
+    original = pdf.build
+    monkeypatch.setattr(pdf, "build", lambda *args: calls.append(args[0].version) or original(*args))
+    return calls
+
+
+def cached_files(media_root) -> list[str]:
+    root = media_root / ".pdf-cache"
+    return sorted(str(path.relative_to(root)) for path in root.rglob("*.pdf")) if root.is_dir() else []
+
+
+def test_a_published_version_is_rendered_once_and_then_served_from_disk(author, viewer, category, renders, media_root):
+    guide = publish_guide(author, create_guide(author, category.id, "Rendered Once"))
+
+    first = viewer.get(f"/api/guides/{guide['slug']}/pdf")
+    second = viewer.get(f"/api/guides/{guide['id']}/pdf")
+    third = author.get(f"/api/guides/{guide['slug']}/pdf", params={"view": "published"})
+
+    assert renders == [1]
+    assert first.content == second.content == third.content
+    assert first.content.startswith(b"%PDF-")
+    for response in (first, second, third):
+        assert response.headers["content-type"] == "application/pdf"
+        assert response.headers["content-disposition"] == 'attachment; filename="rendered-once.pdf"'
+        assert response.headers["cache-control"] == "private, no-store"
+    assert len(cached_files(media_root)) == 1 and cached_files(media_root)[0].startswith(guide["id"])
+
+
+def test_a_cached_export_needs_no_slot(author, viewer, category, renders):
+    """Repeat downloads cost nothing, so they are not rationed either."""
+    guide = publish_guide(author, create_guide(author, category.id))
+    assert viewer.get(f"/api/guides/{guide['slug']}/pdf").status_code == 200
+    me = viewer.get("/api/auth/me").json()["id"]
+    held = [pdf._render_slots.acquire(blocking=False) for _ in range(pdf.MAX_CONCURRENT_RENDERS)]
+    try:
+        with pdf._exporting_users_lock:
+            pdf._exporting_users.add(me)
+        assert viewer.get(f"/api/guides/{guide['slug']}/pdf").status_code == 200
+    finally:
+        pdf._exporting_users.discard(me)
+        for _ in held:
+            pdf._render_slots.release()
+
+    assert renders == [1]
+
+
+def test_publishing_again_is_a_new_export_and_the_old_one_is_dropped(author, viewer, category, renders, media_root):
+    guide = publish_guide(author, create_guide(author, category.id))
+    viewer.get(f"/api/guides/{guide['slug']}/pdf")
+    before = cached_files(media_root)
+
+    save_guide(author, guide, steps=[step("Rewritten", bullets=[bullet("Version two text.")])])
+    assert "Version two" not in text_of(fetch(viewer, guide["slug"])), "an unpublished edit is not in readers' PDF"
+    assert renders == [1], "and the cached export was still the right one to send"
+
+    author.post(f"/api/guides/{guide['id']}/publish")
+    assert "Version two text." in text_of(fetch(viewer, guide["slug"]))
+
+    assert renders == [1, 2]
+    after = cached_files(media_root)
+    assert len(after) == 1 and after != before
+
+
+def test_drafts_and_working_copies_are_never_cached(author, category, renders, media_root):
+    draft = create_guide(author, category.id, "Still A Draft")
+    fetch(author, draft["id"])
+    fetch(author, draft["id"])
+    guide = publish_guide(author, create_guide(author, category.id, "Published"))
+    fetch(author, guide["id"])
+    fetch(author, guide["id"])
+
+    assert renders == [0, 0, 1, 1], "an author's default view is the working copy, rendered each time"
+    assert cached_files(media_root) == []
+
+
+def test_the_export_still_works_when_the_cache_cannot_be_written(author, viewer, category, renders, monkeypatch, tmp_path):
+    """A read-only container with no writable cache directory configured must
+    cost the reader nothing but the saving."""
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("in the way")
+    monkeypatch.setenv("RETICLE_PDF_CACHE_DIR", str(blocker / "cache"))
+    get_settings.cache_clear()
+    guide = publish_guide(author, create_guide(author, category.id))
+
+    assert viewer.get(f"/api/guides/{guide['slug']}/pdf").status_code == 200
+    assert viewer.get(f"/api/guides/{guide['slug']}/pdf").status_code == 200
+    assert renders == [1, 1]
+
+
+def test_the_cache_directory_is_configurable(author, viewer, category, monkeypatch, tmp_path, media_root):
+    monkeypatch.setenv("RETICLE_PDF_CACHE_DIR", str(tmp_path / "elsewhere"))
+    get_settings.cache_clear()
+    guide = publish_guide(author, create_guide(author, category.id))
+
+    viewer.get(f"/api/guides/{guide['slug']}/pdf")
+
+    assert len(list((tmp_path / "elsewhere").rglob("*.pdf"))) == 1
+    assert cached_files(media_root) == []
+
+
+def test_a_cached_export_is_keyed_by_snapshot_layout_and_category_name(tmp_path):
+    base = pdf.cache_file(tmp_path, "GUIDE", "REVISION", "Light Microscopy")
+
+    assert base.parent == tmp_path / "GUIDE"
+    assert pdf.cache_file(tmp_path, "GUIDE", "REVISION", "Light Microscopy") == base
+    assert pdf.cache_file(tmp_path, "GUIDE", "OTHER", "Light Microscopy") != base
+    assert pdf.cache_file(tmp_path, "GUIDE", "REVISION", "Renamed") != base, "the category name is printed in the document"
+    assert f"-l{pdf.LAYOUT_VERSION}-" in base.name
+
+
+def test_renaming_the_category_makes_a_fresh_export(author, admin, viewer, category, renders):
+    guide = publish_guide(author, create_guide(author, category.id))
+    viewer.get(f"/api/guides/{guide['slug']}/pdf")
+
+    admin.patch(f"/api/categories/{category.id}", json={"name": "Photonic Imaging"})
+
+    assert "Photonic Imaging" in text_of(fetch(viewer, guide["slug"]))
+    assert renders == [1, 1]
+
+
+# ------------------------------------------------- images in the export, cheaply
+
+
+def test_the_export_is_given_the_display_copy_not_the_original(author, category, monkeypatch):
+    seen = []
+    original = pdf.embed_image
+    monkeypatch.setattr(pdf, "embed_image", lambda path: seen.append(path) or original(path))
+    created = create_guide(author, category.id, "Big Panel")
+    save_guide(author, created, steps=[step("Overview", media=[upload_media(author, image_bytes(3000, 1800))])])
+
+    fetch(author, created["id"])
+
+    assert [path.name.endswith(".display.png") for path in seen] == [True]
+
+
+def test_nothing_is_converted_at_full_size_on_the_way_into_the_export(tmp_path, monkeypatch):
+    """The 380 MB of the finding was three full-size buffers alive at once: the
+    decode, an RGBA copy of it, and a white canvas to paste it onto. Shrinking
+    comes first now, so whatever is converted or composited is already small."""
+    from PIL import Image
+
+    path = tmp_path / "panel.png"
+    Image.new("RGBA", (3200, 2000), (10, 20, 30, 128)).save(path)
+    sizes: list[tuple[str, tuple[int, int]]] = []
+    convert, new = Image.Image.convert, Image.new
+    monkeypatch.setattr(Image.Image, "convert", lambda self, *a, **k: sizes.append(("convert", self.size)) or convert(self, *a, **k))
+    monkeypatch.setattr(Image, "new", lambda mode, size, *a, **k: sizes.append(("new", tuple(size))) or new(mode, size, *a, **k))
+
+    embedded = pdf.embed_image(path)
+
+    assert embedded is not None and max(embedded.width, embedded.height) == pdf.EMBED_MAX_PIXELS
+    assert ("new", (1400, 875)) in sizes, "the alpha channel was flattened, on the small image"
+    largest = max(width * height for _, (width, height) in sizes)
+    assert largest <= 3200 * images.REDUCE_BAND_ROWS, "nothing bigger than one band of rows was ever copied"
+    assert largest < 3200 * 2000 / 3
+
+
+def test_an_opaque_image_is_never_given_an_alpha_channel(tmp_path, monkeypatch):
+    from PIL import Image
+
+    path = tmp_path / "opaque.png"
+    Image.new("RGB", (2000, 1000), "#336699").save(path)
+    modes: list[str] = []
+    convert = Image.Image.convert
+    monkeypatch.setattr(Image.Image, "convert", lambda self, mode=None, *a, **k: modes.append(mode) or convert(self, mode, *a, **k))
+
+    assert pdf.embed_image(path) is not None
+    assert "RGBA" not in modes
+
+
+@pytest.mark.parametrize("mode", ["P", "L", "LA", "1", "CMYK"])
+def test_every_colour_mode_an_upload_can_have_embeds(tmp_path, mode):
+    from PIL import Image
+
+    path = tmp_path / f"picture.{'jpg' if mode == 'CMYK' else 'png'}"
+    Image.new("RGB", (60, 40), "#cc3300").convert(mode).save(path)
+
+    embedded = pdf.embed_image(path)
+
+    assert embedded is not None and (embedded.width, embedded.height) == (60, 40)
+
+
+def test_a_palette_image_with_transparency_is_flattened_onto_white(tmp_path):
+    from PIL import Image
+
+    path = tmp_path / "palette.png"
+    image = Image.new("P", (20, 20), 0)
+    image.putpalette([0, 0, 0, 255, 0, 0])
+    image.save(path, transparency=0)
+
+    embedded = pdf.embed_image(path)
+
+    assert embedded.reader.getRGBData()[:3] == b"\xff\xff\xff"
 
 
 def test_the_largest_guide_the_api_accepts_still_exports(author, category):

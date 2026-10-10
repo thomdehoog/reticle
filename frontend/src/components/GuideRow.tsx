@@ -5,12 +5,16 @@ import { DIFFICULTY_LABELS, formatDurationRange } from '../domain/guide'
 import type { GuideSummary, PageSummary } from '../domain/types'
 import { TagLink } from './TagLink'
 import { StatusBadge } from './ui'
+import { UnpublishedBadge } from './UnpublishedChanges'
 
 /** A guide may carry thirty tags; a row shows the first few and counts the rest. */
 const TAGS_SHOWN = 4
 
 /**
- * One guide in a list. Draft status is shown so authors can spot their own work.
+ * One guide in a list. Draft status is shown so authors can spot their own
+ * work, and so is a published guide whose working copy has moved on — the
+ * title and tags an author sees listed are the working copy's, and the badge
+ * is what says readers are not seeing them yet.
  *
  * The whole row is the target for the guide — its title link is stretched over
  * the row in CSS — while the tag chips stay links of their own on top of it.
@@ -56,6 +60,7 @@ export function GuideRow({ guide, edit = false }: { guide: GuideSummary; edit?: 
         )}
       </div>
       {guide.status !== 'published' && <StatusBadge status={guide.status} />}
+      {guide.hasUnpublishedChanges && <UnpublishedBadge />}
     </div>
   )
 }
@@ -77,6 +82,7 @@ export function PageRow({ page, categoryName }: { page: PageSummary; categoryNam
         </div>
       </div>
       {page.status !== 'published' && <StatusBadge status={page.status} />}
+      {page.hasUnpublishedChanges && <UnpublishedBadge />}
     </div>
   )
 }

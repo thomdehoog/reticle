@@ -19,6 +19,12 @@ export const guideKeys = {
   /** Readers arrive by slug and the editor by id, so both spellings are keys. */
   detail: (idOrSlug: string) => [...guideKeys.details(), idOrSlug] as const,
   /**
+   * What readers are served, asked for by an author. Kept apart from `detail`,
+   * which for an author is the working copy: the editor seeds itself from that
+   * key and saves with its `updatedAt`, and must never be handed a snapshot.
+   */
+  published: (idOrSlug: string) => [...guideKeys.all, 'published', idOrSlug] as const,
+  /**
    * Publish history sits under the guide keys so that publishing — which
    * invalidates everything derived from a guide — also refreshes the list of
    * versions it has just added to.
@@ -34,10 +40,21 @@ export const guideQueries = {
       queryFn: () => api.listGuides(query),
     }),
 
+  /**
+   * The guide as this person is given it by default: the published snapshot
+   * for a viewer, the working copy for an author.
+   */
   detail: (api: ReticleApi, idOrSlug: string) =>
     queryOptions({
       queryKey: guideKeys.detail(idOrSlug),
       queryFn: () => api.getGuide(idOrSlug),
+    }),
+
+  /** Exactly what a viewer gets; only ever needed by an author. */
+  published: (api: ReticleApi, idOrSlug: string) =>
+    queryOptions({
+      queryKey: guideKeys.published(idOrSlug),
+      queryFn: () => api.getGuide(idOrSlug, 'published'),
     }),
 
   revisions: (api: ReticleApi, id: string) =>
@@ -124,6 +141,16 @@ export function useUnpublishGuide() {
   })
 }
 
+/** Discard unpublished changes; resolves to the working copy as it now is. */
+export function useRevertGuide() {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.revertGuide(id),
+    onSuccess: (reverted) => guideWritten(queryClient, reverted),
+  })
+}
+
 /**
  * Archived content answers 404 from then on, so its cached copies are removed
  * outright rather than refetched into an error.
@@ -134,8 +161,10 @@ export function useArchiveGuide() {
   return useMutation({
     mutationFn: (guide: Pick<Guide, 'id' | 'slug'>) => api.archiveGuide(guide.id),
     onSuccess: (_, guide) => {
-      queryClient.removeQueries({ queryKey: guideKeys.detail(guide.id) })
-      queryClient.removeQueries({ queryKey: guideKeys.detail(guide.slug) })
+      for (const key of [guide.id, guide.slug]) {
+        queryClient.removeQueries({ queryKey: guideKeys.detail(key) })
+        queryClient.removeQueries({ queryKey: guideKeys.published(key) })
+      }
       void queryClient.invalidateQueries({ queryKey: guideKeys.lists() })
       void queryClient.invalidateQueries({ queryKey: searchKeys.all })
       void queryClient.invalidateQueries({ queryKey: tagKeys.all })

@@ -23,11 +23,12 @@ PAGE_FIELDS = {
     "id", "slug", "title", "summary", "categoryId", "isLanding", "body", "heroMediaId",
     "heroAlt",
     "status", "author", "lastEditedBy", "contributors", "viewCount", "createdAt",
-    "updatedAt", "publishedAt", "version",
+    "updatedAt", "publishedAt", "version", "hasUnpublishedChanges",
 }
 
 SUMMARY_FIELDS = {
     "id", "slug", "title", "summary", "categoryId", "isLanding", "status", "updatedAt", "publishedAt",
+    "hasUnpublishedChanges",
 }
 
 

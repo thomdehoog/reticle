@@ -9,6 +9,10 @@ name: Release
 #   a GitHub release carrying reticle-deploy-1.2.0.tar.gz — compose.yaml,
 #   .env.example and the deploy/ scripts, which is everything a server needs.
 #
+# The tag must be v<major>.<minor>.<patch>, optionally with a pre-release
+# suffix (v1.3.0-rc.1). Anything else is refused before a single step runs
+# with it.
+#
 # Nothing here connects to a ZMB machine. The server pulls; see "Upgrading" in
 # docs/DEPLOYMENT.md. A university host is not reachable from GitHub's runners,
 # and a deploy key that can log in to it should not live in a repository's
@@ -17,10 +21,15 @@ name: Release
 # Needs no configuration: images are pushed with the workflow's own token. The
 # first time, make the two packages public (or log the server in to ghcr.io)
 # under github.com/<owner>?tab=packages.
+#
+# The two rules at the top of ci.yml apply here with more force, because this
+# workflow holds a token that can publish: actions pinned to commit SHAs, and
+# no workflow expression inside a `run:` script — a tag name is text chosen by
+# whoever can push a tag, and it must never be pasted into a shell.
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
 
 concurrency:
   group: release-${{ github.ref }}
@@ -30,9 +39,45 @@ permissions:
   contents: read
 
 jobs:
+  # First, and with no permissions and no checkout: is this tag a version?
+  # The filter above is a glob and lets "v1.2.3-anything at all" through; this
+  # is the real check, and every later job depends on it.
+  tag:
+    name: Check the tag
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - name: The tag is v<major>.<minor>.<patch>[-<pre-release>]
+        id: check
+        env:
+          TAG: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [ "$REF_TYPE" != tag ]; then
+            echo "::error::this workflow only runs for tags" >&2
+            exit 1
+          fi
+          pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$'
+          if ! printf '%s\n' "$TAG" | grep -Eqx -- "$pattern" || [ "$(printf '%s' "$TAG" | wc -l)" -ne 0 ]; then
+            echo "::error::the tag is not a version of the form v1.2.3 or v1.2.3-rc.1; nothing was built" >&2
+            exit 1
+          fi
+          version="${TAG#v}"
+          prerelease=false
+          case "$version" in *-*) prerelease=true ;; esac
+          {
+            echo "version=$version"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing $version (pre-release: $prerelease)"
+
   # No image is published from a commit that fails its tests.
   verify:
     name: CI
+    needs: tag
     uses: ./.github/workflows/ci.yml
     permissions:
       contents: read
@@ -40,7 +85,7 @@ jobs:
   images:
     name: Publish ${{ matrix.image }}
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [tag, verify]
     permissions:
       contents: read
       packages: write
@@ -53,26 +98,32 @@ jobs:
           - image: reticle-web
             dockerfile: frontend/Dockerfile
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       # GHCR image names must be lower case; repository owners need not be.
       - name: Image name
         id: name
-        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # v1.2.3 -> 1.2.3, 1.2 and latest. A pre-release (v1.3.0-rc.1) gets only
-      # its own tag: `latest` never moves to something unfinished.
+      # its own tag: `latest` never moves to something unfinished. (`latest`
+      # exists for people trying Reticle out; compose.yaml has no default
+      # version, so no server follows it by accident.)
       - name: Tags and labels
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ steps.name.outputs.image }}
           tags: |
@@ -85,7 +136,7 @@ jobs:
       # `platforms: linux/amd64,linux/arm64` — the frontend stage already
       # builds natively whatever the target.
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -93,7 +144,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: RETICLE_VERSION=${{ steps.meta.outputs.version }}
+          build-args: RETICLE_VERSION=${{ needs.tag.outputs.version }}
           # What went into the image and how it was built, stored next to it
           # in the registry:  docker buildx imagetools inspect <image>
           provenance: mode=max
@@ -104,42 +155,46 @@ jobs:
   release:
     name: GitHub release
     runs-on: ubuntu-latest
-    needs: images
+    needs: [tag, images]
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       # Everything a server needs to run the published images, and nothing it
       # does not: no source, no build. The bundle pins the version it was cut
       # from, so "which release is this host on" is one line in its .env.
       - name: Assemble the deployment bundle
-        id: bundle
         env:
-          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.tag.outputs.version }}
         run: |
-          version="${TAG#v}"
           owner="${GITHUB_REPOSITORY_OWNER,,}"
-          root="reticle-$version"
+          root="reticle-$VERSION"
           mkdir -p "$root/docs"
           cp compose.yaml .env.example LICENSE NOTICE.md "$root/"
           cp docs/DEPLOYMENT.md docs/MAINTENANCE.md "$root/docs/"
           cp -r deploy "$root/deploy"
           rm -rf "$root/deploy/docker" "$root/deploy/caddy"
           sed -i \
-            -e "s|^#RETICLE_VERSION=.*|RETICLE_VERSION=$version|" \
-            -e "s|^#RETICLE_IMAGE_PREFIX=.*|RETICLE_IMAGE_PREFIX=ghcr.io/$owner|" \
+            -e "s|^#\{0,1\}RETICLE_VERSION=.*|RETICLE_VERSION=$VERSION|" \
+            -e "s|^#\{0,1\}RETICLE_IMAGE_PREFIX=.*|RETICLE_IMAGE_PREFIX=ghcr.io/$owner|" \
             "$root/.env.example"
-          grep -q "^RETICLE_VERSION=$version\$" "$root/.env.example"
-          tar -czf "reticle-deploy-$version.tar.gz" "$root"
-          echo "file=reticle-deploy-$version.tar.gz" >> "$GITHUB_OUTPUT"
+          test "$(grep -c '^RETICLE_VERSION=' "$root/.env.example")" = 1
+          grep -qxF "RETICLE_VERSION=$VERSION" "$root/.env.example"
+          grep -qxF "RETICLE_IMAGE_PREFIX=ghcr.io/$owner" "$root/.env.example"
+          tar -czf "reticle-deploy-$VERSION.tar.gz" "$root"
 
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.tag.outputs.version }}
+          PRERELEASE: ${{ needs.tag.outputs.prerelease }}
         run: |
-          prerelease=""
-          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$TAG" "${{ steps.bundle.outputs.file }}" \
-            --verify-tag --generate-notes $prerelease
+          set -- "$TAG" "reticle-deploy-$VERSION.tar.gz" --verify-tag --generate-notes
+          if [ "$PRERELEASE" = true ]; then
+            set -- "$@" --prerelease
+          fi
+          gh release create "$@"

@@ -34,11 +34,17 @@ CSRF_HEADER = "X-CSRF-Token"
 
 DEVICE_COOKIE = "reticle_device"
 DEVICE_COOKIE_MAX_AGE_SECONDS = 180 * 24 * 3600
+DEVICE_TOKEN_VERSION = "v2"
+DEVICE_TOKEN_REFRESH_SECONDS = 30 * 24 * 3600
+"""A device token older than this is replaced at the next successful sign-in,
+so a browser in regular use never reaches the end of the cookie's life and one
+that stops being used does."""
 
 SCOPE_EMAIL = "email"
 SCOPE_ADDRESS = "ip"
 SCOPE_EMAIL_ADDRESS = "email_ip"
 SCOPE_DEVICE = "device"
+SCOPE_ACCOUNT_DEVICES = "devices"
 
 
 @lru_cache(maxsize=4)
@@ -142,6 +148,19 @@ def revoke_session(row: SessionRow) -> None:
         row.revoked_at = utcnow()
 
 
+def end_credentials(db: DbSession, user: User, except_session_id: str | None = None) -> int:
+    """Withdraw everything that was earned with the account's old credentials.
+
+    Called when a password is changed or reset and when an account is
+    deactivated. Its sessions are revoked — all but the one making the change,
+    when the owner is changing their own — and its epoch is raised, which is
+    what stops every device cookie issued before this moment from verifying.
+    Returns how many sessions were revoked.
+    """
+    user.auth_epoch = (user.auth_epoch or 0) + 1
+    return revoke_all_sessions(db, user.id, except_session_id=except_session_id)
+
+
 def revoke_all_sessions(db: DbSession, user_id: str, except_session_id: str | None = None) -> int:
     rows = db.scalars(
         select(SessionRow).where(SessionRow.user_id == user_id, SessionRow.revoked_at.is_(None))
@@ -215,29 +234,61 @@ def throttle_source(ip_address: str | None) -> str | None:
     return str(ipaddress.ip_network((int(parsed) >> 64 << 64, 64)))
 
 
-def _device_signature(email: str, nonce: str) -> str:
+def _device_signature(email: str, nonce: str, issued_at: int, auth_epoch: int) -> str:
     secret = get_settings().secret_key.encode("utf-8")
-    message = f"device\x00{email}\x00{nonce}".encode("utf-8")
+    message = f"device\x00{DEVICE_TOKEN_VERSION}\x00{email}\x00{nonce}\x00{issued_at}\x00{auth_epoch}".encode("utf-8")
     return hmac.new(secret, message, hashlib.sha256).hexdigest()
 
 
-def new_device_token(email: str) -> str:
+def new_device_token(email: str, auth_epoch: int = 0, issued_at: int | None = None) -> str:
     """Mint the cookie that marks this browser as one the account has used.
 
-    It is a random nonce and a keyed signature over the nonce and the address,
-    so it proves "somebody signed in to this account from here before" without a
-    table to store it in, and it is worthless for any other account.
+    A random nonce, the moment of issue, and a keyed signature over both
+    together with the address and the account's credential epoch. There is
+    still no table of them, and there does not need to be one for a token to
+    die: it dies of age, because the issue time is signed and checked, and it
+    dies with the credentials it was earned by, because the epoch is signed and
+    the account's epoch moves on whenever its password is changed or reset or
+    the account is switched off. The first version had neither, so a browser
+    that had once signed in — with a password since changed, to an account
+    since deactivated — kept its standing for good.
     """
     nonce = secrets.token_urlsafe(16)
-    return f"{nonce}.{_device_signature(email, nonce)}"
+    issued = int(time.time()) if issued_at is None else issued_at
+    return f"{DEVICE_TOKEN_VERSION}.{nonce}.{issued}.{_device_signature(email, nonce, issued, auth_epoch)}"
 
 
-def verified_device(email: str, token: str | None) -> str | None:
-    """The device nonce, if the cookie is genuine and was issued for this account."""
-    if not token or len(token) > 200 or "." not in token:
+def device_token_age(token: str | None) -> int | None:
+    """Seconds since a token of the current format says it was issued; unverified."""
+    parts = (token or "").split(".")
+    if len(parts) != 4 or not parts[2].isascii() or not parts[2].isdigit():
         return None
-    nonce, _, signature = token.partition(".")
-    if not nonce or not constant_time_equals(signature, _device_signature(email, nonce)):
+    return int(time.time()) - int(parts[2])
+
+
+def verified_device(email: str, token: str | None, auth_epoch: int | None = 0) -> str | None:
+    """The device nonce, if the cookie is genuine, current and was issued for this account.
+
+    ``auth_epoch`` is the account's present epoch, or ``None`` when there is no
+    such active account — in which case nothing verifies, so that a token for a
+    deactivated account is exactly as useful as no token. The signature is
+    compared in constant time and before the age is looked at, so a forger
+    learns nothing from which of the two failed.
+    """
+    if auth_epoch is None or not token or len(token) > 200:
+        return None
+    parts = token.split(".")
+    if len(parts) != 4:
+        return None
+    version, nonce, issued_text, signature = parts
+    if version != DEVICE_TOKEN_VERSION or not nonce or not issued_text.isascii() or not issued_text.isdigit():
+        return None
+    if len(issued_text) > 12:
+        return None
+    issued_at = int(issued_text)
+    genuine = constant_time_equals(signature, _device_signature(email, nonce, issued_at, auth_epoch))
+    age = int(time.time()) - issued_at
+    if not genuine or age < -300 or age > DEVICE_COOKIE_MAX_AGE_SECONDS:
         return None
     return nonce
 
@@ -257,11 +308,17 @@ class LoginSubject:
     device: str | None
 
     @classmethod
-    def of(cls, email: str, ip_address: str | None, device_token: str | None = None) -> "LoginSubject":
+    def of(
+        cls,
+        email: str,
+        ip_address: str | None,
+        device_token: str | None = None,
+        auth_epoch: int | None = 0,
+    ) -> "LoginSubject":
         return cls(
             account=email_fingerprint(email),
             source=throttle_source(ip_address),
-            device=verified_device(email, device_token),
+            device=verified_device(email, device_token, auth_epoch),
         )
 
     @property
@@ -284,26 +341,34 @@ def _failures(db: DbSession, scope: str, key: str, since: datetime) -> int:
 def login_is_throttled(db: DbSession, subject: LoginSubject) -> bool:
     """Block whoever is guessing, never the account being guessed at.
 
-    Four counters, and the order they are consulted in is the design.
+    Five counters, and who can fill each one is the design.
 
-    A browser that has signed in to this account before carries a signed device
-    cookie, and its attempts are counted **only** against that cookie. This is
-    what makes a lockout impossible to inflict: whatever anybody else does to
-    the shared counters below, the owner at their own machine is measured by a
-    counter nobody else can touch. It grants nothing in return — the cookie
-    buys five guesses a window at one account, the same as any stranger gets.
+    Everybody without a device cookie is counted three ways. Per (account,
+    source) is the tripwire that stops one host guessing at one account. Per
+    source catches one host spraying a common password across many accounts,
+    which the first never sees. Per account is a much higher ceiling that still
+    bounds a guess spread over many hosts.
 
-    Everybody else is counted three ways. Per (account, source) is the tripwire
-    that stops one host guessing at one account. Per source catches one host
-    spraying a common password across many accounts, which the first never
-    sees. Per account is a much higher ceiling that still bounds a guess spread
-    over many hosts.
+    All three can be filled by someone other than the person they then keep
+    out. Twenty mistyped or made-up addresses from one shared address — a NAT,
+    an instrument PC — close the per-source counter for everyone behind it, and
+    a guess spread over a few hosts closes the per-account one for the account's
+    owner. A browser that has signed in to this account before carries a signed
+    device cookie, and that is what it is for: such a browser is **not turned
+    away by the counters that strangers fill**. It is measured by two of its
+    own instead.
 
-    That last ceiling is the one an attacker can fill on purpose, and it used to
-    be a way for any colleague with a few addresses — or one IPv6 laptop — to
-    keep a named person out indefinitely. It now only ever turns away browsers
-    the account has never used, which during an attack is the right set to turn
-    away.
+    Per device, the same five guesses a window that any stranger gets at one
+    account. And per account across all of its devices, the same ceiling that
+    bounds strangers — because one person can hold many cookies, each minted by
+    a real sign-in, and without a total every one of them would be a fresh
+    allowance. Only holders of a genuine, current cookie for the account can
+    add to that total, so it cannot be used to lock the owner out either.
+
+    The cookie buys nothing else. It expires, it stops verifying the moment the
+    account's password is changed or reset or the account is deactivated, and
+    attempts made with it are still written to the per-account counter that
+    strangers are held to.
 
     Without a usable source address the attacker cannot be told from a
     first-time visitor, so only the account ceiling applies.
@@ -312,8 +377,9 @@ def login_is_throttled(db: DbSession, subject: LoginSubject) -> bool:
     since = _window_start(settings)
 
     if subject.device is not None:
-        used = _failures(db, SCOPE_DEVICE, subject.device_key, since)
-        return used >= settings.login_max_attempts_per_email_and_ip
+        if _failures(db, SCOPE_DEVICE, subject.device_key, since) >= settings.login_max_attempts_per_email_and_ip:
+            return True
+        return _failures(db, SCOPE_ACCOUNT_DEVICES, subject.account, since) >= settings.login_max_attempts_per_email
 
     if subject.source is None:
         return _failures(db, SCOPE_EMAIL, subject.account, since) >= settings.login_max_attempts_per_email
@@ -332,14 +398,19 @@ def record_login_attempt(db: DbSession, subject: LoginSubject) -> list[str]:
     and a hundred guesses sent in parallel all pass the check inside it. Writing
     the rows first and taking them back on success closes the gap without
     holding the database's write lock for the length of a password hash.
+
+    An attempt from a known device is written to its own two counters and to
+    the per-account one as well: a guess is a guess at the account whoever
+    makes it, and leaving these out would let a holder of old cookies guess
+    beside the ceiling instead of under it.
     """
+    rows = [LoginAttempt(scope=SCOPE_EMAIL, key=subject.account)]
     if subject.device is not None:
-        rows = [LoginAttempt(scope=SCOPE_DEVICE, key=subject.device_key)]
-    else:
-        rows = [LoginAttempt(scope=SCOPE_EMAIL, key=subject.account)]
-        if subject.source is not None:
-            rows.append(LoginAttempt(scope=SCOPE_ADDRESS, key=subject.source))
-            rows.append(LoginAttempt(scope=SCOPE_EMAIL_ADDRESS, key=subject.pair_key))
+        rows.append(LoginAttempt(scope=SCOPE_DEVICE, key=subject.device_key))
+        rows.append(LoginAttempt(scope=SCOPE_ACCOUNT_DEVICES, key=subject.account))
+    elif subject.source is not None:
+        rows.append(LoginAttempt(scope=SCOPE_ADDRESS, key=subject.source))
+        rows.append(LoginAttempt(scope=SCOPE_EMAIL_ADDRESS, key=subject.pair_key))
     db.add_all(rows)
     db.flush()
     return [row.id for row in rows]

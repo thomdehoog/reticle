@@ -28,6 +28,8 @@ WARNING_TITLES = {
     "empty_step": "Empty steps that were left out",
     "duplicate_media": "Pictures that appeared twice in one step",
     "not_published": "Content imported as a draft although the original was public",
+    "page_visibility": "Pages imported as drafts because the old site did not show them publicly",
+    "guide_visibility": "Guides published as marked, though the old site did not list them to anonymous visitors",
     "vendor_flag": "Guides carrying a flag on the old site",
     "clipped": "Text shortened to fit a field",
     "difficulty": "Difficulty values that were not recognised",

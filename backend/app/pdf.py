@@ -15,9 +15,13 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
+import shutil
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from io import BytesIO
@@ -36,7 +40,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import Flowable, Paragraph, SimpleDocTemplate, Spacer
 
-from . import errors
+from . import errors, images
 from .schemas import AnnotationOut, BulletOut, GuideOut, MediaOut, StepOut
 
 logger = logging.getLogger(__name__)
@@ -91,12 +95,100 @@ INDENT_PER_LEVEL = 16.0
 MARKER_WIDTH = 16.0
 
 MAX_CONCURRENT_RENDERS = 2
-RENDER_WAIT_SECONDS = 20.0
+RETRY_AFTER_SECONDS = 5
 
 _render_slots = threading.BoundedSemaphore(MAX_CONCURRENT_RENDERS)
 """Laying out a long guide and decoding its images is the most expensive thing
 the server does on behalf of a reader, and any account can ask for it. Two at a
 time per worker keeps a burst of exports from starving everything else."""
+
+_exporting_users: set[str] = set()
+_exporting_users_lock = threading.Lock()
+
+LAYOUT_VERSION = 2
+"""Part of every cached file's name. Raise it when a change here alters what an
+export of the same guide looks like, and every cached export made by an older
+layout is simply never asked for again."""
+
+
+@contextmanager
+def render_slot(user_id: str) -> Iterator[None]:
+    """Hold a render slot for one export, or say at once that there is none.
+
+    Nothing here waits. A request that queued for a slot used to queue while
+    holding a request thread and a database connection, so sixty exports asked
+    for together did not make sixty people wait for a PDF: they took the
+    threads and the connections from everybody else, and the health check
+    answered a minute late. An export that cannot start now is told so
+    immediately, with ``Retry-After``, and costs the server one short query.
+
+    One export per person at a time, on top of the limit for everyone: without
+    it a single reader with a script holds every slot, and the limit protects
+    the server from the crowd but not from one member of it.
+    """
+    with _exporting_users_lock:
+        if user_id in _exporting_users:
+            raise errors.rate_limited(
+                "A PDF export of yours is still being prepared. It will be ready in a moment.",
+                retry_after=RETRY_AFTER_SECONDS,
+            )
+        _exporting_users.add(user_id)
+    try:
+        if not _render_slots.acquire(blocking=False):
+            raise errors.rate_limited(
+                "The server is busy preparing other PDF exports. Try again in a moment.",
+                retry_after=RETRY_AFTER_SECONDS,
+            )
+        try:
+            yield
+        finally:
+            _render_slots.release()
+    finally:
+        with _exporting_users_lock:
+            _exporting_users.discard(user_id)
+
+
+# ------------------------------------------------------------------ the cache
+
+
+def cache_file(cache_root: Path, guide_id: str, revision_id: str, category_name: str) -> Path:
+    """Where the export of one published version is kept.
+
+    A published version never changes, so its export is made once and then
+    handed out as a file. The name carries everything the bytes depend on: the
+    snapshot (by its own identifier rather than the version number, which a
+    restored backup can reuse for different content), this module's layout
+    version, and the category name printed under the title. Change any of them
+    and the name is one that does not exist yet.
+    """
+    label = hashlib.sha256(category_name.encode("utf-8")).hexdigest()[:12]
+    return cache_root / guide_id / f"{revision_id}-l{LAYOUT_VERSION}-{label}.pdf"
+
+
+def cached(path: Path) -> Path | None:
+    return path if path.is_file() else None
+
+
+def store(path: Path, payload: bytes) -> None:
+    """Keep an export, replacing whatever was kept for the guide before.
+
+    Failing to keep it is not an error: the cache directory may be missing or
+    read-only on an installation that has not given it a writable place, and
+    the reader who asked still gets their document.
+    """
+    try:
+        if path.parent.is_dir():
+            for stale in path.parent.iterdir():
+                if stale != path:
+                    stale.unlink(missing_ok=True)
+        images.write_file_atomically(path, payload)
+    except OSError:
+        logger.warning("Could not cache a PDF export under %s.", path.parent, exc_info=True)
+
+
+def forget(cache_root: Path, guide_id: str) -> None:
+    """Drop every cached export of a guide, because something in them is to be gone."""
+    shutil.rmtree(cache_root / guide_id, ignore_errors=True)
 
 FONT_CANDIDATES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
@@ -240,8 +332,21 @@ class PreparedImage:
         return self.embedded.height
 
 
+def _has_transparency(image: Image.Image) -> bool:
+    return image.mode in {"LA", "RGBA", "PA"} or "transparency" in image.info
+
+
 def embed_image(path: Path) -> EmbeddedImage | None:
-    """Decode, flatten and shrink one step image for embedding.
+    """Decode, shrink and flatten one step image for embedding — in that order.
+
+    Shrinking comes first because everything after it costs memory in
+    proportion to the picture it is done to. This used to convert to RGBA at
+    full size and then composite onto a white canvas at full size: for an 8000
+    x 5000 PNG that is the decoded picture, a four-channel copy of it and a
+    third buffer for the canvas, all alive together, to produce an image 1400
+    pixels wide. Now the only full-size buffer is the decode itself — and the
+    caller normally passes the display copy, so not even that — and the alpha
+    channel is only dealt with when there is one, on the small image.
 
     Returns ``None`` for a file that is missing or will not decode; the export
     then says so in place of the picture rather than failing as a whole, because
@@ -249,11 +354,21 @@ def embed_image(path: Path) -> EmbeddedImage | None:
     """
     try:
         with Image.open(path) as source:
-            source.draft("RGB", (EMBED_MAX_PIXELS, EMBED_MAX_PIXELS))
-            frame = source.convert("RGBA")
-        flattened = Image.new("RGB", frame.size, "white")
-        flattened.paste(frame, mask=frame.getchannel("A"))
-        flattened.thumbnail((EMBED_MAX_PIXELS, EMBED_MAX_PIXELS))
+            images.draft_for(source, EMBED_MAX_PIXELS)
+            source.load()
+            frame: Image.Image = source
+            if frame.mode == "P":
+                frame = frame.convert("RGBA" if _has_transparency(frame) else "RGB")
+            elif frame.mode not in {"L", "LA", "RGB", "RGBA"}:
+                frame = frame.convert("RGB")
+            frame = images.reduced(frame, EMBED_MAX_PIXELS)
+            frame.thumbnail((EMBED_MAX_PIXELS, EMBED_MAX_PIXELS))
+            if _has_transparency(frame):
+                frame = frame.convert("RGBA")
+                flattened = Image.new("RGB", frame.size, "white")
+                flattened.paste(frame, mask=frame.getchannel("A"))
+            else:
+                flattened = frame.convert("RGB")
         buffer = BytesIO()
         flattened.save(buffer, format="JPEG", quality=88)
     except Exception:
@@ -582,12 +697,9 @@ def render_guide(guide: GuideOut, category_name: str, files: dict[str, Path]) ->
     """Render a guide to PDF bytes.
 
     ``files`` maps the identifier of each image in the guide to where it is on
-    disk. The caller has already decided the reader may see the guide and has
-    resolved the paths; nothing here looks anything up.
+    disk. The caller has already decided the reader may see the guide, holds a
+    :func:`render_slot`, and has resolved the paths; nothing here looks anything
+    up, which is what lets the caller give its database connection back before
+    the seconds of layout begin.
     """
-    if not _render_slots.acquire(timeout=RENDER_WAIT_SECONDS):
-        raise errors.rate_limited("The PDF export is busy. Try again in a moment.")
-    try:
-        return build(guide, category_name, files)
-    finally:
-        _render_slots.release()
+    return build(guide, category_name, files)

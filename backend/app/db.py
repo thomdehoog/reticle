@@ -83,6 +83,41 @@ and short enough that a genuinely stuck writer still surfaces as an error.
 
 WRITE_INTENT = "reticle_write_intent"
 
+REQUEST_THREADS = 40
+"""How many requests can be inside a handler at once, per worker.
+
+Every synchronous endpoint runs on the server's thread pool, and this is that
+pool's size: ``main`` sets it at start-up from this constant, so the number the
+connection pool is sized against is the number actually in force.
+"""
+
+POOL_SIZE = 10
+POOL_OVERFLOW = REQUEST_THREADS
+"""Connections kept open, and how many more may be opened under load.
+
+A request holds at most one connection, so the most that can be wanted at once
+is one per request thread, plus the few that an upload holds between two trips
+to the thread pool. SQLAlchemy's default — five kept, ten more on demand — is
+smaller than that, which made the pool itself a queue: sixty slow requests
+left forty threads waiting on fifteen connections, and the ones still waiting
+after thirty seconds failed with "QueuePool limit reached", the health check
+among them. With kept-plus-overflow above the thread count there is always a
+connection for a thread that has one to ask for, and what bounds the load is
+the thread pool, which answers in order instead of timing out.
+
+Only ten are *kept*, because an idle SQLite connection is not free either: each
+carries its own page cache. The rest are opened for a burst and closed after it.
+"""
+
+ENGINE_OPTIONS: dict[str, Any] = {
+    "future": True,
+    # A failed statement is logged with its SQL and never with its values. The
+    # values are what people wrote — bullet text, page bodies — and, on the user
+    # table, password hashes; none of that belongs in a log file that is kept
+    # for a year and read by whoever is on call.
+    "hide_parameters": True,
+}
+
 
 def is_sqlite(url: str) -> bool:
     return url.startswith("sqlite")
@@ -114,10 +149,14 @@ def build_engine(url: str) -> Engine:
     None of this applies to PostgreSQL, which gets a plain engine.
     """
     if not is_sqlite(url):
-        return create_engine(url, future=True)
+        return create_engine(url, pool_size=POOL_SIZE, max_overflow=POOL_OVERFLOW, **ENGINE_OPTIONS)
 
-    engine = create_engine(url, connect_args={"check_same_thread": False}, future=True)
     persistent = not is_memory_sqlite(url)
+    # An in-memory database exists per connection, so it keeps SQLAlchemy's own
+    # choice of pool for it (one shared connection); a pool of several would be
+    # several empty databases.
+    pooling = {"pool_size": POOL_SIZE, "max_overflow": POOL_OVERFLOW} if persistent else {}
+    engine = create_engine(url, connect_args={"check_same_thread": False}, **pooling, **ENGINE_OPTIONS)
 
     @event.listens_for(engine, "connect")
     def _tune_sqlite(dbapi_connection: Any, connection_record: Any) -> None:

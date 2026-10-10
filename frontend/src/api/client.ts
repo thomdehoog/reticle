@@ -17,6 +17,7 @@ export type ApiErrorCode =
   | 'conflict'
   | 'rate_limited'
   | 'payload_too_large'
+  | 'internal_error'
   | 'network_error'
   | 'cancelled'
   | 'unexpected'
@@ -24,12 +25,23 @@ export type ApiErrorCode =
 export class ApiError extends Error {
   readonly code: ApiErrorCode
   readonly status: number
+  /**
+   * How long the server asked us to wait before trying again, when it said.
+   * A busy PDF export does; the login throttle deliberately does not.
+   */
+  readonly retryAfterSeconds: number | null
 
-  constructor(code: ApiErrorCode, message: string, status: number) {
+  constructor(
+    code: ApiErrorCode,
+    message: string,
+    status: number,
+    retryAfterSeconds: number | null = null,
+  ) {
     super(message)
     this.name = 'ApiError'
     this.code = code
     this.status = status
+    this.retryAfterSeconds = retryAfterSeconds
   }
 
   /** True when retrying the identical request could plausibly succeed. */
@@ -182,6 +194,19 @@ export class ApiClient {
   }
 
   /**
+   * Fetches a file rather than JSON — the PDF export. It goes through the same
+   * request and the same error mapping as everything else, so "the server is
+   * busy" arrives as an `ApiError` the screen can explain instead of as a
+   * browser download that silently contains an error message.
+   */
+  async download(path: string): Promise<Blob> {
+    const response = await this.request(() =>
+      this.fetchImpl(`${this.baseUrl}${path}`, { method: 'GET', credentials: 'same-origin' }),
+    )
+    return response.blob()
+  }
+
+  /**
    * Uploads one file — an image or a video. The browser sets the multipart
    * boundary, so we must not.
    */
@@ -223,9 +248,14 @@ export class ApiClient {
 
   /** Everything that happens to a response, whichever transport produced it. */
   private async settle<T>(request: () => Promise<Response>): Promise<T> {
+    return this.parseBody<T>(await this.request(request))
+  }
+
+  /** Sends a request and resolves to its response only if the server said yes. */
+  private async request(send: () => Promise<Response>): Promise<Response> {
     let response: Response
     try {
-      response = await request()
+      response = await send()
     } catch (cause) {
       if (isAbort(cause)) throw new ApiError('cancelled', 'The upload was cancelled.', 0)
       throw new ApiError(
@@ -235,7 +265,7 @@ export class ApiClient {
       )
     }
 
-    if (response.ok) return this.parseBody<T>(response)
+    if (response.ok) return response
 
     const error = await this.parseError(response)
     if (error.code === 'not_authenticated') this.onUnauthenticated?.()
@@ -275,6 +305,13 @@ export class ApiClient {
       }
     }
 
-    return new ApiError(code, message, response.status)
+    return new ApiError(code, message, response.status, retryAfterFrom(response))
   }
+}
+
+/** `Retry-After` in whole seconds; the date form is not something Reticle sends. */
+function retryAfterFrom(response: Response): number | null {
+  const header = response.headers.get('Retry-After')
+  if (header === null || !/^\d{1,5}$/.test(header.trim())) return null
+  return Number(header.trim())
 }

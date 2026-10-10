@@ -32,6 +32,7 @@ Two containers and a disk:
         │  volume reticle-data  │
         │   /data/reticle.db    │   guides, pages, users, history
         │   /data/media/        │   uploaded images and videos
+        │   /data/tmp, caches   │   scratch space; nothing to keep
         └───────────────────────┘
 ```
 
@@ -58,10 +59,19 @@ the database and must stay next to it. For one institute's editing load this
 is the right answer — no separate service, no separate thing to break.
 Section 15 covers when that stops being true.
 
-**The API container starts in two steps.** First `python -m app.migrate`
-brings the database schema to what this release expects; then uvicorn starts.
-The server itself refuses to run against a schema it does not recognise, so
-"upgrade" is simply "start the new image" (section 7).
+**The API container starts in two steps.** First the database schema is
+brought to what this release expects (`python -m app.migrate`); then uvicorn
+starts. The server itself refuses to run against a schema it does not
+recognise.
+
+**A migration needs a way back.** A new installation is migrated without
+ceremony, and a start that has nothing to migrate is never held up. But when a
+new release would *change* an existing database, the container does that only
+if a backup was taken within the last hour — which is what `deploy/upgrade.sh`
+does — and otherwise stops with a message and leaves the database exactly as
+it was. The old image cannot read a migrated database, so this is the one step
+of an upgrade that cannot be undone by putting the old version number back
+(section 7).
 
 ## 2. What you need before starting
 
@@ -108,7 +118,7 @@ cd /opt/reticle
 ```
 
 The rest of this guide assumes `/opt/reticle`. Nothing depends on that path
-except the systemd unit for backups, which says so.
+except the systemd units for backups and housekeeping, which say so.
 
 ### 3.2 Write the configuration
 
@@ -124,19 +134,31 @@ nano .env
 ```ini
 RETICLE_DOMAIN=reticle.zmb.uzh.ch
 RETICLE_SECRET_KEY=<the value you just generated>
+RETICLE_VERSION=1.2.0           # already filled in by a release bundle
 RETICLE_TLS_MODE=files          # or auto — see section 4
 ```
 
 `RETICLE_SECRET_KEY` is the pepper for session-token hashes. Compose refuses
-to start without it and without `RETICLE_DOMAIN`, with a message that says
-which one is missing — a shipped default would be the same on every
-installation, which is exactly what a secret must not be. Changing it later
-logs everyone out, which is occasionally exactly what you want (section 12).
+to start without it, without `RETICLE_DOMAIN` and without `RETICLE_VERSION`,
+with a message that says which one is missing. A shipped default secret would
+be the same on every installation, which is exactly what a secret must not be.
+Changing it later logs everyone out, which is occasionally exactly what you
+want (section 12).
 
 `chmod 600` because this file is the key to every session.
 
-A release bundle already has `RETICLE_VERSION` pinned to the release it came
-from. In a git checkout, leave it unset; you build what you checked out.
+**`RETICLE_VERSION` is always a number, never `latest`.** There is no default
+on purpose: which release a server runs should be written down, so that "what
+are we running?" has an answer, an upgrade is a decision, and nothing changes
+because somebody typed `docker compose pull`.
+
+- A release bundle has it filled in with the release the bundle came from.
+- The list of releases, with notes, is
+  <https://github.com/thomdehoog/reticle/releases>; the version is the tag
+  without the `v`.
+- In a git checkout, set `RETICLE_VERSION=dev`: you build what you checked
+  out, and the images are named `…:dev`.
+- `docker compose images` shows what a host is running right now.
 
 ### 3.3 Choose how HTTPS is provided
 
@@ -209,7 +231,9 @@ deploy/backup.sh
 ```
 
 then schedule it: `MAINTENANCE.md` section 2. An installation without a
-scheduled backup is a draft.
+scheduled backup is a draft. While you are there, schedule the weekly
+housekeeping as well (`MAINTENANCE.md` section 7), so that the media
+directory does not only ever grow.
 
 ## 4. HTTPS: the three modes (and "off")
 
@@ -335,8 +359,28 @@ frontend:
 - **Body limits**: 2 MB everywhere, except `POST /api/media`, which may carry
   one video of up to `RETICLE_MAX_VIDEO_BYTES` (200 MB). There is no time
   limit on an upload, on purpose: 200 MB over a slow uplink takes minutes.
-- API responses pass through with the stricter headers the application sets
-  itself.
+- **Compression** (zstd or gzip) for text: the frontend's files and the API's
+  JSON. Images, video and PDF are compressed formats already and pass through
+  byte for byte.
+- API responses pass through with the headers the application sets itself:
+  its stricter security headers, and for media its own caching rule. Caddy
+  adds no `Cache-Control` to `/api/` and caches nothing.
+
+**How media is cached, and why.** An image or video is answered with
+`Cache-Control: private, no-cache` and an `ETag`. In words: the reader's own
+browser may keep the file, shared caches may not, and the browser asks before
+every reuse — a question the API answers with a short "not modified" when
+nothing changed, after checking the login and the permissions again. That is
+what makes a photograph disappear from someone's screen once the guide it
+belonged to is unpublished or the upload is deleted, instead of lingering for
+an hour. `Range`, `If-None-Match` and `If-Range` request headers reach the API
+untouched, which is what lets a video seek. To see it for yourself (the cookie
+jar comes from a sign-in with `curl -c`):
+
+```bash
+curl -s -b jar.txt -o /dev/null -D - https://reticle.zmb.uzh.ch/api/media/<id> \
+  | grep -i -E '^(HTTP|cache-control|etag|content-encoding)'
+```
 
 ## 5. Behind an existing reverse proxy
 
@@ -348,9 +392,8 @@ that proxy:
 ```ini
 RETICLE_TLS_MODE=off
 RETICLE_COOKIE_SECURE=true            # the browser's connection IS https
-RETICLE_UPSTREAM_PROXIES=10.20.30.40  # the proxy's address(es), space separated
 RETICLE_HTTP_PORT=8080                # whatever the proxy forwards to
-RETICLE_BIND_ADDRESS=127.0.0.1        # only if the proxy is on this same host
+RETICLE_UPSTREAM_PROXIES=...          # see "Which address to put there" below
 ```
 
 **`RETICLE_UPSTREAM_PROXIES` is the setting that matters.** Reticle throttles
@@ -378,23 +421,107 @@ header only from Caddy's private network (`RETICLE_TRUSTED_PROXIES`, which
 `compose.yaml` sets to that network's fixed subnet for you). uvicorn runs with
 `--no-proxy-headers`, so there is no second, independent opinion.
 
-To verify after any change in front of Reticle: sign in, then
+### Which address to put there
 
-```bash
-docker compose logs --tail 5 web      # "client_ip" should be YOUR address
-```
+Not the proxy's name, and not necessarily the address you would use to reach
+it: the address its connections **arrive from**, as seen by Reticle's Caddy
+inside its container. Docker sits in between, and what it does to the source
+address depends on where the proxy is.
 
-If it shows the proxy's address, `RETICLE_UPSTREAM_PROXIES` is missing or
-wrong. If it shows an address from 172.16.0.0/12, see the IPv6 note in
-section 6.
+| Where the proxy runs | What it connects to | Caddy sees it as | Set |
+| --- | --- | --- | --- |
+| **Another machine** | this host's address, port `RETICLE_HTTP_PORT` | the proxy's own address — Docker forwards the connection without rewriting where it came from | `RETICLE_UPSTREAM_PROXIES=10.20.30.40` (every node, or the CIDR block, if it is a cluster) |
+| **This machine**, as an ordinary service (nginx, Apache, HAProxy, another Caddy) | `127.0.0.1:8080` | **`172.31.251.1`**, not `127.0.0.1`: a connection to a published port on localhost is carried into the container by Docker itself and arrives from the gateway of Reticle's `edge` network | `RETICLE_UPSTREAM_PROXIES=172.31.251.1` and `RETICLE_BIND_ADDRESS=127.0.0.1` |
+| **This machine**, in a container of its own (not part of Reticle's Compose project) | this host's address, port 8080 | `172.31.251.1` as well: Docker carries traffic between two of its networks the same way | `RETICLE_UPSTREAM_PROXIES=172.31.251.1`; the port then has to listen on that host address, so close it to everyone else in the firewall (section 6) and read the IPv6 note there |
 
-What to ask of whoever runs the proxy:
+`172.31.251.1` is the first address of `RETICLE_EDGE_SUBNET`
+(`172.31.251.0/24` unless you changed it — if you did, it is the first address
+of your range, and
+`docker network inspect reticle_edge --format '{{(index .IPAM.Config 0).Gateway}}'`
+prints it). Name that one address, not the subnet.
 
-- forward the original `Host` header, and set `X-Forwarded-For`;
+**For a proxy on this machine, `RETICLE_BIND_ADDRESS=127.0.0.1` is part of
+the setting, not an extra.** `172.31.251.1` does not mean "the proxy"; it
+means "anything that reached the published port through Docker's own
+forwarding" — which is every program on this host and, with Docker's default
+networking, also every IPv6 visitor (section 6). Trusting that address while
+the port is open to the network would let those visitors choose the address
+Reticle records for them. Bound to `127.0.0.1`, the port can only be reached
+from this machine, and what remains trusted is: local processes. On a
+dedicated VM that is the proxy and you.
+
+Two cases that look similar and are not:
+
+- A proxy on this machine that connects to the host's **own network address**
+  (`192.0.2.10:8080` rather than `127.0.0.1:8080`) arrives with that network
+  address as its source. Point it at `127.0.0.1` instead; it is the
+  arrangement the table describes, and it lets you close the port to
+  everybody else.
+- **Rootless Docker and Podman** forward ports differently, and every
+  connection may arrive from one internal address whatever its origin. Do not
+  guess; use the check below, and if `remote_ip` is the same for a request
+  through the proxy and a request made directly, a same-host proxy cannot be
+  told apart from the rest — bind to `127.0.0.1` so that there is no "rest".
+
+### Check what Reticle actually saw
+
+Do this after any change in front of Reticle. It takes a minute and it is the
+only way to know.
+
+1. From a machine whose address you know, through the proxy, make one request
+   that leaves a trace — a sign-in that fails on purpose:
+
+   ```bash
+   curl -s -o /dev/null -w '%{http_code}\n' -H 'Content-Type: application/json' \
+     -d '{"email":"address-check@example.org","password":"wrong-on-purpose"}' \
+     https://reticle.zmb.uzh.ch/api/auth/login          # 401
+   ```
+
+2. What **Caddy** saw — `remote_ip` is where the connection came from,
+   `client_ip` is the address Caddy decided the client has:
+
+   ```bash
+   docker compose logs --tail 20 web | grep /api/auth/login \
+     | grep -o -E '"(remote_ip|client_ip)": "[^"]*"' | tail -n 2
+   ```
+
+3. What **the application** recorded, which is what the login throttle and
+   the audit trail use:
+
+   ```bash
+   docker compose exec app python -c "
+   import sqlite3
+   db = sqlite3.connect('file:/data/reticle.db?mode=ro', uri=True)
+   for row in db.execute('SELECT created_at, action, ip_address FROM audit_log ORDER BY created_at DESC LIMIT 3'):
+       print(*row)"
+   ```
+
+Reading the result:
+
+| `remote_ip` | `client_ip` and the audit log | Meaning |
+| --- | --- | --- |
+| the proxy (per the table above) | **your machine's address** | Correct. |
+| the proxy | the proxy again | `RETICLE_UPSTREAM_PROXIES` is missing, or does not contain what `remote_ip` shows. `remote_ip` *is* the value to put there — once you are sure it is your proxy and nothing else. |
+| the proxy | an address that is neither yours nor the proxy's | The proxy does not set `X-Forwarded-For` itself but passes on (or appends to) what the client sent. Ask its operators to set the header from the connection. |
+| your machine's address | your machine's address | Your request did not go through the proxy at all: the port is reachable directly. Close it (firewall, or `RETICLE_BIND_ADDRESS`). |
+
+Then repeat step 1 with a forged header, `-H 'X-Forwarded-For: 203.0.113.99'`.
+The audit log must still show your real address. If it shows `203.0.113.99`,
+something between you and Reticle believes clients: either the proxy passes
+the header through, or `RETICLE_UPSTREAM_PROXIES` trusts an address your
+request arrived from directly.
+
+### What to ask of whoever runs the proxy
+
+- forward the original `Host` header, and **set** `X-Forwarded-For` to the
+  address of the connection (not pass on what the client sent);
+- connect over IPv4;
 - allow request bodies of 210 MB on `/api/media` and do not buffer them to
   disk first; allow that request several minutes;
-- do not cache `/api/`, and pass `Range` request headers through untouched —
-  that is what lets a video seek;
+- do not cache `/api/`, and pass `Range`, `If-Range` and `If-None-Match`
+  request headers and `ETag` / `Cache-Control` response headers through
+  untouched — that is what lets a video seek and what keeps a deleted image
+  from being served out of somebody's cache;
 - add `Strict-Transport-Security` (in `off` mode Reticle's pages do not).
 
 ## 6. Firewall and ports
@@ -420,10 +547,13 @@ of the host, with rules in Docker's `DOCKER-USER` chain, or by setting
 **IPv6.** Docker's default networks are IPv4. If the host has an IPv6 address
 and the DNS name has an AAAA record, IPv6 visitors reach Caddy through
 Docker's userland proxy and all appear to come from one internal address
-(172.x.x.1) — the shared-throttle problem from section 5. Either do not
-publish an AAAA record, or enable IPv6 in Docker
-(<https://docs.docker.com/engine/daemon/ipv6/>) and check with the `logs`
-command above.
+(`172.31.251.1`, the gateway of the `edge` network) — the shared-throttle
+problem from section 5. Either do not publish an AAAA record, or enable IPv6
+in Docker (<https://docs.docker.com/engine/daemon/ipv6/>) and check with the
+commands in section 5, "Check what Reticle actually saw". Do **not** solve it
+by putting `172.31.251.1` into `RETICLE_UPSTREAM_PROXIES` on a host whose
+ports are open to the network: that would let every one of those visitors
+choose their own address.
 
 ## 7. Upgrading
 
@@ -433,25 +563,62 @@ nano .env                 # RETICLE_VERSION=1.3.0   (release installs)
 deploy/upgrade.sh         # git checkouts: git pull, then deploy/upgrade.sh --build
 ```
 
-The script does three things in an order that matters:
+**Always through `deploy/upgrade.sh`.** The script does four things in an
+order that matters:
 
 1. **Backs up.** A release may migrate the database, and a migration cannot
    be undone by starting the old image.
 2. **Fetches (or builds) the new images** while the old ones still serve.
-3. **Swaps.** The new `app` container migrates the schema before it accepts a
-   request; `web` is replaced once the API is healthy. Expect a few seconds
-   during which the site does not answer.
+3. **Migrates, if this release changes the database schema.** It asks the new
+   image (read-only, while the old one is still serving), prints the answer,
+   and only if there is something to migrate stops the API and runs the
+   migration.
+4. **Swaps.** `web` is replaced once the new API is healthy. Expect a few
+   seconds during which the site does not answer.
 
 At the end it prints the images that were running before and where the backup
 is — the two things a rollback needs.
 
-Read the release notes first. If a release ships a new `compose.yaml` or
-`.env.example` (the bundle always contains both), replace `compose.yaml`, and
-compare `.env.example` with your `.env` for new settings. Your `.env`, your
-certificates and anything in a `compose.override.yaml` are never part of a
-release and are never overwritten.
+Read the release notes first. A release is a bundle — `compose.yaml`,
+`.env.example`, `deploy/` and these two documents — and the pieces belong
+together: **unpack the new bundle over the installation** before running the
+new `deploy/upgrade.sh`, and compare `.env.example` with your `.env` for new
+settings. Your `.env`, your certificates and anything in a
+`compose.override.yaml` are never part of a release and are never overwritten.
 
-By hand it is the same three steps:
+```bash
+tar -xzf reticle-deploy-1.3.0.tar.gz --strip-components=1 -C /opt/reticle
+```
+
+### What happens if you skip the script
+
+`docker compose pull && docker compose up -d` is how most Compose projects are
+upgraded, so somebody will do it. With a release that does **not** change the
+schema, that works. With one that does, the new `app` container stops before
+touching anything and says so in `docker compose logs app`:
+
+```
+reticle: NOT STARTED, and nothing has been changed.
+
+This release has to migrate the database (schema revision 0003 -> 0004). A
+migration cannot be undone by going back to the previous image, so it is not
+run without a fresh backup — and there is none on record (...).
+
+  To upgrade:     deploy/upgrade.sh
+  To stay put:    set RETICLE_VERSION in .env back to the release you were
+                  running, then: docker compose up -d
+```
+
+The site is down at that point (the old containers were replaced), Docker
+restarts the new one every minute, and each time it declines again. Both ways
+out are safe, and both are in the message: run `deploy/upgrade.sh`, or put the
+old version back — the database is exactly as the old release left it.
+
+What counts as "a fresh backup": `deploy/backup.sh`, once the archive has been
+written **and read back**, leaves a note on the data volume; the new release
+migrates if that note is less than an hour old
+(`RETICLE_MIGRATE_BACKUP_MAX_AGE_MINUTES`) and describes the database as it is
+now. So by hand, the upgrade is:
 
 ```bash
 deploy/backup.sh
@@ -460,9 +627,15 @@ docker compose up -d --no-build
 docker compose ps
 ```
 
-**Pin the version.** `RETICLE_VERSION=latest` means "whatever was newest the
-last time this host pulled", which makes "what are we running?" hard to answer
-and a rollback harder. On a production host write the number.
+There is also an override, for the day you know better than the safeguard:
+`RETICLE_ALLOW_MIGRATE=1 docker compose up -d` migrates without asking for a
+backup. It is what `upgrade.sh` itself uses for step 3, after its own backup.
+Use it on a command line; never write it into `.env`, where it would quietly
+switch the safeguard off for every upgrade to come.
+
+None of this is ever in the way of an ordinary start: a new installation is
+migrated without questions, and a restart, a reboot or a
+`docker compose up -d` after editing `.env` has nothing to migrate.
 
 Images are rebuilt only when a release is tagged, so the operating-system
 packages inside them are as old as the release. Upgrading Reticle a few times
@@ -483,7 +656,8 @@ If the newer release did **not** change the database schema, that is all, and
 everything written since the upgrade is still there — which is what you want,
 since guides written since then are real work.
 
-If it **did**, the old `app` container refuses to start, and
+If it **did** — `upgrade.sh` said so in its step 3, "This release changes the
+database schema" — the old `app` container refuses to start, and
 `docker compose logs app` ends with an explanation: the database was already
 migrated and the older release cannot read it. Then, and only then, also
 restore the backup that `upgrade.sh` took:
@@ -537,7 +711,16 @@ Reticle is small. What actually consumes resources:
 - **CPU.** Two API workers by default (`RETICLE_WORKERS`), so the site keeps
   answering while one is rendering a PDF. Two cores are plenty.
 - **Disk.** The database stays in the tens of megabytes. Media is what grows:
-  a photograph is 0.2–3 MB, a video up to 200 MB. **Backups multiply it** —
+  a photograph is 0.2–3 MB, a video up to 200 MB. Next to each photograph the
+  server keeps a *display copy* of bounded dimensions, which is what a
+  reader's browser is sent, so a 40-megapixel original is not downloaded to
+  a phone; it is smaller than the original and is made again if it is ever
+  missing. Rendered PDFs are cached too, one per published version of a
+  guide.
+  `RETICLE_MAX_MEDIA_STORE_BYTES` puts a ceiling on the media directory if
+  you want uploads to stop before the disk does, and the weekly housekeeping
+  job (`MAINTENANCE.md` section 7) removes what nothing refers to any more.
+  **Backups multiply it** —
   every archive is a full copy, and `RETICLE_BACKUP_KEEP_DAYS` (default 14) of
   them are kept. With 5 GB of media that is 70 GB of local backups. Either
   size for it, lower the retention and let the off-machine backup system keep
@@ -556,7 +739,8 @@ Reticle is small. What actually consumes resources:
 | Configuration | `/opt/reticle/.env` |
 | Certificates (`files` mode) | `/opt/reticle/deploy/certs/` |
 | Database | volume `reticle_reticle-data`, `/data/reticle.db` (+ `-wal`, `-shm`) |
-| Uploaded images and videos | same volume, `/data/media/` |
+| Uploaded images and videos, and the display copies made from them | same volume, `/data/media/` |
+| Scratch space: uploads in transit, cached PDFs | same volume, `/data/tmp/` and `/data/media/.pdf-cache/`; never backed up, safe to lose |
 | Caddy's certificates (`auto`, `internal`) | volume `reticle_caddy-data` |
 | Backups | `/opt/reticle/backups/` unless `RETICLE_BACKUP_DIR` says otherwise |
 | Logs | `docker compose logs app`, `docker compose logs web` |
@@ -601,6 +785,9 @@ Not much, on purpose. If you loosen any of this, know what it was for.
 | `cap_drop: ALL`, `no-new-privileges` | `compose.yaml` | no Linux capabilities, and no way to gain any through a setuid binary |
 | `internal: true` on the API's network | `compose.yaml` | the API cannot make outbound connections at all |
 | Fixed subnet for that network | `compose.yaml` | "requests from the proxy" is something `RETICLE_TRUSTED_PROXIES` can state exactly (change `RETICLE_SUBNET` only if 172.31.250.0/24 collides with something) |
+| Fixed subnet for the outward network too | `compose.yaml` | a reverse proxy on the same host arrives from that network's gateway, 172.31.251.1, and section 5 has to be able to name it (`RETICLE_EDGE_SUBNET`) |
+| No migration of an existing database without a fresh backup | image entrypoint | the one step of an upgrade that cannot be undone by going back (section 7) |
+| Python packages installed by hash | `backend/requirements.lock` | the image contains exactly the files that were tested, or the build fails |
 | Memory and process limits | `compose.yaml` | a runaway upload takes down a container, which restarts, not the host |
 | Log rotation (5 × 10 MB per service) | `compose.yaml` | logs cannot fill the disk |
 | `restart: unless-stopped` | `compose.yaml` | back after a crash and after a reboot — provided Docker itself starts at boot (`sudo systemctl enable docker`) |
@@ -631,11 +818,16 @@ sudo -u reticle mkdir -p /opt/reticle/{releases,shared/media,static}
 sudo -u reticle git clone https://github.com/thomdehoog/reticle /opt/reticle/releases/first
 cd /opt/reticle/releases/first
 sudo -u reticle python3 -m venv venv
-sudo -u reticle venv/bin/pip install -r backend/requirements.txt
+sudo -u reticle venv/bin/pip install --require-hashes -r backend/requirements.lock
 sudo -u reticle ln -sfn /opt/reticle/releases/first /opt/reticle/current
 ```
 
-Python 3.12 or newer. `fonts-dejavu-core` is for the PDF export: without it,
+Python 3.13, the version the lock file was resolved for and the one the image
+runs. (`requirements.lock` pins every package to exact versions and file
+hashes. On Python 3.12 the same command normally works as well; if pip
+complains that a package has no matching file, install from
+`backend/requirements.txt` instead and accept that the versions are then
+whatever is newest within its ranges.) `fonts-dejavu-core` is for the PDF export: without it,
 λ, Å and ≥ print as boxes. `shared/` holds what must survive a deployment —
 database, media, configuration. Deployments swap the `current` symlink.
 
@@ -723,7 +915,9 @@ sudo systemctl status reticle
 ```
 
 - **`ExecStartPre=… app.migrate`** makes every restart migrate first, so an
-  update is "switch the symlink, restart".
+  update is "switch the symlink, restart". Unlike the container, nothing here
+  checks that a backup exists before a migration runs — on this path that is
+  your job, and the first line of section 14.7.
 - **`--no-proxy-headers`** matters. By default uvicorn rewrites the client
   address from `X-Forwarded-For` itself, for connections from 127.0.0.1 —
   a second copy of the trust decision, made before Reticle sees the request.
@@ -854,7 +1048,7 @@ sudo /usr/local/bin/reticle-backup        # below; always first
 NEW=/opt/reticle/releases/$(date +%Y%m%d-%H%M)
 sudo -u reticle git clone --depth 1 --branch v1.3.0 https://github.com/thomdehoog/reticle $NEW
 cd $NEW && sudo -u reticle python3 -m venv venv
-sudo -u reticle venv/bin/pip install -r backend/requirements.txt
+sudo -u reticle venv/bin/pip install --require-hashes -r backend/requirements.lock
 sudo -u reticle ln -sfn $NEW /opt/reticle/current
 sudo systemctl restart reticle            # migrates, then starts
 curl -sf https://reticle.zmb.uzh.ch/api/health
@@ -881,14 +1075,37 @@ mkdir -p "$BACKUP_DIR"
 
 # .backup goes through SQLite and is safe on a live WAL database; cp is not.
 sqlite3 /opt/reticle/shared/reticle.db ".backup '$WORK/reticle.db'"
-tar -czf "$BACKUP_DIR/reticle-$STAMP.tar.gz" -C "$WORK" reticle.db -C /opt/reticle/shared media
+
+# tar exits 1 when a file changed or vanished while it was being read — which
+# is what a video being uploaded at this moment looks like, and not a reason
+# to have no backup tonight: the database copy above does not refer to that
+# file yet. Anything above 1 is a real error. Scratch directories stay out.
+STATUS=0
+tar -czf "$BACKUP_DIR/reticle-$STAMP.tar.gz.partial" \
+    --exclude='tmp' --exclude='.tmp' --exclude='cache' --exclude='.pdf-cache' --exclude='*.part' \
+    -C "$WORK" reticle.db -C /opt/reticle/shared media || STATUS=$?
+if [ "$STATUS" -gt 1 ]; then
+    rm -f "$BACKUP_DIR/reticle-$STAMP.tar.gz.partial"
+    echo "backup FAILED (tar exit $STATUS)" >&2
+    exit "$STATUS"
+fi
+mv "$BACKUP_DIR/reticle-$STAMP.tar.gz.partial" "$BACKUP_DIR/reticle-$STAMP.tar.gz"
 find "$BACKUP_DIR" -name 'reticle-*.tar.gz' -mtime +14 -delete
 echo "backup complete: $STAMP"
 ```
 
 The archive has the same layout as the Compose one, so a backup taken here
 can be restored into a Compose installation with `deploy/restore.sh` — which
-is also the migration path from this setup to that one.
+is also the migration path from this setup to that one. (The Compose backup
+is more careful than this script: it leaves a half-uploaded file out
+altogether rather than archiving the half that happened to be there.)
+
+Housekeeping, weekly, from the `reticle` user's crontab — the same command
+`deploy/maintenance.sh` runs in the container (`MAINTENANCE.md` section 7):
+
+```cron
+30 4 * * 0 cd /opt/reticle/current/backend && RETICLE_ENV_FILE=/opt/reticle/shared/reticle.env ../venv/bin/python -m app.maintenance purge-orphans
+```
 
 ## 15. When to outgrow SQLite
 

@@ -36,10 +36,24 @@ everyone aligns to.
 - **Authoring in the browser.** Add, delete and reorder steps by drag or
   keyboard, drop screenshots straight onto a step, autosave while you type.
   No git, no training required.
-- **Draft and published are separate, with history.** Editing a published
-  guide never breaks the version people are reading. Each publish increments a
-  version and keeps an immutable snapshot; older versions stay readable.
-- **PDF export** of any guide, for the binder next to the instrument.
+- **Readers see what was published, not what is being typed.** Readers
+  always get the last *published* version of a guide or page. An author's
+  edits to something already published are held in a working copy — autosaved,
+  visible to authors — until **Publish update** makes them the new version;
+  **Discard changes** throws the working copy away and returns to what is
+  published. Each publish increments a version and keeps an immutable
+  snapshot; older versions stay readable.
+- **Images sized for reading.** The original upload is kept untouched; what a
+  reader's browser is sent is a display copy of bounded dimensions, so a
+  40-megapixel overview does not have to be downloaded to a phone.
+- **PDF export** of any guide, for the binder next to the instrument. The PDF
+  of a published version is rendered once and kept, and rendering is rationed:
+  when too many exports are asked for at once the server answers "busy, try
+  again in a moment" (HTTP 429) rather than slowing the site down for
+  everyone.
+- **Mistakes can be taken back.** An administrator can delete an upload for
+  good — the screenshot that should never have been taken — and a weekly
+  housekeeping job removes files that nothing refers to any more.
 - **Everything is behind the login.** There is no anonymous access at all.
   Three roles: viewer, author, admin.
 
@@ -57,6 +71,7 @@ git clone https://github.com/thomdehoog/reticle && cd reticle
 cat > .env <<EOF
 RETICLE_DOMAIN=localhost
 RETICLE_SECRET_KEY=$(openssl rand -base64 48)
+RETICLE_VERSION=dev
 RETICLE_TLS_MODE=off
 RETICLE_COOKIE_SECURE=false
 RETICLE_HTTP_PORT=8080
@@ -121,7 +136,8 @@ the login and against what that person may read.
 
 **SQLite, deliberately.** One institute, a handful of concurrent editors, a
 database that is a file IT can back up. Schema changes are Alembic migrations,
-applied automatically when a new version starts.
+applied when a new version starts — on an existing installation only if a
+backup was taken just before, which is what `deploy/upgrade.sh` does.
 
 ## Development
 
@@ -206,9 +222,14 @@ RETICLE_E2E_BASE=http://localhost:8080 node e2e/smoke.mjs   # or against the Doc
 
 CI (`.github/workflows/ci.yml`) runs all of the above, then builds both Docker
 images, starts them with `compose.yaml`, and checks the assembled thing from
-outside: the login wall, upload limits, the security headers, a backup and
-restore round-trip, and the browser test under the production
-Content-Security-Policy.
+outside: the login wall, upload limits, the security headers, a backup taken
+while a file is being uploaded and the restore from it, and the browser test
+under the production Content-Security-Policy.
+
+What a build takes from elsewhere is pinned: Python packages by hash
+(`backend/requirements.lock`, generated from `requirements.txt` — the command
+is in `docs/MAINTENANCE.md`, section 5), npm packages by `package-lock.json`,
+GitHub Actions by commit SHA. Dependabot proposes the updates.
 
 ## Running it for real
 
@@ -216,12 +237,15 @@ Content-Security-Policy.
   Compose, the HTTPS options (including a certificate issued by university IT),
   running behind another proxy, upgrading, rolling back, moving hosts.
 - [`docs/MAINTENANCE.md`](docs/MAINTENANCE.md) — backups and restores, people,
-  logs, disk, monitoring, and a table of what is usually wrong.
+  updates, logs, disk and housekeeping, monitoring, and a table of what is
+  usually wrong.
 
-Releases are cut by pushing a `v*` tag: `.github/workflows/release.yml`
-publishes `ghcr.io/thomdehoog/reticle-app` and `reticle-web` and attaches a
-small deployment bundle to the GitHub release. A server pulls; nothing pushes
-to it.
+Releases are cut by pushing a version tag (`v1.2.0`):
+`.github/workflows/release.yml` publishes `ghcr.io/thomdehoog/reticle-app` and
+`reticle-web` and attaches a small deployment bundle to the GitHub release. A
+server pulls; nothing pushes to it. A server runs the release named in its
+`.env` — there is no implicit `latest` — and moves to another one with
+`deploy/upgrade.sh`, which backs up first.
 
 ## Migrating existing content
 

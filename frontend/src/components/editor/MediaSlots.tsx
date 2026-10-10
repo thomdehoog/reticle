@@ -112,7 +112,13 @@ export function MediaSlots({
             </div>
           ) : (
             <div className="media-slot" key={item.id}>
-              <AnnotatedImage src={item.url} alt={item.alt} annotations={item.annotations} />
+              <AnnotatedImage
+                src={item.displayUrl ?? item.url}
+                alt={item.alt}
+                annotations={item.annotations}
+                width={item.width}
+                height={item.height}
+              />
               <button
                 type="button"
                 className="media-slot__action media-slot__annotate"

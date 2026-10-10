@@ -103,6 +103,17 @@ function versionFrom(raw: string): number {
 }
 
 /**
+ * `?preview=true` on a reader: show the working copy instead of the published
+ * version. Anything else in that position means no preview, and the parameter
+ * is dropped from the address rather than carried around as `preview=false`.
+ */
+function previewFrom(search: Record<string, unknown>): { preview?: true } {
+  return search.preview === true || search.preview === 'true' || search.preview === '1'
+    ? { preview: true }
+    : {}
+}
+
+/**
  * Options shared by the two editor routes.
  *
  * An editor must open on the server's current copy: its saves carry the
@@ -153,12 +164,20 @@ const categoryRoute = createRoute({
         bySlug(await queryClient.fetchQuery({ ...categoryQueries.list(api), staleTime: 0 }))
       if (!category) throw notFound()
 
-      const [landing] = await Promise.all([
+      /* An author is also asked what readers have as the landing page here:
+         the category screen shows that one, and only falls back to an
+         unpublished landing page when there is nothing published. */
+      const user = queryClient.getQueryData(sessionQuery(api).queryKey)
+      const author = user !== undefined && user !== null && roleAtLeast(user.role, 'author')
+      const [landing, publishedLanding] = await Promise.all([
         queryClient.ensureQueryData(pageQueries.landing(api, category.id)),
+        author
+          ? queryClient.ensureQueryData(pageQueries.landing(api, category.id, 'published'))
+          : null,
         queryClient.ensureQueryData(guideQueries.list(api, { categoryId: category.id })),
         queryClient.ensureQueryData(pageQueries.list(api, { categoryId: category.id })),
       ])
-      if (landing) await preloadMarkdownBody()
+      if (landing || publishedLanding) await preloadMarkdownBody()
     }),
   component: CategoryPage,
 })
@@ -166,12 +185,22 @@ const categoryRoute = createRoute({
 const guideRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/g/$slug',
-  loader: ({ context, params }) =>
+  validateSearch: previewFrom,
+  loaderDeps: ({ search }) => ({ preview: search.preview === true }),
+  loader: ({ context, params, deps }) =>
     load(context, async ({ api, queryClient }) => {
-      await Promise.all([
+      const [guide] = await Promise.all([
         orNotFound(queryClient.ensureQueryData(guideQueries.detail(api, params.slug))),
         queryClient.ensureQueryData(categoryQueries.list(api)),
       ])
+      /* An author's copy that has moved on from the published one: the reader
+         shows the published version, so have it ready. If it cannot be had the
+         page falls back to the working copy, labelled as a preview. */
+      if (guide.hasUnpublishedChanges && !deps.preview) {
+        await queryClient
+          .ensureQueryData(guideQueries.published(api, params.slug))
+          .catch(() => undefined)
+      }
     }),
   component: GuideViewPage,
 })
@@ -235,13 +264,20 @@ const guideRevisionRoute = createRoute({
 const pageRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/w/$slug',
-  loader: ({ context, params }) =>
+  validateSearch: previewFrom,
+  loaderDeps: ({ search }) => ({ preview: search.preview === true }),
+  loader: ({ context, params, deps }) =>
     load(context, async ({ api, queryClient }) => {
-      await Promise.all([
+      const [page] = await Promise.all([
         orNotFound(queryClient.ensureQueryData(pageQueries.detail(api, params.slug))),
         queryClient.ensureQueryData(categoryQueries.list(api)),
         preloadMarkdownBody(),
       ])
+      if (page.hasUnpublishedChanges && !deps.preview) {
+        await queryClient
+          .ensureQueryData(pageQueries.published(api, params.slug))
+          .catch(() => undefined)
+      }
     }),
   component: PageViewPage,
 })

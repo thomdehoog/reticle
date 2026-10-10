@@ -24,6 +24,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { useApi } from '../api/context'
+import { displayUrlFor } from '../domain/media'
 import { guideQueries } from '../queries/guides'
 import { GuideRow } from './GuideRow'
 import { EmptyState, ErrorAlert } from './ui'
@@ -186,7 +187,7 @@ const COMPONENTS: Components = {
      browser for the current page again. */
   img({ src, alt }) {
     if (!src) return null
-    return <img src={src} alt={alt ?? ''} loading="lazy" />
+    return <img src={displayUrlFor(src)} alt={alt ?? ''} loading="lazy" decoding="async" />
   },
 
   /**

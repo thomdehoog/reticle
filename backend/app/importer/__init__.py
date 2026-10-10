@@ -20,7 +20,7 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
 
 TOOL_NAME = "reticle-importer"
-TOOL_VERSION = "1.0.0"
+TOOL_VERSION = "1.1.0"
 
 ARCHIVE_FORMAT = 1
 """Bumped when the on-disk layout changes in a way an older ``load`` cannot read."""

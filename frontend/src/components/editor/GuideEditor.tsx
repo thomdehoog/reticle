@@ -18,6 +18,7 @@ import {
   guideQueries,
   useArchiveGuide,
   usePublishGuide,
+  useRevertGuide,
   useSaveGuide,
   useUnpublishGuide,
 } from '../../queries/guides'
@@ -56,6 +57,7 @@ export function GuideEditor({ initial }: { initial: Guide }) {
   const save = useSaveGuide()
   const publish = usePublishGuide()
   const unpublish = useUnpublishGuide()
+  const revert = useRevertGuide()
   const archive = useArchiveGuide()
 
   const [seed] = useState(() => withFirstStep(initial))
@@ -79,13 +81,21 @@ export function GuideEditor({ initial }: { initial: Guide }) {
     },
     publish: publish.mutateAsync,
     unpublish: unpublish.mutateAsync,
+    revert: revert.mutateAsync,
     archive: (current) => archive.mutateAsync(current),
     onPublished: (published) =>
       void navigate({ to: '/g/$slug', params: { slug: published.slug } }),
+    onDiscarded: (restored) => {
+      setChecking(false)
+      return withFirstStep(restored)
+    },
     onArchived: () => void navigate({ to: '/' }),
     archiveWarning:
       'Archive this guide? It disappears for everyone, including authors. The content is kept ' +
       'on the server, but bringing it back needs an administrator with database access.',
+    discardWarning: (version) =>
+      `Discard every change made to this guide since version ${version} was published? ` +
+      'The editor goes back to that version — the one readers see. This cannot be undone.',
   })
 
   /** After a conflict: take the colleague's version, discarding the local copy. */
@@ -114,6 +124,8 @@ export function GuideEditor({ initial }: { initial: Guide }) {
         }
         title={guide.title || 'Untitled guide'}
         status={guide.status}
+        version={guide.version}
+        hasUnpublishedChanges={guide.hasUnpublishedChanges}
         saveState={autosave.saveState}
         busy={actions.busy}
         canArchive={can('admin')}
@@ -129,6 +141,7 @@ export function GuideEditor({ initial }: { initial: Guide }) {
         }
         onPublish={actions.publish}
         onUnpublish={actions.unpublish}
+        onDiscard={actions.discard}
         onArchive={actions.archive}
       />
 

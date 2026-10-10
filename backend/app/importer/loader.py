@@ -15,6 +15,16 @@ instead of ending the import. ``ImportRecord`` rows remember which vendor item
 became which row, which is what makes a second run an update and lets it leave
 alone anything a colleague has edited in Reticle since.
 
+A load can run beside the live server, and on SQLite that shapes everything
+here: there is one write lock for the whole database, and while the importer
+holds it nobody can sign in or save. So each item is done in two phases.
+*Prepare* does all the slow work — reading the archive, decoding, checking and
+re-encoding pictures, copying videos, converting wiki text — using a read-only
+session and no lock; media files are put in the media store at this point.
+*Write* then opens the transaction, inserts the rows that were prepared and
+commits, which takes milliseconds. A failure in either phase removes the files
+again. Nothing in the prepare phase may touch the writing session.
+
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
 
@@ -22,8 +32,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
@@ -43,6 +53,7 @@ from ..models import PUBLISHED, Category, Guide, ImportRecord, Media, Page, User
 from ..routers.guides import GUIDES
 from ..routers.pages import PAGES
 from ..schemas import (
+    MAX_ALT_CHARS,
     MAX_BULLETS_PER_STEP,
     MAX_PAGE_BODY_CHARS,
     MAX_TAG_LENGTH,
@@ -57,12 +68,12 @@ from ..schemas import (
 from ..settings import Settings
 from ..slugs import slugify, tag_slug, unique_slug
 from . import TOOL_NAME, TOOL_VERSION, mapping, markers
-from .archive import Archive, filename_title
-from .exporter import category_titles, is_image_object, is_video_object
+from .archive import Archive, filename_title, is_safe_id, safe_id
+from .exporter import ANONYMOUS_VISIBLE, category_titles, is_image_object, is_video_object
 from .report import Report
 from .wikitext import Conversion, LinkResolver, Target, html_to_plain, referenced_image_ids, to_markdown, to_plain
 
-MAPPING_VERSION = 1
+MAPPING_VERSION = 2
 """Part of every fingerprint: raise it when the mapping changes, and the next
 load rewrites content that the vendor has not touched."""
 
@@ -103,6 +114,14 @@ CATEGORY_NAME_LIMIT = 200
 CATEGORY_DESCRIPTION_LIMIT = 2000
 SHRINK_PIXEL_ALLOWANCE = 250_000_000
 PROGRESS_EVERY = 25
+EDITED_SINCE = "edited in Reticle since it was imported; left untouched (use --force to overwrite)"
+IMAGE_DESCRIPTION_KEYS = ("caption", "description", "alt")
+"""Where an image record would carry a description of the picture, if it had one.
+
+The image objects recorded from the live API hold an id, a guid and URLs and
+nothing else, so on the real site a page's hero image arrives without alt text.
+These keys are read in case the site's payloads differ from the ones sampled.
+"""
 
 
 class LoadError(Exception):
@@ -123,6 +142,36 @@ class LoadOptions:
     arrow_head: str = "auto"
     namespaces: tuple[str, ...] = DEFAULT_LOAD_NAMESPACES
     only_guides: frozenset[int] | None = None
+    pause: float = 0.0
+    """Seconds to wait after each item that was written, so that the running
+    server's own writes are not kept waiting behind a queue of the importer's."""
+
+
+@dataclass(frozen=True)
+class NewMedia:
+    """A media file already in the media store, whose row is yet to be written."""
+
+    id: str
+    kind: str
+    storage_path: str
+    content_type: str
+    byte_size: int
+    width: int | None
+    height: int | None
+    original_filename: str
+    record_kind: str
+    record_key: str
+    mark: str
+
+
+@dataclass(frozen=True)
+class AuthorPlan:
+    """Who a vendor author is, read from the archive before the transaction opens."""
+
+    key: str
+    email: str
+    name: str
+    placeholder: bool
 
 
 def _stable(value: Any) -> Any:
@@ -160,8 +209,24 @@ class Loader:
         options: LoadOptions,
         settings: Settings,
         log: Callable[[str], None] = print,
+        *,
+        reader: DbSession | None = None,
+        commit: bool = True,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        """``session`` writes; ``reader`` is what the prepare phase looks things up with.
+
+        Against a live SQLite database the two must be different sessions — the
+        writer's first statement takes the database's only write lock — and
+        each item is committed. With ``commit=False`` there is a single session
+        and a single transaction that is rolled back at the end: the dry run for
+        databases that cannot be snapshotted, where reads have to see the
+        uncommitted work of earlier items.
+        """
         self.db = session
+        self.read = reader if reader is not None else session
+        self.commit = commit
+        self.sleep = sleep
         self.archive = archive
         self.options = options
         self.settings = settings
@@ -177,45 +242,97 @@ class Loader:
         self.users: dict[str, str] = {}
         self.owner_id: str | None = None
         self.tag_spellings: dict[str, set[str]] = {}
+        self.write_count = 0
+        self.write_seconds = 0.0
+        self.longest_write: tuple[float, str] = (0.0, "")
         self._written: list[Path] = []
         self._undo: list[Callable[[], None]] = []
+        self._pending: dict[tuple[str, str], NewMedia] = {}
 
     # ------------------------------------------------------------ transactions
 
-    @contextmanager
-    def item(self, kind: str, reference: str) -> Iterator[None]:
-        """One item, one transaction.
+    def item(self, kind: str, reference: str, prepare: Callable[[], Callable[[], None] | None]) -> None:
+        """One item: the slow work first, without a lock, then one short transaction.
 
-        A failure rolls back to the savepoint, removes any media file the item
-        had already put on disk and is recorded; the run goes on. In a dry run
-        nothing is ever committed, and the whole session is rolled back at the
-        end.
+        ``prepare`` does everything that takes time and returns the function
+        that writes the rows, or ``None`` if there is nothing to write. A
+        failure in either removes any media file the item had already put in the
+        media store, takes back what it had noted in the report, and is
+        recorded; the run goes on.
         """
         self._written = []
         self._undo = []
-        savepoint = self.db.begin_nested()
+        self._pending = {}
+        kept = len(self.report.outcomes)
+        self._fresh_view()
+        wrote = False
         try:
-            yield
-            self.db.flush()
+            write = prepare()
+            if write is not None:
+                wrote = True
+                self._transaction(reference, write)
         except Skip as skip:
-            self._abandon(savepoint)
+            self._abandon(kept)
             self.report.add(kind, reference, "skipped", str(skip))
         except Exception as problem:  # noqa: BLE001 - one bad item must not end the import
-            self._abandon(savepoint)
+            self._abandon(kept)
             self.report.add(kind, reference, "failed", self._explain(problem))
             self.log(f"  FAILED {kind} {reference}: {self._explain(problem)}")
+        except BaseException:
+            self._abandon(kept)  # interrupted: leave no file behind that no row will ever point at
+            raise
+        if wrote and self.commit and self.options.pause > 0:
+            self.sleep(self.options.pause)
+
+    def _fresh_view(self) -> None:
+        """Let the reading session see what has been committed since it last looked."""
+        if self.read is not self.db:
+            self.read.rollback()
+
+    def _transaction(self, reference: str, write: Callable[[], None]) -> None:
+        """Run the write phase of one item and let go of the database again.
+
+        ``connection()`` is where a SQLite database's write lock is taken, and
+        where the importer waits its turn if the server is writing. The clock
+        starts once it has the lock and stops when the commit has released it.
+        """
+        self.db.connection()
+        started = time.perf_counter()
+        savepoint = self.db.begin_nested()
+        try:
+            write()
+            self.db.flush()
+        except BaseException:
+            savepoint.rollback()
+            self.db.expire_all()
+            raise
         else:
             savepoint.commit()
-            if not self.options.dry_run:
+        finally:
+            if self.commit:
                 self.db.commit()
+            held = time.perf_counter() - started
+            self.write_count += 1
+            self.write_seconds += held
+            if held > self.longest_write[0]:
+                self.longest_write = (held, reference)
 
-    def _abandon(self, savepoint: Any) -> None:
-        savepoint.rollback()
+    def lock_summary(self) -> str:
+        """How long the load kept other writers out, for the console and the report."""
+        if not self.write_count:
+            return "no write transaction was needed"
+        longest, reference = self.longest_write
+        return (
+            f"{self.write_count} write transactions, {self.write_seconds:.2f} s in total, "
+            f"longest {longest * 1000:.0f} ms ({reference})"
+        )
+
+    def _abandon(self, kept: int) -> None:
         for path in self._written:
             path.unlink(missing_ok=True)
         for undo in reversed(self._undo):
             undo()
-        self.db.expire_all()
+        del self.report.outcomes[kept:]
 
     @staticmethod
     def _explain(problem: Exception) -> str:
@@ -234,8 +351,8 @@ class Loader:
 
     # ------------------------------------------------------------ records
 
-    def record(self, kind: str, vendor_id: Any) -> ImportRecord | None:
-        return self.db.scalars(
+    def record(self, kind: str, vendor_id: Any, session: DbSession | None = None) -> ImportRecord | None:
+        return (session or self.db).scalars(
             select(ImportRecord).where(
                 ImportRecord.source == self.source, ImportRecord.kind == kind, ImportRecord.vendor_id == str(vendor_id)
             )
@@ -271,24 +388,27 @@ class Loader:
             self.report.note("The export did not run to completion; this load covers only what the archive holds.")
         try:
             self._resolve_owner()
-            with self.item("categories", "category tree"):
-                self.load_categories()
+            self.item("categories", "category tree", self.load_categories)
             if self.report.failed:
                 raise LoadError(f"The categories could not be created ({self.report.failed[0].detail}); nothing else was attempted.")
+            self._fresh_view()
             self.plan_slugs()
             self.load_guides()
             self.load_pages()
+            self._fresh_view()
             self._closing_notes()
         finally:
-            if options.dry_run:
+            if not self.commit:
                 self.db.rollback()
+        if not options.dry_run:
+            self.report.header["Database write lock"] = self.lock_summary()
         return self.report
 
     def _resolve_owner(self) -> None:
         if not self.options.owner_email:
             return
         email = self.options.owner_email.strip().lower()
-        owner = self.db.scalars(select(User).where(User.email == email)).one_or_none()
+        owner = self.read.scalars(select(User).where(User.email == email)).one_or_none()
         if owner is None:
             raise LoadError(
                 f"--owner-email {email} is not an existing Reticle account. Create it first, or leave the option "
@@ -299,46 +419,50 @@ class Loader:
 
     # ------------------------------------------------------------ people
 
-    def user_for(self, vendor_user_id: Any, fallback_name: str = "") -> User:
-        """The Reticle account that stands for a vendor author."""
+    def author_plan(self, vendor_user_id: Any, fallback_name: str = "") -> AuthorPlan:
+        """What the archive says about a vendor author; no database involved."""
+        user_id = _positive_int(vendor_user_id)
+        if user_id is None:
+            return AuthorPlan("unknown", f"imported-content@{PLACEHOLDER_EMAIL_DOMAIN}", "Imported content", False)
+        key = str(user_id)
+        if self.owner_id is not None or key in self.users:
+            return AuthorPlan(key, "", "", False)
+        profile = self.archive.read_json(Archive.user(user_id))
+        profile = profile if isinstance(profile, dict) else {}
+        email = _text(profile.get("login")).strip().lower()
+        name = _text(profile.get("username")).strip() or fallback_name.strip() or _text(profile.get("unique_username")).strip()
+        if "@" not in email:
+            return AuthorPlan(key, f"dozuki-user-{user_id}@{PLACEHOLDER_EMAIL_DOMAIN}", name, True)
+        return AuthorPlan(key, email, name, False)
+
+    def user_for(self, plan: AuthorPlan) -> User:
+        """The Reticle account that stands for a vendor author. Write phase only."""
         if self.owner_id is not None:
             return self.db.get(User, self.owner_id)
+        if plan.key in self.users:
+            return self.db.get(User, self.users[plan.key])
 
-        user_id = _positive_int(vendor_user_id)
-        key = str(user_id) if user_id is not None else "unknown"
-        if key in self.users:
-            return self.db.get(User, self.users[key])
-
-        record = self.record("user", key)
+        record = self.record("user", plan.key)
         user = self.db.get(User, record.reticle_id) if record is not None else None
         if user is None:
-            profile = self.archive.read_json(Archive.user(user_id)) if user_id is not None else None
-            profile = profile if isinstance(profile, dict) else {}
-            email = _text(profile.get("login")).strip().lower()
-            name = _text(profile.get("username")).strip() or fallback_name.strip() or _text(profile.get("unique_username")).strip()
-
-            if user_id is None:
-                email, name = f"imported-content@{PLACEHOLDER_EMAIL_DOMAIN}", "Imported content"
-            elif "@" not in email:
-                email = f"dozuki-user-{user_id}@{PLACEHOLDER_EMAIL_DOMAIN}"
+            if plan.placeholder:
                 self.report.warn(
-                    "author", f"user {user_id}", f"No e-mail address in the archive for “{name or user_id}”; a placeholder account stands in."
+                    "author", f"user {plan.key}", f"No e-mail address in the archive for “{plan.name or plan.key}”; a placeholder account stands in."
                 )
-
-            user = self.db.scalars(select(User).where(User.email == email)).one_or_none()
+            user = self.db.scalars(select(User).where(User.email == plan.email)).one_or_none()
             if user is None:
                 user = User(
-                    email=email,
-                    display_name=(name or f"Imported user {key}")[:200],
+                    email=plan.email,
+                    display_name=(plan.name or f"Imported user {plan.key}")[:200],
                     role="viewer",
                     password_hash=UNUSABLE_PASSWORD_HASH,
                     is_active=False,
                 )
                 self.db.add(user)
                 self.db.flush()
-                self.report.add("user", f"{user.display_name} <{email}>", "created", "inactive, no password: attribution only")
-            self.remember("user", key, user.id)
-        self._remember(self.users, key, user.id)
+                self.report.add("user", f"{user.display_name} <{plan.email}>", "created", "inactive, no password: attribution only")
+            self.remember("user", plan.key, user.id)
+        self._remember(self.users, plan.key, user.id)
         return user
 
     # ------------------------------------------------------------ categories
@@ -370,11 +494,11 @@ class Loader:
             if isinstance(title, str):
                 know(title)
 
-        for path in sorted(self.archive.path("api/categories/detail").glob("*.json")):
-            detail = self.archive.read_json(str(path.relative_to(self.archive.root)))
+        for relative in self.archive.files("api/categories/detail", "*.json"):
+            detail = self.archive.read_json(relative)
             if not isinstance(detail, dict):
                 continue
-            entry = know(_text(detail.get("wiki_title")) or filename_title(path.stem))
+            entry = know(_text(detail.get("wiki_title")) or filename_title(Path(relative).stem))
             entry["display"] = _text(detail.get("display_title")) or entry["display"]
             entry["description"] = _text(detail.get("description"))
             entry["children"] = [child for child in detail.get("children") or [] if isinstance(child, str)]
@@ -429,11 +553,18 @@ class Loader:
                 parents[title] = None
         return parents
 
-    def load_categories(self) -> None:
+    def load_categories(self) -> Callable[[], None] | None:
+        """Work the tree out from the archive, then create what is missing in one transaction.
+
+        When every category is there from an earlier run — every run but the
+        first — nothing is missing, and the tree is read back without opening a
+        transaction at all.
+        """
         facts, order = self._category_facts()
         parents = self._parents(facts)
         reserved: set[str] = set()
-        position = self.db.scalar(select(func.coalesce(func.max(Category.order_index), -1))) + 1
+        position = 0
+        session = self.read
 
         def ensure(title: str) -> str | None:
             nonlocal position
@@ -447,8 +578,8 @@ class Loader:
             parent_title = parents[title]
             parent_id = ensure(parent_title) if parent_title is not None else None
 
-            record = self.record("category", title)
-            category = self.db.get(Category, record.reticle_id) if record is not None else None
+            record = self.record("category", title, session)
+            category = session.get(Category, record.reticle_id) if record is not None else None
             reference = f"“{display}”" + (f" (internal title “{title}”)" if display != title else "")
             if category is not None:
                 self.report.add("category", reference, "unchanged")
@@ -482,8 +613,23 @@ class Loader:
             self.resolver.add_wiki("CATEGORY", title, Target(f"/c/{category.slug}", category.name))
             return category.id
 
-        for title in order:
-            ensure(title)
+        def in_place(title: str) -> bool:
+            record = self.record("category", title, self.read)
+            return record is not None and self.read.get(Category, record.reticle_id) is not None
+
+        if all(in_place(title) for title in order if title.casefold() != ROOT_CATEGORY):
+            for title in order:
+                ensure(title)
+            return None
+
+        def write() -> None:
+            nonlocal position, session
+            session = self.db
+            position = self.db.scalar(select(func.coalesce(func.max(Category.order_index), -1))) + 1
+            for title in order:
+                ensure(title)
+
+        return write
 
     def record_for_reticle(self, kind: str, reticle_id: str) -> ImportRecord | None:
         return self.db.scalars(
@@ -492,11 +638,11 @@ class Loader:
             )
         ).first()
 
-    def _slug_taken(self, model: type, slug: str) -> bool:
-        return self.db.scalar(select(func.count()).select_from(model).where(model.slug == slug)) > 0
+    def _slug_taken(self, model: type, slug: str, session: DbSession | None = None) -> bool:
+        return (session or self.db).scalar(select(func.count()).select_from(model).where(model.slug == slug)) > 0
 
     def _uncategorised(self) -> str:
-        """A holding category for guides whose own category is not in the archive."""
+        """A holding category for guides whose own category is not in the archive. Write phase only."""
         if UNCATEGORISED not in self.categories:
             record = self.record("category", UNCATEGORISED)
             category = self.db.get(Category, record.reticle_id) if record is not None else None
@@ -518,7 +664,11 @@ class Loader:
 
     def _guide_index(self) -> list[dict[str, Any]]:
         index = self.archive.read_json(Archive.guide_index())
-        entries = [entry for entry in index if isinstance(entry, dict) and _positive_int(entry.get("guideid"))] if isinstance(index, list) else []
+        entries = (
+            [{**entry, "guideid": safe_id(entry["guideid"])} for entry in index if isinstance(entry, dict) and is_safe_id(entry.get("guideid"))]
+            if isinstance(index, list)
+            else []
+        )
         return sorted(entries, key=lambda entry: entry["guideid"])
 
     def _wiki_index(self) -> list[tuple[str, dict[str, Any]]]:
@@ -526,8 +676,8 @@ class Loader:
         for namespace in self.options.namespaces:
             listing = self.archive.read_json(Archive.wiki_index(namespace))
             for entry in listing if isinstance(listing, list) else []:
-                if isinstance(entry, dict) and _positive_int(entry.get("wikiid")) and entry.get("title"):
-                    entries.append((namespace, entry))
+                if isinstance(entry, dict) and is_safe_id(entry.get("wikiid")) and entry.get("title"):
+                    entries.append((namespace, {**entry, "wikiid": safe_id(entry["wikiid"])}))
         return entries
 
     def plan_slugs(self) -> None:
@@ -541,12 +691,12 @@ class Loader:
             guide_id = entry["guideid"]
             payload = self.archive.read_json(Archive.guide(guide_id))
             title = self._guide_title(guide_id, payload if isinstance(payload, dict) else entry)
-            record = self.record("guide", guide_id)
-            existing = self.db.get(Guide, record.reticle_id) if record is not None else None
+            record = self.record("guide", guide_id, self.read)
+            existing = self.read.get(Guide, record.reticle_id) if record is not None else None
             if existing is not None:
                 slug = existing.slug
             else:
-                slug = unique_slug(title, lambda slug: slug in reserved or self._slug_taken(Guide, slug), fallback="guide")
+                slug = unique_slug(title, lambda slug: slug in reserved or self._slug_taken(Guide, slug, self.read), fallback="guide")
                 reserved.add(slug)
             self.guide_slugs[guide_id] = slug
             self.resolver.guides[guide_id] = Target(f"/g/{slug}", title)
@@ -555,12 +705,12 @@ class Loader:
         for namespace, entry in self._wiki_index():
             wiki_id = entry["wikiid"]
             title = self._page_title(entry)
-            record = self.record("wiki", wiki_id)
-            existing = self.db.get(Page, record.reticle_id) if record is not None else None
+            record = self.record("wiki", wiki_id, self.read)
+            existing = self.read.get(Page, record.reticle_id) if record is not None else None
             if existing is not None:
                 slug = existing.slug
             else:
-                slug = unique_slug(title, lambda slug: slug in reserved or self._slug_taken(Page, slug), fallback="page")
+                slug = unique_slug(title, lambda slug: slug in reserved or self._slug_taken(Page, slug, self.read), fallback="page")
                 reserved.add(slug)
             self.page_slugs[(namespace, wiki_id)] = slug
             if namespace != "CATEGORY" or str(entry["title"]) not in self.categories:
@@ -580,10 +730,16 @@ class Loader:
     def _open(path: Path) -> tuple[Image.Image, bool]:
         """A picture as a browser would show it, and whether its format is lossless.
 
-        Decoded with EXIF rotation applied. The pixel ceiling is raised for the
-        duration: this is the facility's own archive rather than an upload from
-        the network, and a picture too large for Reticle is opened here only to
-        be scaled down.
+        Decoded with the EXIF orientation applied, which is not a second copy of
+        what ``images.normalise`` does but the other half of it: marker
+        positions are fractions of the picture as displayed, ``normalise`` stores
+        the picture as displayed, and so the picture the markers are checked
+        against has to be the displayed one too. Pillow drops the orientation
+        tag when it applies it, so a picture opened here and then handed to
+        ``normalise`` is not turned a second time. The pixel ceiling is raised
+        for the duration: this is the facility's own archive rather than an
+        upload from the network, and a picture too large for Reticle is opened
+        here only to be scaled down.
         """
         previous = Image.MAX_IMAGE_PIXELS
         Image.MAX_IMAGE_PIXELS = SHRINK_PIXEL_ALLOWANCE
@@ -618,33 +774,43 @@ class Loader:
             lossless = False
             picture = picture.resize((max(1, picture.size[0] * 3 // 4), max(1, picture.size[1] * 3 // 4)), Image.Resampling.LANCZOS)
 
+    def _stored_already(self, kind: str, record_key: str, mark: str) -> str | None:
+        """The media id a vendor file already has, from this item or an earlier one."""
+        pending = self._pending.get((kind, record_key))
+        if pending is not None and pending.mark == mark:
+            return pending.id
+        record = self.record(kind, record_key, self.read)
+        if record is not None and record.fingerprint == mark:
+            media = self.read.get(Media, record.reticle_id)
+            if media is not None and (self.options.dry_run or (self.settings.media_root / media.storage_path).is_file()):
+                return media.id
+        return None
+
     def _store_image(
         self,
         reference: str,
         record_key: str,
         label: str,
-        actor: User,
         *,
         path: Path | None = None,
         picture: Image.Image | None = None,
         lossless: bool = True,
         mark: str = "",
-    ) -> Media:
-        """Store one picture as an upload would be stored, once per vendor image.
+    ) -> str:
+        """Put one picture in the media store as an upload would be, once per vendor image.
 
-        The file goes through ``images.normalise`` like any upload. If the
-        application refuses it as it is — too many bytes or pixels, a format it
-        does not take — it is decoded and re-encoded here first, and the report
-        says so. A photograph stored sideways needs nothing special: ``normalise``
-        applies the EXIF orientation itself, and when the picture is re-encoded
-        here ``_open`` has already applied it and the tag is gone, so it is
-        never turned twice.
+        Prepare phase: the file is written now and its row is left for the write
+        phase (see :meth:`write_media`); the return value is the id that row
+        will have.
+
+        The file goes through ``images.normalise`` like any upload, which also
+        applies the EXIF orientation. If the application refuses it as it is —
+        too many bytes or pixels, a format it does not take — it is decoded and
+        re-encoded here first, and the report says so.
         """
-        record = self.record("image", record_key)
-        if record is not None and record.fingerprint == mark:
-            media = self.db.get(Media, record.reticle_id)
-            if media is not None and (self.options.dry_run or (self.settings.media_root / media.storage_path).is_file()):
-                return media
+        existing = self._stored_already("image", record_key, mark)
+        if existing is not None:
+            return existing
 
         settings = self.settings
         normalised: images.NormalisedImage | None = None
@@ -668,7 +834,7 @@ class Loader:
         storage_path = images.relative_storage_path(media_id, normalised.extension)
         if not self.options.dry_run:
             self._written.append(images.write_file(settings.media_root, storage_path, normalised.payload))
-        media = Media(
+        self._pending[("image", record_key)] = NewMedia(
             id=media_id,
             kind="image",
             storage_path=storage_path,
@@ -676,28 +842,46 @@ class Loader:
             byte_size=len(normalised.payload),
             width=normalised.width,
             height=normalised.height,
-            alt="",
             original_filename=f"dozuki-image-{slugify(record_key)}.{normalised.extension}",
-            uploaded_by_id=actor.id,
+            record_kind="image",
+            record_key=record_key,
+            mark=mark,
         )
-        self.db.add(media)
-        self.db.flush()
-        self.remember("image", record_key, media.id, mark)
-        return media
+        return media_id
 
-    def plain_image(self, reference: str, image_id: int, actor: User) -> Media | None:
+    def write_media(self, actor: User) -> None:
+        """The rows for the files the prepare phase stored. Write phase only."""
+        for prepared in self._pending.values():
+            self.db.add(
+                Media(
+                    id=prepared.id,
+                    kind=prepared.kind,
+                    storage_path=prepared.storage_path,
+                    content_type=prepared.content_type,
+                    byte_size=prepared.byte_size,
+                    width=prepared.width,
+                    height=prepared.height,
+                    alt="",
+                    original_filename=prepared.original_filename,
+                    uploaded_by_id=actor.id,
+                )
+            )
+            self.db.flush()
+            self.remember(prepared.record_kind, prepared.record_key, prepared.id, prepared.mark)
+
+    def plain_image(self, reference: str, image_id: int) -> str | None:
         """A vendor image exactly as the vendor showed it (markers, if any, burned in)."""
         path = self.archive.media_file("image", image_id)
         if path is None:
             self.report.warn("missing_media", reference, f"Image {image_id} is not in the archive.")
             return None
         try:
-            return self._store_image(reference, str(image_id), f"Image {image_id}", actor, path=path)
+            return self._store_image(reference, str(image_id), f"Image {image_id}", path=path)
         except Exception as problem:  # noqa: BLE001 - Pillow raises many things for a damaged file
             self.report.warn("missing_media", reference, f"Image {image_id} could not be imported: {self._explain(problem)}")
             return None
 
-    def step_image(self, reference: str, image_id: int, actor: User, own_copy: bool = False) -> tuple[Media, list[dict[str, Any]]] | None:
+    def step_image(self, reference: str, image_id: int, own_copy: bool = False) -> tuple[str, list[dict[str, Any]]] | None:
         """An image for a step: the clean source plus annotations where that is safe.
 
         ``own_copy`` stores the clean picture as an upload of its own. Two
@@ -711,7 +895,7 @@ class Loader:
             reason = plan.fallback_reason
             if reason is None:
                 try:
-                    converted = self._annotated(reference, image_id, meta, plan, actor, own_copy)
+                    converted = self._annotated(reference, image_id, meta, plan, own_copy)
                 except Exception as problem:  # noqa: BLE001 - Pillow raises many things for a damaged file
                     converted, reason = None, f"the clean source could not be processed ({self._explain(problem)})"
                 else:
@@ -723,12 +907,12 @@ class Loader:
                 "fallback_image", reference, f"Image {image_id}: {reason}. The marked-up picture is used as it is."
             )
 
-        media = self.plain_image(reference, image_id, actor)
-        return (media, []) if media is not None else None
+        media_id = self.plain_image(reference, image_id)
+        return (media_id, []) if media_id is not None else None
 
     def _annotated(
-        self, reference: str, image_id: int, meta: dict[str, Any], plan: markers.Plan, actor: User, own_copy: bool
-    ) -> tuple[Media, list[dict[str, Any]]] | str:
+        self, reference: str, image_id: int, meta: dict[str, Any], plan: markers.Plan, own_copy: bool
+    ) -> tuple[str, list[dict[str, Any]]] | str:
         source_id = meta["srcid"]
         clean_path = self.archive.media_file("image", source_id)
         burned_path = self.archive.media_file("image", image_id)
@@ -750,24 +934,23 @@ class Loader:
 
         box = realised.image.size
         if realised.cropped:
-            media = self._store_image(
-                reference, f"{image_id}:clean", f"Image {image_id}", actor,
+            media_id = self._store_image(
+                reference, f"{image_id}:clean", f"Image {image_id}",
                 picture=realised.image, lossless=lossless, mark=f"crop:{box[0]}x{box[1]}:{realised.label}",
             )
         else:
             key = f"{image_id}:clean" if own_copy else str(source_id)
-            media = self._store_image(reference, key, f"Image {source_id}", actor, path=clean_path)
+            media_id = self._store_image(reference, key, f"Image {source_id}", path=clean_path)
         for note in plan.notes + realised.notes:
             self.report.warn("marker_note", reference, f"Image {image_id}: {note}")
         annotations = [{"id": new_id(), **annotation} for annotation in realised.annotations]
-        return media, annotations
+        return media_id, annotations
 
-    def video(self, reference: str, video_id: int, actor: User) -> Media | None:
-        record = self.record("video", video_id)
-        if record is not None:
-            media = self.db.get(Media, record.reticle_id)
-            if media is not None and (self.options.dry_run or (self.settings.media_root / media.storage_path).is_file()):
-                return media
+    def video(self, reference: str, video_id: int) -> str | None:
+        """Copy a video into the media store (prepare phase); its row is written later."""
+        existing = self._stored_already("video", str(video_id), "")
+        if existing is not None:
+            return existing
 
         path = self.archive.media_file("video", video_id)
         if path is None:
@@ -795,7 +978,7 @@ class Loader:
                     self.report.warn("missing_media", reference, f"Video {video_id}: {problem.message}")
                     return None
                 self._written.append(self.settings.media_root / storage_path)
-        media = Media(
+        self._pending[("video", str(video_id))] = NewMedia(
             id=media_id,
             kind="video",
             storage_path=storage_path,
@@ -803,14 +986,12 @@ class Loader:
             byte_size=byte_size,
             width=None,
             height=None,
-            alt="",
             original_filename=f"dozuki-video-{video_id}.{video_format.extension}",
-            uploaded_by_id=actor.id,
+            record_kind="video",
+            record_key=str(video_id),
+            mark="",
         )
-        self.db.add(media)
-        self.db.flush()
-        self.remember("video", video_id, media.id)
-        return media
+        return media_id
 
     # ------------------------------------------------------------ text
 
@@ -846,26 +1027,31 @@ class Loader:
         for number, entry in enumerate(entries, start=1):
             guide_id = entry["guideid"]
             title = self.resolver.guides[guide_id].title
-            with self.item("guide", f"{guide_id} “{title}”"):
-                self.load_guide(guide_id, entry)
+            self.item("guide", f"{guide_id} “{title}”", lambda guide_id=guide_id, entry=entry: self.load_guide(guide_id, entry))
             if number % PROGRESS_EVERY == 0:
                 self.log(f"  guide {number} of {len(entries)}")
 
+    def _edited_since(self, record: ImportRecord | None, existing: Any) -> bool:
+        """Whether somebody has saved the item in Reticle since the import wrote it."""
+        return (
+            existing is not None
+            and record is not None
+            and not self.options.force
+            and record.imported_updated_at is not None
+            and existing.updated_at != record.imported_updated_at
+        )
+
     def _settled(self, kind: str, label: str, record: ImportRecord | None, existing: Any, mark: str) -> bool:
         """Whether the item needs no writing: unchanged, or edited in Reticle since."""
-        if existing is None or record is None or self.options.force:
-            return False
-        if record.imported_updated_at is not None and existing.updated_at != record.imported_updated_at:
-            self.report.add(
-                kind, label, "skipped", "edited in Reticle since it was imported; left untouched (use --force to overwrite)"
-            )
-            return True
-        if record.fingerprint == mark:
+        if self._edited_since(record, existing):
+            raise Skip(EDITED_SINCE)
+        if existing is not None and record is not None and not self.options.force and record.fingerprint == mark:
             self.report.add(kind, label, "unchanged")
             return True
         return False
 
-    def load_guide(self, guide_id: int, entry: dict[str, Any]) -> None:
+    def load_guide(self, guide_id: int, entry: dict[str, Any]) -> Callable[[], None] | None:
+        """Prepare one guide; the function returned writes it."""
         payload = self.archive.read_json(Archive.guide(guide_id))
         if not isinstance(payload, dict):
             failure = self.archive.manifest_items().get(f"guide:{guide_id}", {}).get("error")
@@ -883,13 +1069,15 @@ class Loader:
             MAPPING_VERSION, payload, tags, [self.archive.read_json(Archive.image_meta(image_id)) for image_id in used_images],
             [self.options.publish, self.options.markers, self.options.arrow_head, self.options.owner_email],
         )
-        record = self.record("guide", guide_id)
-        existing = self.db.get(Guide, record.reticle_id) if record is not None else None
-        if self._settled("guide", reference.partition(" ")[2], record, existing, mark):
-            return
+        record = self.record("guide", guide_id, self.read)
+        known = self.read.get(Guide, record.reticle_id) if record is not None else None
+        if self._settled("guide", reference.partition(" ")[2], record, known, mark):
+            return None
 
         author_block = payload.get("author") if isinstance(payload.get("author"), dict) else {}
-        author = self.user_for(author_block.get("userid") or entry.get("userid"), _text(author_block.get("username")) or _text(entry.get("username")))
+        author_plan = self.author_plan(
+            author_block.get("userid") or entry.get("userid"), _text(author_block.get("username")) or _text(entry.get("username"))
+        )
         flattened = [0]
 
         title, clipped = mapping.clip(self._guide_title(guide_id, payload), TITLE_LIMIT)
@@ -898,10 +1086,10 @@ class Loader:
         summary, clipped = mapping.clip(_text(payload.get("summary")).strip(), SUMMARY_LIMIT)
         if clipped:
             self.report.warn("clipped", reference, "Summary shortened to 4000 characters.")
-        level, known = mapping.difficulty(payload.get("difficulty"))
-        if not known and _text(payload.get("difficulty")).strip():
+        level, known_level = mapping.difficulty(payload.get("difficulty"))
+        if not known_level and _text(payload.get("difficulty")).strip():
             self.report.warn("difficulty", reference, f"Difficulty {payload.get('difficulty')!r} is not a known value; set to “moderate”.")
-        elif not known:
+        elif not known_level:
             self.report.note("Guides with no difficulty set on the old site were given “moderate”, Reticle's default.")
         low, high = mapping.time_range(payload.get("time_required_min"), payload.get("time_required_max"))
 
@@ -909,40 +1097,20 @@ class Loader:
         category_id = self.categories.get(category_title)
         if category_id is None:
             self.report.warn("category", reference, f"Its category “{category_title}” is not in the archive; filed under “{UNCATEGORISED}”.")
-            category_id = self._uncategorised()
-
-        steps = self._steps(reference, payload, author, flattened)
-
-        if existing is None:
-            guide = Guide(
-                slug=self.guide_slugs[guide_id],
-                title=title,
-                category_id=category_id,
-                author_id=author.id,
-                last_edited_by_id=author.id,
-            )
-            content.add_contributor(self.db, GUIDES, guide, author)
-            self.db.add(guide)
-            self.db.flush()
-        else:
-            guide = existing
 
         document = GuideDocumentIn(
             title=title,
             summary=summary,
-            category_id=category_id,
+            category_id=category_id or UNCATEGORISED,
             tags=self._tags(reference, tags),
             difficulty=level,
             time_required_min_minutes=low,
             time_required_max_minutes=high,
             introduction=self.plain(reference, payload.get("introduction_rendered"), payload.get("introduction_raw"), PROSE_LIMIT, flattened),
             conclusion=self.plain(reference, payload.get("conclusion_rendered"), payload.get("conclusion_raw"), PROSE_LIMIT, flattened),
-            steps=steps,
-            expected_updated_at=guide.updated_at,
+            steps=self._steps(reference, payload, flattened),
+            expected_updated_at=utcnow(),
         )
-        apply_guide_document(self.db, guide, document)
-        self.db.flush()
-        self.db.refresh(guide)
 
         if flattened[0]:
             self.report.warn(
@@ -954,18 +1122,57 @@ class Loader:
         if any(flags):
             self.report.warn("vendor_flag", reference, f"Flagged {', '.join(flag for flag in flags if flag)} on the old site; Reticle has no flags, so check its status.")
 
-        public = bool(payload.get("public")) and not payload.get("isArchived") and not entry.get("isArchived")
+        archived = bool(payload.get("isArchived") or entry.get("isArchived"))
+        public = bool(payload.get("public")) and not archived
         if not public:
             self.report.note("Guides that were private, unpublished or archived on the old site were imported as drafts.")
-        self._finish(
-            GUIDES, guide, author, reference, "guide", guide_id, mark,
-            want_published=public and self.options.publish,
-            was_public=public,
-            created=mapping.instant(payload.get("created_date")),
-            modified=mapping.instant(payload.get("modified_date")) or mapping.instant(entry.get("modified_date")),
-            published=mapping.instant(payload.get("published_date")),
-            outcome="created" if existing is None else "updated",
-        )
+            visibility = "archived on the old site" if archived else "private or unpublished on the old site"
+        elif entry.get(ANONYMOUS_VISIBLE) is False:
+            visibility = "public on the old site, though not listed to visitors who were not signed in"
+            self.report.warn(
+                "guide_visibility", reference,
+                "The old site marks it public but did not list it to a visitor who was not signed in (a team restriction, "
+                "perhaps). It is published here as the old site marked it; check that it should be.",
+            )
+        else:
+            visibility = "public on the old site"
+
+        def write() -> None:
+            author = self.user_for(author_plan)
+            self.write_media(author)
+            record = self.record("guide", guide_id)
+            existing = self.db.get(Guide, record.reticle_id) if record is not None else None
+            if self._edited_since(record, existing):
+                raise Skip(EDITED_SINCE)  # saved in Reticle while this guide's pictures were being prepared
+            placed = category_id or self._uncategorised()
+            if existing is None:
+                guide = Guide(
+                    slug=self.guide_slugs[guide_id],
+                    title=title,
+                    category_id=placed,
+                    author_id=author.id,
+                    last_edited_by_id=author.id,
+                )
+                content.add_contributor(self.db, GUIDES, guide, author)
+                self.db.add(guide)
+                self.db.flush()
+            else:
+                guide = existing
+            apply_guide_document(self.db, guide, document.model_copy(update={"category_id": placed, "expected_updated_at": guide.updated_at}))
+            self.db.flush()
+            self.db.refresh(guide)
+            self._finish(
+                GUIDES, guide, author, reference, "guide", guide_id, mark,
+                want_published=public and self.options.publish,
+                was_public=public,
+                visibility=visibility,
+                created=mapping.instant(payload.get("created_date")),
+                modified=mapping.instant(payload.get("modified_date")) or mapping.instant(entry.get("modified_date")),
+                published=mapping.instant(payload.get("published_date")),
+                outcome="created" if existing is None else "updated",
+            )
+
+        return write
 
     @staticmethod
     def _step_media(step: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str | None]:
@@ -981,7 +1188,7 @@ class Loader:
         unknown = kind if not pictures and not clips and kind not in {"image", "video"} else None
         return pictures, clips, unknown
 
-    def _steps(self, reference: str, payload: dict[str, Any], author: User, flattened: list[int]) -> list[StepIn]:
+    def _steps(self, reference: str, payload: dict[str, Any], flattened: list[int]) -> list[StepIn]:
         cap = self.settings.max_media_per_step
         steps: list[StepIn] = []
         ordered = sorted(
@@ -1025,18 +1232,18 @@ class Loader:
                     self.report.warn("duplicate_media", where, f"Image {picture['id']} appears twice in the step; it is shown once.")
                     continue
                 vendor_ids.add(picture["id"])
-                imported = self.step_image(where, picture["id"], author)
-                if imported is not None and imported[0].id in seen:
-                    imported = self.step_image(where, picture["id"], author, own_copy=True)
-                if imported is None or imported[0].id in seen:
+                imported = self.step_image(where, picture["id"])
+                if imported is not None and imported[0] in seen:
+                    imported = self.step_image(where, picture["id"], own_copy=True)
+                if imported is None or imported[0] in seen:
                     continue
-                seen.add(imported[0].id)
-                media.append(MediaRefIn(id=imported[0].id, annotations=[AnnotationIn(**annotation) for annotation in imported[1]]))
+                seen.add(imported[0])
+                media.append(MediaRefIn(id=imported[0], annotations=[AnnotationIn(**annotation) for annotation in imported[1]]))
             for clip in clips:
-                imported_video = self.video(where, clip["videoid"], author)
-                if imported_video is not None and imported_video.id not in seen:
-                    seen.add(imported_video.id)
-                    media.append(MediaRefIn(id=imported_video.id))
+                imported_video = self.video(where, clip["videoid"])
+                if imported_video is not None and imported_video not in seen:
+                    seen.add(imported_video)
+                    media.append(MediaRefIn(id=imported_video))
 
             if not title and not bullets and not media:
                 self.report.warn("empty_step", where, "The step had no title, no text and no importable media; it was left out.")
@@ -1087,17 +1294,25 @@ class Loader:
         *,
         want_published: bool,
         was_public: bool,
+        visibility: str,
         created: datetime | None,
         modified: datetime | None,
         published: datetime | None,
         outcome: str,
     ) -> None:
-        """Status, timestamps, revision and bookkeeping for a guide or a page.
+        """Status, timestamps, revision and bookkeeping for a guide or a page. Write phase only.
+
+        ``visibility`` says, in a few words for the report, what the old site
+        showed and therefore why the item is published or a draft here.
 
         Publishing is done with the application's own check and snapshot writer
-        rather than ``content.publish``, for one reason: that function stamps
-        the moment of the call, and an imported guide should keep the dates it
-        was actually written and published on.
+        (``content.write_revision``, which also makes the snapshot the version
+        readers are served) rather than ``content.publish``, for one reason:
+        that function stamps the moment of the call, and an imported guide
+        should keep the dates it was actually written and published on.
+        Withdrawing one — a guide that is no longer public on the vendor side —
+        is what the application's unpublish does: back to draft, and the
+        published version taken away from readers.
         """
         now = utcnow()
         if want_published:
@@ -1120,6 +1335,8 @@ class Loader:
             self.db.flush()
             content.write_revision(self.db, kind, entity, actor, entity.published_at)
         else:
+            if entity.status == PUBLISHED:
+                kind.unproject(self.db, entity.id)
             entity.status = "draft"
         self.db.flush()
 
@@ -1133,7 +1350,7 @@ class Loader:
             detail={"source": self.source, "vendorId": str(vendor_id), "outcome": outcome, "status": entity.status},
         )
         address = f"/{'g' if kind.name == 'guide' else 'w'}/{entity.slug}"
-        self.report.add(kind.name, reference.partition(" ")[2], outcome, f"{entity.status}, {address}")
+        self.report.add(kind.name, reference.partition(" ")[2], outcome, f"{entity.status}, {address} — {visibility}")
 
     # ------------------------------------------------------------ pages
 
@@ -1141,8 +1358,7 @@ class Loader:
         entries = self._wiki_index()
         self.log(f"Loading {len(entries)} pages…")
         for namespace, entry in entries:
-            with self.item("page", f"{namespace} “{self._page_title(entry)}”"):
-                self.load_page(namespace, entry)
+            self.item("page", f"{namespace} “{self._page_title(entry)}”", lambda namespace=namespace, entry=entry: self.load_page(namespace, entry))
 
         skipped = [namespace for namespace in self.manifest.get("namespaces") or [] if namespace not in self.options.namespaces]
         for namespace in skipped:
@@ -1158,7 +1374,16 @@ class Loader:
                     )
                 )
 
-    def load_page(self, namespace: str, entry: dict[str, Any]) -> None:
+    @staticmethod
+    def _image_description(image: dict[str, Any]) -> str:
+        """Alt text for a picture, if the vendor's record of it has any."""
+        for key in IMAGE_DESCRIPTION_KEYS:
+            if _text(image.get(key)).strip():
+                return mapping.clip(" ".join(_text(image[key]).split()), MAX_ALT_CHARS)[0]
+        return ""
+
+    def load_page(self, namespace: str, entry: dict[str, Any]) -> Callable[[], None] | None:
+        """Prepare one wiki page; the function returned writes it."""
         wiki_id = entry["wikiid"]
         payload = self.archive.read_json(Archive.wiki(namespace, wiki_id))
         if not isinstance(payload, dict):
@@ -1169,48 +1394,42 @@ class Loader:
         if clipped:
             self.report.warn("clipped", reference, "Title shortened to 240 characters.")
 
-        mark = fingerprint(MAPPING_VERSION, payload, entry.get("modified_date"), [self.options.publish, self.options.owner_email])
-        record = self.record("wiki", wiki_id)
-        existing = self.db.get(Page, record.reticle_id) if record is not None else None
-        if self._settled("page", reference.partition(" ")[2], record, existing, mark):
-            return
+        # What the export saw when it asked for the listing without credentials:
+        # True, False, or None where it could not tell (or the archive predates the question).
+        seen_anonymously = entry.get(ANONYMOUS_VISIBLE) if isinstance(entry.get(ANONYMOUS_VISIBLE), bool) else None
+        mark = fingerprint(MAPPING_VERSION, payload, entry.get("modified_date"), seen_anonymously, [self.options.publish, self.options.owner_email])
+        record = self.record("wiki", wiki_id, self.read)
+        known = self.read.get(Page, record.reticle_id) if record is not None else None
+        if self._settled("page", reference.partition(" ")[2], record, known, mark):
+            return None
 
         raw = _text(payload.get("contents_raw"))
         if not raw.strip():
             raise Skip("the page has no content")
 
         author_block = payload.get("author") if isinstance(payload.get("author"), dict) else {}
-        author = self.user_for(author_block.get("userid"), _text(author_block.get("username")))
+        author_plan = self.author_plan(author_block.get("userid"), _text(author_block.get("username")))
 
         for image_id in referenced_image_ids(raw):
             if image_id not in self.resolver.images:
-                media = self.plain_image(reference, image_id, author)
-                if media is not None:
-                    self._remember(self.resolver.images, image_id, media.id)
+                media_id = self.plain_image(reference, image_id)
+                if media_id is not None:
+                    self._remember(self.resolver.images, image_id, media_id)
         body = self._absorb(reference, to_markdown(raw, self.resolver))
         if len(body) > MAX_PAGE_BODY_CHARS:
             raise ValueError(f"the converted page is {len(body)} characters long; Reticle's limit is {MAX_PAGE_BODY_CHARS}")
 
         category_id = self.categories.get(str(entry["title"])) if namespace == "CATEGORY" else None
-        is_landing = category_id is not None
-        if is_landing:
-            try:
-                page_documents.assert_landing_slot_free(self.db, category_id, existing.id if existing is not None else None)
-            except errors.ApiError:
-                is_landing = False
-                self.report.warn(
-                    "landing", reference, "Its category already has a landing page in Reticle; imported as an ordinary page in that category."
-                )
-        elif namespace == "CATEGORY":
+        if category_id is None and namespace == "CATEGORY":
             self.report.note(
                 f"The category page “{title}” has no matching category in Reticle (the site's root page is the usual "
                 "case) and was imported as an ordinary page."
             )
 
-        hero_id = None
+        hero_id, hero_alt = None, ""
         if is_image_object(payload.get("image")):
-            hero = self.plain_image(reference, payload["image"]["id"], author)
-            hero_id = hero.id if hero is not None else None
+            hero_id = self.plain_image(reference, payload["image"]["id"])
+            hero_alt = self._image_description(payload["image"]) if hero_id is not None else ""
 
         summary, clipped = mapping.clip(
             self._absorb(reference, to_plain(_text(payload.get("description")) or _text(entry.get("summary")), self.resolver)), SUMMARY_LIMIT
@@ -1222,47 +1441,91 @@ class Loader:
         if isinstance(tags, list) and tags:
             self.report.warn("page_tags", reference, f"Tags not carried over: {', '.join(str(tag) for tag in tags)}.")
 
-        if existing is None:
-            page = Page(
-                slug=self.page_slugs[(namespace, wiki_id)],
-                title=title,
-                category_id=category_id,
-                is_landing=is_landing,
-                author_id=author.id,
-                last_edited_by_id=author.id,
-            )
-            content.add_contributor(self.db, PAGES, page, author)
-            self.db.add(page)
-            self.db.flush()
-        else:
-            page = existing
-
-        page_documents.apply_document(
-            self.db,
-            page,
-            PageDocumentIn(
-                title=title,
-                summary=summary,
-                category_id=category_id,
-                is_landing=is_landing,
-                body=body,
-                hero_media_id=hero_id,
-                expected_updated_at=page.updated_at,
-            ),
+        document = PageDocumentIn(
+            title=title,
+            summary=summary,
+            category_id=category_id,
+            is_landing=False,
+            body=body,
+            hero_media_id=hero_id,
+            hero_alt=hero_alt,
+            expected_updated_at=utcnow(),
         )
-        self.db.flush()
-        self.db.refresh(page)
-
         modified = mapping.instant(entry.get("modified_date"))
-        self._finish(
-            PAGES, page, author, reference, "wiki", wiki_id, mark,
-            want_published=self.options.publish,
-            was_public=True,
-            created=modified,
-            modified=modified,
-            published=modified,
-            outcome="created" if existing is None else "updated",
-        )
+
+        def write() -> None:
+            author = self.user_for(author_plan)
+            self.write_media(author)
+            record = self.record("wiki", wiki_id)
+            existing = self.db.get(Page, record.reticle_id) if record is not None else None
+            if self._edited_since(record, existing):
+                raise Skip(EDITED_SINCE)  # saved in Reticle while this page was being prepared
+
+            is_landing = category_id is not None
+            if is_landing:
+                try:
+                    page_documents.assert_landing_slot_free(self.db, category_id, existing.id if existing is not None else None)
+                except errors.ApiError:
+                    is_landing = False
+                    self.report.warn(
+                        "landing", reference, "Its category already has a landing page in Reticle; imported as an ordinary page in that category."
+                    )
+
+            # Only what can be shown to have been public on the old site is
+            # published. The API says so for a guide (``public``); for a page it
+            # says nothing, so the evidence is the anonymous listing pass the
+            # export made. A category's landing page is the exception: it is the
+            # face of a category that every signed-in reader sees in the tree.
+            if is_landing:
+                public, visibility = True, "the landing page of its category"
+            elif seen_anonymously:
+                public, visibility = True, "shown to visitors who were not signed in on the old site"
+            else:
+                public = False
+                visibility = (
+                    "NOT shown to visitors who were not signed in on the old site"
+                    if seen_anonymously is False
+                    else "the archive does not say whether the old site showed it to visitors who were not signed in"
+                )
+                self.report.warn(
+                    "page_visibility", reference,
+                    f"Imported as a draft: {visibility}. Publish it in Reticle if every reader may see it."
+                    + ("" if seen_anonymously is False else " (Running the export again records this for every page.)"),
+                )
+
+            if existing is None:
+                page = Page(
+                    slug=self.page_slugs[(namespace, wiki_id)],
+                    title=title,
+                    category_id=category_id,
+                    is_landing=is_landing,
+                    author_id=author.id,
+                    last_edited_by_id=author.id,
+                )
+                content.add_contributor(self.db, PAGES, page, author)
+                self.db.add(page)
+                self.db.flush()
+            else:
+                page = existing
+
+            page_documents.apply_document(
+                self.db, page, document.model_copy(update={"is_landing": is_landing, "expected_updated_at": page.updated_at})
+            )
+            self.db.flush()
+            self.db.refresh(page)
+
+            self._finish(
+                PAGES, page, author, reference, "wiki", wiki_id, mark,
+                want_published=public and self.options.publish,
+                was_public=public,
+                visibility=visibility,
+                created=modified,
+                modified=modified,
+                published=modified,
+                outcome="created" if existing is None else "updated",
+            )
+
+        return write
 
     # ------------------------------------------------------------ closing
 
@@ -1275,7 +1538,7 @@ class Loader:
                 )
         hidden = [
             category.name
-            for category in self.db.scalars(select(Category).where(Category.id.in_(list(self.categories.values())), Category.is_hidden.is_(True)).order_by(Category.name))
+            for category in self.read.scalars(select(Category).where(Category.id.in_(list(self.categories.values())), Category.is_hidden.is_(True)).order_by(Category.name))
         ]
         if hidden:
             self.report.note("Holding categories marked hidden (kept out of the browsable tree): " + ", ".join(hidden) + ".")

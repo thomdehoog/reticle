@@ -17,6 +17,7 @@ from app.models import StepMedia, Tag
 
 from .conftest import (
     annotation,
+    image_bytes,
     bullet,
     create_guide,
     document_from,
@@ -446,12 +447,16 @@ def test_saving_an_unknown_guide_is_not_found(author, category):
     assert response.status_code == 404
 
 
-def test_a_published_guide_can_still_be_edited_and_the_reader_sees_the_new_text(author, viewer, category):
+def test_a_published_guide_can_still_be_edited_and_the_reader_sees_it_once_published(author, viewer, category):
+    """Saving is not publishing. The edit is the author's until they publish it;
+    ``test_published.py`` is where the rest of that promise is pinned."""
     created = create_guide(author, category.id)
     published = publish_guide(author, created)
 
-    save_guide(author, published, steps=[step("Added after publish")])
+    save_guide(author, published, steps=[step("Added after publish", bullets=[bullet("Now with text.")])])
 
+    assert [s["title"] for s in viewer.get(f"/api/guides/{created['slug']}").json()["steps"]] == ["Do the thing"]
+    assert author.post(f"/api/guides/{created['id']}/publish").status_code == 200
     assert [s["title"] for s in viewer.get(f"/api/guides/{created['slug']}").json()["steps"]] == ["Added after publish"]
 
 
@@ -653,7 +658,7 @@ def test_annotations_are_saved_on_the_image_within_its_step(author, category):
     saved = save_guide(author, created, steps=[step("Annotated", media=[image])])
 
     stored = saved["steps"][0]["media"][0]
-    assert set(stored) == {"id", "kind", "url", "alt", "width", "height", "annotations"}
+    assert set(stored) == {"id", "kind", "url", "displayUrl", "alt", "width", "height", "annotations"}
     assert [(a["shape"], a["color"]) for a in stored["annotations"]] == [
         ("rectangle", "red"),
         ("arrow", "light_blue"),
@@ -806,3 +811,103 @@ def test_document_ceilings_hold(author, category):
 
     assert author.put(f"/api/guides/{created['id']}", json=too_many_steps).status_code == 422
     assert author.put(f"/api/guides/{created['id']}", json=too_many_bullets).status_code == 422
+
+
+# ------------------------------------- identifiers are unique across the document
+
+
+def test_the_same_new_bullet_identifier_in_two_steps_is_refused_not_a_crash(author, category, db_session):
+    """Bullet identifiers were checked for repeats one step at a time. The same
+    new identifier in two steps passed, reached the database, and came back as
+    ``UNIQUE constraint failed: bullets.id`` — a 500 whose traceback put the
+    bullet text in the log."""
+    created = create_guide(author, category.id)
+    shared = str(ULID())
+
+    response = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(
+            created,
+            steps=[
+                step("One", bullets=[bullet("First use", bullet_id=shared)]),
+                step("Two", bullets=[bullet("Second use", bullet_id=shared)]),
+            ],
+        ),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+    assert "same bullet" in response.json()["error"]["message"]
+    assert author.get(f"/api/guides/{created['id']}").json()["steps"] == [], "nothing of the document was kept"
+
+
+def test_a_bullet_identifier_repeated_inside_one_step_is_still_refused(author, category):
+    created = create_guide(author, category.id)
+    shared = str(ULID())
+
+    response = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, steps=[step("One", bullets=[bullet("a", bullet_id=shared), bullet("b", bullet_id=shared)])]),
+    )
+
+    assert response.status_code == 422
+
+
+def test_an_existing_bullet_cannot_be_claimed_by_a_second_step(author, category):
+    created = create_guide(author, category.id)
+    saved = save_guide(author, created, steps=[step("One", bullets=[bullet("Mine")]), step("Two")])
+    one, two = saved["steps"]
+
+    response = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(saved, steps=[one, {**two, "bullets": [one["bullets"][0]]}]),
+    )
+
+    assert response.status_code == 422
+
+
+def test_the_same_annotation_identifier_on_two_images_is_refused(author, category):
+    created = create_guide(author, category.id)
+    first, second = upload_media(author), upload_media(author, image_bytes(30, 30))
+    shape = {**annotation(), "id": "shape-1"}
+
+    response = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(
+            created,
+            steps=[
+                step("One", media=[{**first, "annotations": [shape]}]),
+                step("Two", media=[{**second, "annotations": [shape]}]),
+            ],
+        ),
+    )
+
+    assert response.status_code == 422
+    assert "same annotation" in response.json()["error"]["message"]
+
+
+def test_annotations_without_identifiers_never_collide(author, category):
+    """The server mints what the client leaves out, so the same shape drawn on
+    the same screenshot in every step is forty different annotations."""
+    created = create_guide(author, category.id)
+    picture = upload_media(author)
+
+    saved = save_guide(
+        author, created, steps=[step(f"Step {n}", media=[{**picture, "annotations": [annotation()] * 3}]) for n in range(4)]
+    )
+
+    minted = [shape["id"] for s in saved["steps"] for shape in s["media"][0]["annotations"]]
+    assert len(set(minted)) == 12
+
+
+def test_the_same_step_twice_is_refused(author, category):
+    created = create_guide(author, category.id)
+    shared = str(ULID())
+
+    response = author.put(
+        f"/api/guides/{created['id']}",
+        json=document_from(created, steps=[step("One", step_id=shared), step("Again", step_id=shared)]),
+    )
+
+    assert response.status_code == 422
+    assert "same step" in response.json()["error"]["message"]

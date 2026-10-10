@@ -11,20 +11,20 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 from __future__ import annotations
 
 from fastapi import APIRouter, Query
-from sqlalchemy import case, or_, select
+from sqlalchemy import Select, case, func, or_, select
 
-from .. import content
+from .. import content, published
 from ..auth import AnyUser, DbDep
-from ..models import Guide, Page
+from ..models import Guide, Page, PublishedPage
 from ..schemas import (
     MAX_SEARCH_TERM_CHARS,
     GuideResultOut,
     PageResultOut,
     SearchResultOut,
-    guide_summary_out,
     page_summary_out,
 )
-from .guides import has_step_text_like, has_tag_like, summary_statement
+from .guides import GuideSide, summaries
+from .pages import PAGES
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -46,50 +46,53 @@ def search(
     lists are merged, so the work stays bounded however much matches. Within a
     rank the most recently updated comes first, on the reasoning that of two
     equally relevant procedures the maintained one is the one to read.
+
+    What is searched is what the caller would be shown. A viewer's term is
+    matched against the published snapshots only — their titles, tags, step text
+    and page bodies as last published — so a sentence in an unpublished edit can
+    neither be found nor, by being found, be confirmed to exist. An author's is
+    matched against the working copies, like the author's listings.
     """
     term = q.strip()
     if not term:
         return []
 
-    guide_rank = case((content.contains(Guide.title, term), TITLE_MATCH), else_=BODY_MATCH).label("rank")
-    guides = db.execute(
-        summary_statement()
-        .add_columns(guide_rank)
-        .where(
-            content.visible_to(Guide, user),
-            or_(
-                content.contains(Guide.title, term),
-                content.contains(Guide.summary, term),
-                has_tag_like(term),
-                has_step_text_like(term),
-            ),
+    def ranked_guides(statement: Select, side: GuideSide) -> Select:
+        rank = case((content.contains(side.title, term), TITLE_MATCH), else_=BODY_MATCH).label("rank")
+        return (
+            statement.add_columns(rank)
+            .where(side.matches_search(term))
+            .order_by(rank, side.updated_at.desc(), Guide.id.desc())
+            .limit(MAX_RESULTS)
         )
-        .order_by(guide_rank, Guide.updated_at.desc(), Guide.id.desc())
-        .limit(MAX_RESULTS)
-    ).all()
-
-    page_rank = case((content.contains(Page.title, term), TITLE_MATCH), else_=BODY_MATCH).label("rank")
-    pages = db.execute(
-        select(Page, page_rank)
-        .where(
-            content.visible_to(Page, user),
-            or_(
-                content.contains(Page.title, term),
-                content.contains(Page.summary, term),
-                content.contains(Page.body, term),
-            ),
-        )
-        .order_by(page_rank, Page.updated_at.desc(), Page.id.desc())
-        .limit(MAX_RESULTS)
-    ).all()
 
     ranked: list[tuple[int, float, SearchResultOut]] = []
-    for guide, step_count, rank in guides:
-        ranked.append(
-            (rank, -guide.updated_at.timestamp(), GuideResultOut(guide=guide_summary_out(guide, step_count)))
+    for _, summary, rank in summaries(db, user, ranked_guides):
+        ranked.append((rank, -summary.updated_at.timestamp(), GuideResultOut(guide=summary)))
+
+    as_published = content.serves_published(user)
+    side = PublishedPage if as_published else Page
+    page_updated_at = func.coalesce(Page.snapshot_updated_at, Page.updated_at) if as_published else Page.updated_at
+    page_rank = case((content.contains(side.title, term), TITLE_MATCH), else_=BODY_MATCH).label("rank")
+    pages = (
+        content.published_statement(PAGES, page_rank)
+        if as_published
+        else select(Page, page_rank).where(content.visible_to(Page, user))
+    )
+    pages = (
+        pages.where(
+            or_(
+                content.contains(side.title, term),
+                content.contains(side.summary, term),
+                content.contains(side.body, term),
+            )
         )
-    for page, rank in pages:
-        ranked.append((rank, -page.updated_at.timestamp(), PageResultOut(page=page_summary_out(page))))
+        .order_by(page_rank, page_updated_at.desc(), Page.id.desc())
+        .limit(MAX_RESULTS)
+    )
+    for row in db.execute(pages):
+        summary = published.page_summary(row[0], row[1]) if as_published else page_summary_out(row[0])
+        ranked.append((row[-1], -summary.updated_at.timestamp(), PageResultOut(page=summary)))
 
     ranked.sort(key=lambda entry: (entry[0], entry[1]))
     return [result for _, _, result in ranked[:MAX_RESULTS]]

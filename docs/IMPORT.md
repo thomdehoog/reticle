@@ -109,9 +109,10 @@ anonymous export looks complete and is not.
 
 Credentials are read from these environment variables and from nowhere else.
 They are never written to the export directory, the manifest or the console.
-`read -rs` keeps them out of your shell history. The token is sent to
-`zmb.dozuki.com` only — never to the media servers the files are downloaded
-from.
+`read -rs` keeps them out of your shell history. The token, the session cookie
+and the app id are sent to `zmb.dozuki.com` only. Media downloads go out with
+no credential of any kind, and if the site ever redirects an API request to
+another host the importer stops instead of following it.
 
 ### A message for Dozuki support
 
@@ -158,6 +159,11 @@ every image used (this is where the markers are) and downloads each original,
 plus the *clean* source image of every marked-up one; downloads each video in
 the best encoding offered; fetches the profile of every author.
 
+A signed-in export also reads each listing **once more without credentials**
+(a handful of extra requests in total, none per item) and notes on every guide
+and page whether the site shows it to a visitor who is not signed in. The load
+uses that to decide which pages may be published (section 5).
+
 **It is safe to interrupt.** Press Ctrl-C, lose the connection, let the token
 expire — then run the same command again. Everything already on disk is
 skipped. Files are written under a temporary name and renamed when complete, so
@@ -173,8 +179,36 @@ did (run it again), `2` if it could not work at all (credentials refused, site
 unreachable).
 
 Useful options: `--refresh` fetches every API response again instead of reusing
-the copy on disk (media files are still kept); `--namespaces CATEGORY,WIKI`
-limits the wiki namespaces; `--quiet` prints only warnings and the summary.
+the copy on disk, asks again for items the site said it does not have, and
+downloads again any image whose picture or markers changed (other media files
+are kept); `--namespaces CATEGORY,WIKI` limits the wiki namespaces; `--quiet`
+prints only warnings and the summary.
+
+### Where the export will and will not go
+
+The addresses of the media files come out of the API's answers, so the importer
+treats them as addresses somebody else chose:
+
+- **`https` only**, and at most **three redirects**, each checked like the first
+  address.
+- **No private addresses.** A media host that resolves to a private, loopback
+  or link-local address is refused. The export runs inside the university
+  network, and this is what stops a doctored answer from making it fetch
+  something that is only reachable from there. If the downloads must go through
+  a proxy that does the name lookup, or the site really serves media from an
+  internal address, pass `--allow-private-media-hosts`.
+- **A size limit per file**: 200 MB for an image, 2 GB for a video
+  (`--max-image-mb`, `--max-video-mb`), enforced while the file arrives.
+- **The right kind of file**: an answer declared as a web page or as JSON where
+  a picture was asked for — a login page, an error document — is not kept. The
+  manifest records the declared type and, where the server declared nothing,
+  what the first bytes show.
+- **Ids must be whole numbers**, and nothing is read or written outside the
+  archive directory: not through an id like `../../x`, not through a title, not
+  through a path in a doctored `manifest.json`, not through a symbolic link
+  inside the archive.
+
+Any of these shows up as a failed item with the reason, never as a silent skip.
 
 ### Verify it
 
@@ -187,6 +221,37 @@ This uses no network. It checks that every listed guide and page is present and
 readable, that every image and video they use was downloaded, and that every
 media file still matches the SHA-256 recorded when it was written. Run it
 after the export, and again after copying the directory anywhere.
+
+It also prints **how old the copies are**, per kind of item: when the oldest
+and the newest were fetched or last confirmed unchanged against the site, and
+how each kind is kept current. `--ages` lists every single item with its times.
+Look at this before the final load: it is the answer to "is this archive what
+the site looked like on the last day?".
+
+### What a second export notices — and what it does not
+
+> **Read this before relying on a re-export.**
+>
+> A second run compares every **guide** and every **wiki page** with the site's
+> listing (by revision number) and fetches the changed ones again. When it does,
+> it also fetches the metadata of every image that guide or page uses again, and
+> downloads an image again if its picture or its markers changed.
+>
+> What it **cannot** see is a change that leaves the guide's revision alone.
+> Image metadata carries no modification date, so an image is only looked at
+> again when something that uses it changed — or when you pass `--refresh`.
+> Videos are never downloaded twice. Author profiles, categories and the
+> category tree are fetched once and then only with `--refresh`.
+>
+> **So: run the final export, on the last day, with `--refresh`.** It costs one
+> request per item again (an hour or two) and no media download except for what
+> changed. `verify` then shows every kind as captured "today".
+
+An item the site said it does not have (a category without a page of its own,
+for example) is noted in the manifest as `absent`, with the time, and is not
+asked for again on later runs. `--refresh` asks again; so does a signed-in run
+after an anonymous one, because what an anonymous visitor may not see can exist
+all the same.
 
 ### Time and disk space
 
@@ -234,11 +299,20 @@ docker compose run --rm tools python -m app.importer load --archive /import/zmb 
 # or:  python -m app.importer load --archive ../import/zmb --dry-run
 ```
 
-A dry run does everything except keep it: it converts every guide, checks
-every image, and then rolls the database back and writes no media file. It
-prints the counts and writes `import-report-dry-run.md` into the archive
-directory. Read that report (section 6) before the real run. Run the dry run
-while nobody is editing, as it holds the database's write lock while it works.
+A dry run does everything except keep it: it converts every guide and checks
+every image, and prints the counts and writes `import-report-dry-run.md` into
+the archive directory. Read that report (section 6) before the real run.
+
+It does not touch the live database. It first makes a **private copy** of it
+(SQLite's online backup, which only reads and does not make the server wait),
+works on that copy, and deletes it afterwards. No media file is written. The
+copy goes to the temporary directory (`TMPDIR`, which the Docker deployment
+sets to `/data/tmp`) and needs as much room as the database file itself —
+megabytes, since the media are not in the database. **A dry run can therefore be run at any time, with the
+server up and people working.**
+
+(On a database other than SQLite, where there is no such single file, the dry
+run is one transaction that is rolled back at the end.)
 
 To try a few guides for real first:
 
@@ -254,14 +328,48 @@ docker compose run --rm tools python -m app.importer load --archive /import/zmb
 ```
 
 Take a backup of the Reticle data volume first (`docs/MAINTENANCE.md`). Expect
-20–60 minutes for the whole site; most of it is image work. The server can keep
-running. The exit status is `0` if every item loaded, `1` if some failed (they
-are listed in the report; everything else is in), `2` if it could not start.
+20–60 minutes for the whole site; most of it is image work. The exit status is
+`0` if every item loaded, `1` if some failed (they are listed in the report;
+everything else is in), `2` if it could not start.
+
+### Loading while the server is running
+
+A load **can** run next to the live server. SQLite has one write lock for the
+whole database, and signing in, saving and publishing all need it, so the
+importer is built to hold it as briefly as possible: for each guide or page it
+first does everything slow — reading the archive, decoding, checking and
+re-encoding pictures, copying videos into the media store, converting text —
+with the database free, and only then opens a transaction, writes the rows and
+commits. That takes tens of milliseconds per item (the run prints the count,
+the total and the longest as "database write lock"; on the test archive the
+longest is about 60 ms and all nine together a quarter of a second). After each item it waits a moment (`--pause`, 0.05 s by default) so
+that the server's own writes are not queued behind the importer's.
+
+What people may notice during a load:
+
+- **Nothing, usually.** A sign-in or a save that lands in the same instant as
+  one of the importer's commits waits those few milliseconds.
+- **Content appears as it goes.** Guides and pages become visible one by one.
+  Until the pages are in — they are loaded after all the guides — an instrument
+  page may be missing, and a guide's link to a page loaded later only works
+  once that page is there.
+- **The server gets slower**, on a small machine: the image work takes
+  processor time and the media store is being written to.
+- **An edit made during the load is safe.** The importer checks again, with the
+  lock held, that nobody saved the item in Reticle since it was last imported,
+  and leaves it alone if somebody did.
+
+All the same, **do the first full load before go-live**, while nobody depends
+on the server: it is the long one (every picture is processed), its report
+wants reading and acting on before readers arrive, and a half-imported site is
+confusing to browse. Later loads — the final one after the last export, or a
+repeat after a fix — only touch what changed, write little, and are the ones
+this is built for.
 
 | Option | Effect |
 | --- | --- |
-| `--dry-run` | Report what would happen; write nothing. |
-| `--publish` (default) | Guides that were public on the old site are published; private and unpublished ones become drafts. |
+| `--dry-run` | Report what would happen, working on a private copy of the database; write nothing. |
+| `--publish` (default) | Publish what the old site showed publicly (see "What is published" in section 5); everything else becomes a draft. |
 | `--as-drafts` | Everything is imported as a draft, for review before anything is visible to viewers. |
 | `--owner-email a@b` | Make one existing Reticle account the author of everything, instead of the original authors. |
 | `--force` | Also overwrite imported content that was edited in Reticle since (see section 7). |
@@ -270,6 +378,7 @@ are listed in the report; everything else is in), `2` if it could not start.
 | `--namespaces …` | Wiki namespaces to load (default `CATEGORY,WIKI,ITEM`). |
 | `--guide N` | Load only this guide id; repeatable. |
 | `--report path` | Where to write the report. |
+| `--pause seconds` | How long to wait after each item written, to let the running server's writes through (default `0.05`; `0` for none). |
 
 ## 5. What is carried over, and how
 
@@ -292,6 +401,45 @@ are listed in the report; everything else is in), `2` if it could not start.
 | Created / modified / published dates | kept |
 | Public + published | published, with a version-1 entry in the history dated as on the old site |
 | Private, unpublished, archived | draft |
+| A photograph stored sideways (EXIF orientation) | turned upright once, by Reticle's own image handling; markers are placed on the picture as it is shown |
+
+### What is published
+
+Reticle shows published content to every signed-in reader, so the rule is that
+**only what can be shown to have been public on the old site is published**;
+the rest arrives as a draft that an author publishes after a look.
+
+| Item | Published if | Otherwise |
+| --- | --- | --- |
+| Guide | the old site marks it `public`, and it is not archived | draft |
+| Category page that becomes a category's **landing page** | always | — |
+| Any other wiki page (`WIKI`, `ITEM`, the site's root page, a category page whose category already has a landing page) | the export saw it in a listing **without being signed in** | draft |
+
+Why pages are treated differently: for a guide the API states `public` outright.
+For a wiki page it states nothing reliable — no visibility field on the page or
+its listing entry; the only signals are permission flags that describe the
+caller. So the evidence is what the export observed: the listing it fetched
+without credentials (section 3). A page is published only if it was in that
+listing. A landing page is published regardless, because it is the front of a
+category that every reader sees in the navigation anyway, and the instrument
+pages with their guide lists are landing pages.
+
+A page is imported as a draft, and listed in the report under "Pages imported
+as drafts because the old site did not show them publicly", when
+
+- the site did not list it to an anonymous visitor, or
+- the archive cannot say: it was exported before this check existed, the
+  anonymous pass failed (a site that shows nothing without a login), or the page
+  was only found by asking for it by title. Running the export again records the
+  answer; the next load then publishes what turned out to be public.
+
+A guide the old site marks public but did not list anonymously is published as
+marked and listed in the report for a check. `--as-drafts` overrides all of
+this: nothing is published.
+
+The "Created" and "Updated" lists in the report give the status of every item
+and the reason, for example `published, /w/… — shown to visitors who were not
+signed in on the old site`.
 
 ### Image markers
 
@@ -317,6 +465,13 @@ correct to look at; it just cannot be edited.
 - A Reticle category that already exists with the same name is reused.
 - Each **category page** becomes the landing page of its category. The site's
   root page becomes an ordinary page.
+- A page's picture becomes its hero image. The API's image records carry no
+  description (an id and addresses only), so the hero image arrives **without
+  alt text**; add it in Reticle. If a record does carry a `caption`,
+  `description` or `alt`, it is used.
+- Tags and addresses are formed by Reticle's own rules — `Präparation` is the
+  tag `praeparation` and the address `/g/praeparation-…` — in guides, in guide
+  lists and in rewritten links alike.
 - **Wiki pages** become Reticle pages, converted to Markdown: headings, bold,
   italic, lists, tables, images, code blocks.
 - Links to guides, pages and categories — written as `[guide|15]`, `[[Page]]`
@@ -358,7 +513,8 @@ correct to look at; it just cannot be edited.
 directory. From top to bottom:
 
 1. **Header** — which archive, when it was exported and whether anonymously,
-   which database, which options.
+   which database, which options, and how long the load held the database's
+   write lock (number of transactions, total, longest).
 2. **Counts** — per kind (category, user, guide, page): created, updated,
    unchanged, skipped, failed. On a first run everything should be "created".
 3. **Failed** — items for which *nothing* was written, each with the reason.
@@ -375,11 +531,17 @@ directory. From top to bottom:
      in a format Reticle does not take.
    - *Imported as a draft although the original was public* — usually an empty
      step; fix and publish.
+   - *Pages imported as drafts because the old site did not show them
+     publicly* — read each, and publish the ones every reader may see.
+   - *Guides published as marked, though the old site did not list them to
+     anonymous visitors* — probably restricted to a team on the old site;
+     unpublish the ones that should not be open to all readers.
    - *Links that still point at the old site* — they will stop working.
    - *Guide lists worth checking* — lists that name several tags.
 6. **Notes** — one-line facts about the run: hidden categories, tag spellings
    that merged, namespaces not loaded.
-7. **Created / Updated** — every item with its new address.
+7. **Created / Updated** — every item with its status, its new address, and
+   why it is published or a draft.
 
 After the real run, open a few guides you know well — one with arrows, one
 with a video, one of the instrument pages with guide lists — and compare them
@@ -389,7 +551,9 @@ with the old site while it still exists.
 
 Both steps are repeatable.
 
-- **Export again** at any time: only new and changed items are fetched.
+- **Export again** at any time: only new and changed items are fetched. Mind
+  what a second run cannot notice (section 3), and use `--refresh` for the
+  final one.
 - **Load again** at any time: the importer remembers which Dozuki item became
   which Reticle item (table `import_records`), so a second load **updates
   instead of duplicating**. An item that has not changed on the Dozuki side is
@@ -398,12 +562,16 @@ Both steps are repeatable.
   published or unpublished in Reticle after it was imported, a later load
   skips it and says so. `--force` overrides that and replaces it with the
   Dozuki version.
+- **A load that finds nothing changed writes nothing** — it does not open a
+  single write transaction — so repeating one costs the running server nothing.
 - Loading the same archive into a test instance and into production is fine;
   each database keeps its own record.
 
 The intended sequence: export now → load into a test instance → review the
-report → final export on the last day → load into production → from then on,
-Reticle is the only place content is edited.
+report → first full load into production **before go-live** → final export on
+the last day with `--refresh` → `verify` → load again into production (this one
+can run with the server up) → from then on, Reticle is the only place content
+is edited.
 
 ## 8. Open questions for the site administrator
 
@@ -445,6 +613,15 @@ please answer them before the final export.
 | Many `HTTP 429` retries | The site is rate limiting. Run again with `--delay 1`. |
 | `video-file:… not found or not visible` | The video store did not release the file. List these for Dozuki support. |
 | `verify` reports a checksum mismatch | The file was damaged in copying. Delete it and run the export again. |
+| `refusing to download from …: it resolves to a non-public address` | A media address points into a private network. If that is expected (a proxy, an internal media server), run again with `--allow-private-media-hosts`; if not, do not. |
+| `refusing to download from …: its address could not be looked up` | This machine cannot resolve the media host. Fix the name lookup, or, behind a proxy that resolves names itself, use `--allow-private-media-hosts`. |
+| `the file is … over the limit of … MB` | Raise `--max-image-mb` or `--max-video-mb` if the file is genuine. |
+| `the server sent text/html, not an image` | The media server answered with a page instead of the file (a login or an error). List these for Dozuki support. |
+| `the site redirected to …, which is not the API host; not followed` | The API sent the importer elsewhere while it was carrying your token. Check `--site` (the final host name, not an alias). |
+| `… is not a path inside the archive` / `passes through a symbolic link` | The archive directory was altered, or copied in a way that turned files into links. Copy it again with a plain copy (`cp -r`, `rsync -a` without link options). |
+| `… listing entries with an id that is not a whole number were ignored` | The API returned something unexpected. Nothing was written for those entries; tell whoever maintains Reticle. |
+| `The database could not be copied for the dry run` | The temporary directory is missing, full or not writable. Create it, or set `TMPDIR` to a place with room for one copy of the database file. |
+| A page is a draft although it was readable on the old site | The archive does not show that an anonymous visitor could see it (section 5). Publish it in Reticle, or export again and load again. |
 | `The database has not been initialised` | Run `python -m app.migrate` first. |
 | `--owner-email … is not an existing Reticle account` | Create the account, or drop the option. |
 | A guide is in "Failed" | Read the reason; nothing was written for it. After a fix, load again — only that guide is affected. |

@@ -210,7 +210,10 @@ describe('pictures in a wiki page', () => {
     fireEvent.change(screen.getByLabelText('Upload a hero image'), { target: { files: [file] } })
 
     await waitFor(() => expect(server.state.pages[0].heroMediaId).toBe('m-1'), { timeout: 4000 })
-    expect(document.querySelector('.hero-preview')).toHaveAttribute('src', '/api/media/m-1')
+    expect(document.querySelector('.hero-preview')).toHaveAttribute(
+      'src',
+      '/api/media/m-1?size=display',
+    )
 
     await user.click(screen.getByRole('button', { name: 'Remove' }))
     await waitFor(() => expect(server.state.pages[0].heroMediaId).toBeNull(), { timeout: 4000 })

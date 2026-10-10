@@ -38,6 +38,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app import db, migrate
 from app.db import Base, get_db
 from app.main import app
 from app.models import Category, User
@@ -133,6 +134,33 @@ def db_session(media_root) -> Iterator[Session]:
         session.close()
         app.dependency_overrides.clear()
         engine.dispose()
+
+
+@pytest.fixture()
+def file_db(tmp_path, monkeypatch, media_root):
+    """Point the application at an empty SQLite file, as a deployment would.
+
+    For the tests that need the real engine — migrations, the connection pool,
+    several requests at once — rather than the single shared in-memory
+    connection ``db_session`` provides.
+    """
+    url = f"sqlite:///{tmp_path / 'reticle.db'}"
+    monkeypatch.setenv("RETICLE_DATABASE_URL", url)
+    get_settings.cache_clear()
+    engine = db.build_engine(url)
+    writer, reader = db.session_factories(engine)
+    monkeypatch.setattr(db, "engine", engine)
+    monkeypatch.setattr(db, "SessionLocal", writer)
+    monkeypatch.setattr(db, "ReadSessionLocal", reader)
+    yield engine
+    engine.dispose()
+    get_settings.cache_clear()
+
+
+@pytest.fixture()
+def migrated(file_db):
+    migrate.upgrade()
+    return file_db
 
 
 @pytest.fixture()

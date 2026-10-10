@@ -13,20 +13,34 @@ since the last item and nothing more. One item that cannot be fetched is
 recorded and the run carries on — the summary lists every one, and the exit
 status is non-zero if there were any.
 
+Two things are remembered from one run to the next, in the manifest. An item
+the site said it does not have is marked ``absent`` with the time it was asked
+for, and is not asked for again unless ``--refresh`` is given or the run has
+credentials the earlier one lacked. And the images used by a guide or page that
+was fetched again because it changed are queued for a second look, because an
+image's markers can be edited without its id changing: their metadata is
+fetched again, and the picture is downloaded again if the two differ.
+
+The export also records what the site shows to a visitor who is not signed in:
+one extra listing pass without credentials per listing, no request per item.
+``load`` uses that to decide which pages may be published.
+
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
 
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from . import ARCHIVE_FORMAT, TOOL_NAME, TOOL_VERSION
-from .archive import MANIFEST, Archive, ArchiveError, sha256_file
-from .client import AuthenticationError, ClientError, DozukiClient, NotFound, path_segment
+from .archive import MANIFEST, Archive, ArchiveError, is_safe_id, safe_id, safe_namespace, sha256_file
+from .client import MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, AuthenticationError, ClientError, DozukiClient, NotFound, path_segment
 from .wikitext import referenced_image_ids
 
 PAGE_SIZE = 200
@@ -67,6 +81,14 @@ CONTENT_TYPE_EXTENSIONS = {
 }
 ENCODING_EXTENSIONS = {"jpeg": "jpg", "jpg": "jpg", "png": "png", "gif": "gif", "webp": "webp"}
 PLAYABLE_VIDEO = frozenset({"mp4", "webm"})
+SAFE_EXTENSION = re.compile(r"[a-z0-9]{1,8}")
+TEMPORARY_SUFFIXES = frozenset({".part", ".download", ".tmp"})
+CONTENT_KINDS = frozenset({"guide", "wiki", "category"})
+"""Responses that name the media they use."""
+ANONYMOUS_VISIBLE = "anonymousVisible"
+"""Added to every guide and wiki index entry: ``true`` if the site listed the
+item to a request without credentials, ``false`` if it did not, ``null`` if that
+could not be found out. It is the importer's own field, not the vendor's."""
 
 
 def utc_now() -> str:
@@ -90,7 +112,20 @@ def is_image_object(value: Any) -> bool:
 
 
 def is_video_object(value: Any) -> bool:
-    return isinstance(value, dict) and isinstance(value.get("videoid"), int) and isinstance(value.get("encodings"), list)
+    return (
+        isinstance(value, dict)
+        and isinstance(value.get("videoid"), int)
+        and not isinstance(value.get("videoid"), bool)
+        and value["videoid"] > 0
+        and isinstance(value.get("encodings"), list)
+    )
+
+
+def picture_identity(meta: dict[str, Any]) -> str:
+    """Everything in an image's metadata that changes when the picture or its markers do."""
+    record = meta.get("image") if isinstance(meta.get("image"), dict) else {}
+    facts = [record.get("guid"), meta.get("srcid"), meta.get("width"), meta.get("height"), meta.get("markup"), meta.get("markupState")]
+    return json.dumps(facts, sort_keys=True, default=str)
 
 
 def walk(value: Any, skip: frozenset[str] = frozenset({"author"})) -> Iterator[Any]:
@@ -178,12 +213,18 @@ class Exporter:
         namespaces: tuple[str, ...] = DEFAULT_NAMESPACES,
         refresh: bool = False,
         log: Callable[[str], None] = print,
+        max_image_bytes: int = MAX_IMAGE_BYTES,
+        max_video_bytes: int = MAX_VIDEO_BYTES,
     ) -> None:
         self.client = client
         self.archive = archive
-        self.namespaces = tuple(namespace.upper() for namespace in namespaces)
+        self.namespaces = tuple(safe_namespace(namespace.upper()) for namespace in namespaces)
         self.refresh = refresh
         self.log = log
+        self.max_image_bytes = max_image_bytes
+        self.max_video_bytes = max_video_bytes
+        self.recheck_images: set[int] = set()
+        self._images_exported_before = False
         self.items: dict[str, dict[str, Any]] = {}
         self.warnings: list[str] = []
         self.started_at = utc_now()
@@ -191,8 +232,13 @@ class Exporter:
         self._since_save = 0
         previous = archive.read_json(MANIFEST)
         if isinstance(previous, dict) and isinstance(previous.get("items"), dict):
-            self.items = previous["items"]
+            self.items = {
+                key: entry for key, entry in previous["items"].items() if isinstance(entry, dict) and entry.get("kind") and entry.get("status")
+            }
             self.started_at = previous.get("started_at") or self.started_at
+            pending = previous.get("recheck_images")
+            self.recheck_images = {image_id for image_id in pending if is_safe_id(image_id)} if isinstance(pending, list) else set()
+            self._images_exported_before = any(entry["kind"] == "image-meta" for entry in self.items.values())
 
     # ------------------------------------------------------------ bookkeeping
 
@@ -233,6 +279,7 @@ class Exporter:
                 "namespaces": list(self.namespaces),
                 "counts": self.counts(),
                 "warnings": self.warnings,
+                "recheck_images": sorted(self.recheck_images),
                 "items": self.items,
             },
         )
@@ -253,34 +300,63 @@ class Exporter:
         params: dict[str, Any] | None = None,
         optional: bool = False,
         reuse: bool = True,
+        confirmed: bool = False,
     ) -> Any:
         """Fetch one response and store it raw, or take it from disk if it is there.
 
         ``optional`` marks something that may legitimately not exist (a category
         with no page, a namespace the site does not use): its absence is noted
-        and is not a failure.
+        with the time, is not a failure, and is not asked about again on a later
+        run — unless that run has ``--refresh``, or is signed in where the run
+        that recorded the absence was not, since what an anonymous visitor may
+        not see can exist all the same.
+
+        ``confirmed`` says the caller has just compared the copy on disk with
+        the site's listing and found it current; the manifest then records when.
         """
+        previous = self.items.get(key, {})
         if reuse and not self.refresh and self.archive.exists(relative):
             stored = self.archive.read_json(relative)
             if stored is not None:
-                previous = self.items.get(key, {})
-                self.record(key, kind, "ok", path=relative, fetched_at=previous.get("fetched_at"), bytes=previous.get("bytes"))
+                self.record(
+                    key, kind, "ok", path=relative, fetched_at=previous.get("fetched_at"), bytes=previous.get("bytes"),
+                    confirmed_at=utc_now() if confirmed else previous.get("confirmed_at"),
+                )
                 return stored
+        if (
+            optional
+            and not self.refresh
+            and previous.get("status") == "absent"
+            and (previous.get("authenticated") or not self.client.authenticated)
+        ):
+            self.record(key, kind, "absent", checked_at=previous.get("checked_at"), authenticated=bool(previous.get("authenticated")))
+            return None
         try:
             document, body = self.client.get(path, params)
         except AuthenticationError:
             raise
         except NotFound as error:
-            self.record(key, kind, "absent" if optional else "failed", error=None if optional else str(error))
+            if optional:
+                self.record(key, kind, "absent", checked_at=utc_now(), authenticated=self.client.authenticated)
+            else:
+                self.record(key, kind, "failed", error=str(error))
             return None
         except ClientError as error:
             self.record(key, kind, "failed", error=str(error))
             return None
-        self.archive.write_raw(relative, body)
+        try:
+            self.archive.write_raw(relative, body)
+        except ArchiveError as error:
+            self.record(key, kind, "failed", error=str(error))
+            return None
         self.record(key, kind, "ok", path=relative, fetched_at=utc_now(), bytes=len(body))
+        if kind in CONTENT_KINDS and self._images_exported_before:
+            # The item is new or has changed, and images were exported before:
+            # any of them may have been re-marked since. See export_media.
+            self.recheck_images.update(referenced_media(document)[0])
         return document
 
-    def pages(self, path: str, params: dict[str, Any], identity: Callable[[Any], Any]) -> list[Any]:
+    def pages(self, path: str, params: dict[str, Any], identity: Callable[[Any], Any], anonymous: bool = False) -> list[Any]:
         """Page through a list until an empty page.
 
         A short page is not the last page: the vendor applies the limit before
@@ -294,7 +370,7 @@ class Exporter:
         for page in range(MAX_PAGES):
             while True:
                 try:
-                    batch, _ = self.client.get(path, {**params, "limit": size, "offset": page * size})
+                    batch, _ = self.client.get(path, {**params, "limit": size, "offset": page * size}, anonymous=anonymous)
                     break
                 except (AuthenticationError, NotFound):
                     raise
@@ -308,6 +384,8 @@ class Exporter:
             fresh = 0
             for entry in batch:
                 marker = identity(entry)
+                if not isinstance(marker, (int, str, type(None))):
+                    marker = repr(marker)  # an id of some other JSON type: unusable later, but must not break the paging
                 if marker in seen:
                     continue
                 seen.add(marker)
@@ -316,6 +394,51 @@ class Exporter:
             if fresh == 0:
                 break
         return collected
+
+    def mark_visibility(self, entries: list[dict[str, Any]], path: str, field: str) -> None:
+        """Record on each listing entry whether the site shows it to an anonymous visitor.
+
+        An export without credentials has its answer already: everything it was
+        given, it was given anonymously. A signed-in export pages through the
+        same listing once more with no credentials and compares. If that pass
+        fails — a site that shows nothing without a login answers 401 — the
+        answer is recorded as unknown, and ``load`` treats unknown as "not
+        shown to be public".
+        """
+        visible: set[Any] | None = None
+        if self.client.authenticated:
+            try:
+                listed = self.pages(path, {}, lambda entry: entry.get(field) if isinstance(entry, dict) else None, anonymous=True)
+            except ClientError as error:
+                self.warn(
+                    f"The anonymous listing of {path} could not be fetched ({error}), so the export cannot tell which of "
+                    "its items were publicly visible; `load` will import those pages as drafts."
+                )
+                for entry in entries:
+                    entry[ANONYMOUS_VISIBLE] = None
+                return
+            visible = {safe_id(entry[field]) for entry in listed if isinstance(entry, dict) and is_safe_id(entry.get(field))}
+        for entry in entries:
+            entry[ANONYMOUS_VISIBLE] = True if visible is None else entry[field] in visible
+
+    def usable_entries(self, listing: list[Any], field: str, what: str, also: Callable[[dict[str, Any]], bool] = lambda entry: True) -> list[dict[str, Any]]:
+        """The entries of a listing whose id is a whole number, with that id as an ``int``.
+
+        Ids go into request paths and file names. An entry whose id is anything
+        else is left out and counted in a warning, never passed on.
+        """
+        usable: list[dict[str, Any]] = []
+        refused = 0
+        for entry in listing:
+            if not isinstance(entry, dict) or entry.get(field) is None:
+                continue
+            if not is_safe_id(entry[field]):
+                refused += 1
+            elif also(entry):
+                usable.append({**entry, field: safe_id(entry[field])})
+        if refused:
+            self.warn(f"{refused} {what} with an id that is not a whole number were ignored.")
+        return usable
 
     # ------------------------------------------------------------ the run
 
@@ -360,15 +483,16 @@ class Exporter:
 
         if guides is None:
             stored = self.archive.read_json(Archive.guide_index())
-            guides = stored if isinstance(stored, list) else []
+            guides = [entry for entry in stored if isinstance(entry, dict) and is_safe_id(entry.get("guideid"))] if isinstance(stored, list) else []
             if guides:
                 self.warn("The guide list could not be fetched; continuing with the list from the previous run.")
         else:
-            guides = [entry for entry in guides if isinstance(entry, dict) and entry.get("guideid") is not None]
+            guides = self.usable_entries(guides, "guideid", "guide listing entries")
+            self.mark_visibility(guides, "/guides", "guideid")
             previous = self.archive.read_json(Archive.guide_index())
             known = {entry.get("guideid") for entry in guides}
             if isinstance(previous, list):
-                kept = [entry for entry in previous if isinstance(entry, dict) and entry.get("guideid") not in known]
+                kept = [entry for entry in previous if isinstance(entry, dict) and is_safe_id(entry.get("guideid")) and entry["guideid"] not in known]
                 if kept:
                     self.warn(
                         f"{len(kept)} guide(s) from an earlier run are no longer listed by the site; "
@@ -395,8 +519,11 @@ class Exporter:
                 Archive.guide(guide_id),
                 params={"excludePrerequisiteSteps": "true"},
                 reuse=current,
+                confirmed=True,
             )
-            self.fetch(f"guide-tags:{guide_id}", "guide-tags", f"/guides/{guide_id}/tags", Archive.guide_tags(guide_id), reuse=current)
+            self.fetch(
+                f"guide-tags:{guide_id}", "guide-tags", f"/guides/{guide_id}/tags", Archive.guide_tags(guide_id), reuse=current, confirmed=True
+            )
         return guides
 
     def export_categories(self, guides: list[dict[str, Any]]) -> None:
@@ -457,9 +584,14 @@ class Exporter:
             core = namespace in {"CATEGORY", "WIKI"}
             self.record(key, "wiki-index", "failed" if core and not isinstance(error, NotFound) else "absent", error=str(error))
             stored = self.archive.read_json(Archive.wiki_index(namespace))
-            listing = stored if isinstance(stored, list) else []
+            listing = (
+                [entry for entry in stored if isinstance(entry, dict) and is_safe_id(entry.get("wikiid")) and entry.get("title")]
+                if isinstance(stored, list)
+                else []
+            )
         else:
-            listing = [entry for entry in listing if isinstance(entry, dict) and entry.get("wikiid") is not None and entry.get("title")]
+            listing = self.usable_entries(listing, "wikiid", f"{namespace} page listing entries", lambda entry: bool(entry.get("title")))
+            self.mark_visibility(listing, f"/wikis/{namespace}", "wikiid")
             if namespace == "CATEGORY":
                 listing.extend(self._unlisted_category_pages({entry["wikiid"] for entry in listing}))
             self.archive.write_json(Archive.wiki_index(namespace), listing)
@@ -470,10 +602,12 @@ class Exporter:
             stored = self.archive.read_json(Archive.wiki(namespace, wiki_id))
             current = isinstance(stored, dict) and stored.get("revisionid") == entry.get("revisionid")
             segment = path_segment(title)
-            self.fetch(f"wiki:{namespace}:{wiki_id}", "wiki", f"/wikis/{namespace}/{segment}", Archive.wiki(namespace, wiki_id), reuse=current)
+            self.fetch(
+                f"wiki:{namespace}:{wiki_id}", "wiki", f"/wikis/{namespace}/{segment}", Archive.wiki(namespace, wiki_id), reuse=current, confirmed=True
+            )
             self.fetch(
                 f"wiki-tags:{namespace}:{wiki_id}", "wiki-tags", f"/wikis/{namespace}/{segment}/tags",
-                Archive.wiki_tags(namespace, wiki_id), optional=True, reuse=current,
+                Archive.wiki_tags(namespace, wiki_id), optional=True, reuse=current, confirmed=True,
             )
 
     def _unlisted_category_pages(self, listed: set[Any]) -> list[dict[str, Any]]:
@@ -484,12 +618,12 @@ class Exporter:
         Their pages are asked for by title, and those that exist join the index.
         """
         extra: list[dict[str, Any]] = []
-        for path in sorted(self.archive.path("api/categories/detail").glob("*.json")):
-            detail = self.archive.read_json(str(path.relative_to(self.archive.root)))
+        for relative in self.archive.files("api/categories/detail", "*.json"):
+            detail = self.archive.read_json(relative)
             if not isinstance(detail, dict):
                 continue
             wiki_id, title = detail.get("wikiid"), detail.get("wiki_title")
-            if not isinstance(wiki_id, int) or not isinstance(title, str) or not title or wiki_id in listed:
+            if not isinstance(wiki_id, int) or not is_safe_id(wiki_id) or not isinstance(title, str) or not title or wiki_id in listed:
                 continue
             listed.add(wiki_id)
             page = self.fetch(
@@ -502,6 +636,8 @@ class Exporter:
                         "display_title": page.get("display_title") or detail.get("display_title") or title,
                         "namespace": "CATEGORY", "summary": page.get("description") or "", "image": page.get("image"),
                         "modified_date": None, "listed": False,
+                        # Asked for by title, so only an anonymous export knows that a visitor could read it.
+                        ANONYMOUS_VISIBLE: None if self.client.authenticated else True,
                     }
                 )
         return extra
@@ -510,15 +646,15 @@ class Exporter:
 
     def stored_documents(self) -> Iterator[Any]:
         """Every content response on disk whose media the export must hold."""
-        for path in sorted(self.archive.path("api").glob("guides/*/guide.json")):
-            yield self.archive.read_json(str(path.relative_to(self.archive.root)))
-        for path in sorted(self.archive.path("api").glob("wikis/*/*.json")):
-            if path.name != "index.json" and not path.name.endswith(".tags.json"):
-                yield self.archive.read_json(str(path.relative_to(self.archive.root)))
-        for path in sorted(self.archive.path("api").glob("wikis/*/index.json")):
-            yield self.archive.read_json(str(path.relative_to(self.archive.root)))
-        for path in sorted(self.archive.path("api").glob("categories/detail/*.json")):
-            document = self.archive.read_json(str(path.relative_to(self.archive.root)))
+        for relative in self.archive.files("api", "guides/*/guide.json"):
+            yield self.archive.read_json(relative)
+        for relative in self.archive.files("api", "wikis/*/*.json"):
+            if not relative.endswith(("/index.json", ".tags.json")):
+                yield self.archive.read_json(relative)
+        for relative in self.archive.files("api", "wikis/*/index.json"):
+            yield self.archive.read_json(relative)
+        for relative in self.archive.files("api", "categories/detail/*.json"):
+            document = self.archive.read_json(relative)
             if isinstance(document, dict):
                 yield {key: value for key, value in document.items() if key != "guides"}
 
@@ -545,8 +681,18 @@ class Exporter:
         done = 0
         while queue:
             image_id = queue.pop(0)
-            meta = self.fetch(f"image-meta:{image_id}", "image-meta", f"/media/images/{image_id}", Archive.image_meta(image_id))
-            self.download_image(image_id, meta if isinstance(meta, dict) else {}, images.get(image_id) or {})
+            # An image's markers can be edited without its id changing, and its
+            # metadata carries no modification date. So when the guide or page
+            # that uses it was fetched again, the metadata is too, and if that
+            # shows a different picture or different markers, so is the file.
+            recheck = image_id in self.recheck_images
+            before = self.archive.read_json(Archive.image_meta(image_id)) if recheck else None
+            meta = self.fetch(f"image-meta:{image_id}", "image-meta", f"/media/images/{image_id}", Archive.image_meta(image_id), reuse=not recheck)
+            changed = isinstance(before, dict) and isinstance(meta, dict) and picture_identity(before) != picture_identity(meta)
+            if changed:
+                self.log(f"  image {image_id} changed on the site (its picture or its markers); downloading it again")
+            self.download_image(image_id, meta if isinstance(meta, dict) else {}, images.get(image_id) or {}, replace=changed)
+            self.recheck_images.discard(image_id)
             source_id = meta.get("srcid") if isinstance(meta, dict) else None
             if isinstance(source_id, int) and source_id > 0 and source_id not in images:
                 info = meta.get("srcImageInfo")
@@ -564,33 +710,49 @@ class Exporter:
                 return True
         if self.refresh:
             return False
-        for path in sorted(self.archive.path(folder).glob(f"{vendor_id}.*")):
-            if path.suffix in {".part", ".download", ".tmp"}:
+        for relative in self.archive.files(folder, f"{vendor_id}.*"):
+            path = self.archive.path(relative)
+            if path.suffix in TEMPORARY_SUFFIXES:
                 continue
-            relative = str(path.relative_to(self.archive.root))
             self.record(key, kind, "ok", path=relative, sha256=sha256_file(path), bytes=path.stat().st_size, adopted=True)
             return True
         return False
 
-    def _download(self, key: str, kind: str, folder: str, vendor_id: int, url: str, extension: Callable[[str], str], **fields: Any) -> None:
-        temporary = self.archive.path(f"{folder}/{vendor_id}.download")
+    def _download(
+        self, key: str, kind: str, folder: str, vendor_id: int, url: str, extension: Callable[[str], str], expect: str, max_bytes: int,
+        **fields: Any,
+    ) -> None:
+        """Download one media file into the archive and describe it in the manifest.
+
+        The URL came out of an API response, so the client treats it as an
+        address somebody else chose (see :mod:`.client`). The manifest keeps the
+        type the server declared, the type the file was taken to be, and the
+        final address if the download was redirected.
+        """
         try:
-            result = self.client.download(url, temporary)
-        except AuthenticationError:
-            raise
-        except ClientError as error:
+            temporary = self.archive.path(f"{folder}/{vendor_id}.download")
+            result = self.client.download(url, temporary, expect=expect, max_bytes=max_bytes)
+        except (ClientError, ArchiveError) as error:
             self.record(key, kind, "failed", error=str(error), url=url)
             return
-        relative = f"{folder}/{vendor_id}.{extension(result.content_type)}"
-        temporary.replace(self.archive.path(relative))
+        suffix = extension(result.content_type)
+        relative = f"{folder}/{vendor_id}.{suffix if SAFE_EXTENSION.fullmatch(suffix) else 'bin'}"
+        target = self.archive.path(relative)
+        temporary.replace(target)
+        for other in self.archive.files(folder, f"{vendor_id}.*"):
+            if other != relative and Path(other).suffix not in TEMPORARY_SUFFIXES:
+                self.archive.path(other).unlink()  # an earlier copy under another extension, now superseded
         self.record(
             key, kind, "ok", path=relative, sha256=result.sha256, bytes=result.size, url=url,
-            content_type=result.content_type or None, fetched_at=utc_now(), **fields,
+            content_type=result.content_type or None,
+            declared_content_type=result.declared_type if result.declared_type != result.content_type else None,
+            final_url=result.final_url if result.final_url != url else None,
+            fetched_at=utc_now(), **fields,
         )
 
-    def download_image(self, image_id: int, meta: dict[str, Any], embedded: dict[str, Any]) -> None:
+    def download_image(self, image_id: int, meta: dict[str, Any], embedded: dict[str, Any], replace: bool = False) -> None:
         key = f"image-file:{image_id}"
-        if self._already_downloaded(key, "image-file", "files/images", image_id):
+        if not replace and self._already_downloaded(key, "image-file", "files/images", image_id):
             return
         record = meta.get("image") if isinstance(meta.get("image"), dict) else {}
         url, rendition = None, None
@@ -612,7 +774,7 @@ class Exporter:
                 return CONTENT_TYPE_EXTENSIONS[content_type]
             return ENCODING_EXTENSIONS.get(str(meta.get("encoding") or "").lower(), "bin")
 
-        self._download(key, "image-file", "files/images", image_id, url, extension, rendition=rendition)
+        self._download(key, "image-file", "files/images", image_id, url, extension, "image", self.max_image_bytes, rendition=rendition)
 
     def download_video(self, video_id: int, video: dict[str, Any]) -> None:
         key = f"video-file:{video_id}"
@@ -623,7 +785,8 @@ class Exporter:
             self.record(key, "video-file", "failed", error="the video offers no encoding to download")
             return
         self._download(
-            key, "video-file", "files/videos", video_id, encoding["url"], lambda _content_type: encoding_extension(encoding),
+            key, "video-file", "files/videos", video_id, str(encoding["url"]), lambda _content_type: encoding_extension(encoding),
+            "video", self.max_video_bytes,
             encoding=encoding.get("column") or encoding.get("label"), width=encoding.get("width"), height=encoding.get("height"),
         )
 
@@ -657,7 +820,9 @@ def verify_archive(archive: Archive) -> tuple[list[str], dict[str, int]]:
         manifest = archive.manifest()
     except ArchiveError as error:
         return [str(error)], stats
-    items: dict[str, Any] = manifest["items"]
+    items: dict[str, Any] = {key: entry for key, entry in manifest["items"].items() if isinstance(entry, dict)}
+    if len(items) != len(manifest["items"]):
+        problems.append(f"{len(manifest['items']) - len(items)} manifest entries are not readable entries; the files they stood for count as missing.")
 
     if not manifest.get("finished_at"):
         problems.append("The export did not run to completion (no finished_at in the manifest); run it again to resume.")
@@ -668,7 +833,11 @@ def verify_archive(archive: Archive) -> tuple[list[str], dict[str, int]]:
     for key, entry in sorted(items.items()):
         if entry.get("status") != "ok" or not entry.get("path"):
             continue
-        path = archive.path(entry["path"])
+        try:
+            path = archive.path(entry["path"])
+        except ArchiveError as error:
+            problems.append(f"{key}: {error}")
+            continue
         if not path.is_file():
             problems.append(f"{key}: file {entry['path']} is missing")
             continue
@@ -705,6 +874,9 @@ def verify_archive(archive: Archive) -> tuple[list[str], dict[str, int]]:
     for entry in index:
         guide_id = entry.get("guideid") if isinstance(entry, dict) else None
         stats["guides"] += 1
+        if not is_safe_id(guide_id):
+            problems.append(f"The guide index lists an id that is not a whole number ({str(guide_id)[:60]!r}); it cannot be loaded.")
+            continue
         guide = archive.read_json(Archive.guide(guide_id))
         if not isinstance(guide, dict):
             problems.append(f"guide {guide_id}: the guide itself is missing or unreadable")
@@ -714,9 +886,16 @@ def verify_archive(archive: Archive) -> tuple[list[str], dict[str, int]]:
         check_media(f"guide {guide_id}", guide)
 
     for namespace in manifest.get("namespaces") or []:
-        listing = archive.read_json(Archive.wiki_index(namespace))
+        try:
+            listing = archive.read_json(Archive.wiki_index(namespace))
+        except ArchiveError as error:
+            problems.append(f"The manifest names a wiki namespace that cannot be one: {error}")
+            continue
         for entry in listing if isinstance(listing, list) else []:
             stats["pages"] += 1
+            if not isinstance(entry, dict) or not is_safe_id(entry.get("wikiid")):
+                problems.append(f"The {namespace} page index holds an entry without a usable id; it cannot be loaded.")
+                continue
             page = archive.read_json(Archive.wiki(namespace, entry.get("wikiid")))
             if not isinstance(page, dict):
                 problems.append(f"{namespace} page “{entry.get('title')}”: missing or unreadable")
@@ -724,3 +903,102 @@ def verify_archive(archive: Archive) -> tuple[list[str], dict[str, int]]:
             check_media(f"{namespace} page “{entry.get('title')}”", page)
 
     return list(dict.fromkeys(problems)), stats
+
+
+# ---------------------------------------------------------------- how old the copies are
+
+
+@dataclass(frozen=True)
+class Capture:
+    """When one item of the archive was taken from the site, and last confirmed current."""
+
+    key: str
+    kind: str
+    captured_at: datetime | None
+    confirmed_at: datetime | None
+
+    @property
+    def as_of(self) -> datetime | None:
+        """The latest moment the copy is known to have matched the site."""
+        moments = [moment for moment in (self.captured_at, self.confirmed_at) if moment is not None]
+        return max(moments) if moments else None
+
+
+def parse_instant(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
+
+
+def captures(archive: Archive) -> list[Capture]:
+    """Every exported item with its capture time, oldest first; undated ones lead."""
+    found = [
+        Capture(key, str(entry.get("kind")), parse_instant(entry.get("fetched_at")), parse_instant(entry.get("confirmed_at")))
+        for key, entry in archive.manifest()["items"].items()
+        if isinstance(entry, dict) and entry.get("status") == "ok"
+    ]
+    return sorted(found, key=lambda capture: (capture.as_of or datetime.min.replace(tzinfo=timezone.utc), capture.key))
+
+
+def age_text(moment: datetime | None, now: datetime) -> str:
+    if moment is None:
+        return "at an unrecorded time"
+    days = (now - moment).total_seconds() / 86400
+    if days < 1:
+        return "today" if days >= 0 else "in the future (check the clock)"
+    return f"{int(days)} day{'s' if int(days) != 1 else ''} ago"
+
+
+RECHECKED_KINDS = {
+    "guide": "compared with the site's listing on every run",
+    "guide-tags": "fetched again whenever its guide changed",
+    "wiki": "compared with the site's listing on every run",
+    "wiki-tags": "fetched again whenever its page changed",
+    "image-meta": "fetched again only when a guide or page using the image changed, or with --refresh",
+    "image-file": "downloaded again only when its metadata changed",
+    "video-meta": "not checked again unless --refresh",
+    "video-file": "never downloaded again",
+    "user": "not checked again unless --refresh",
+    "category": "not checked again unless --refresh",
+    "category-tree": "not checked again unless --refresh",
+}
+
+
+def capture_report(archive: Archive, now: datetime | None = None, every_item: bool = False) -> list[str]:
+    """How old the archive's copies are, per kind, and optionally item by item.
+
+    The age that matters is the time since a copy was last *known* to match the
+    site: when it was fetched, or when a later run compared it with the site's
+    listing and left it alone.
+    """
+    now = now or datetime.now(timezone.utc)
+    by_kind: dict[str, list[Capture]] = {}
+    for capture in captures(archive):
+        by_kind.setdefault(capture.kind, []).append(capture)
+    lines = ["Age of the copies (time since each was fetched, or last confirmed unchanged against the site):"]
+    for kind, group in sorted(by_kind.items()):
+        dated = [capture for capture in group if capture.as_of is not None]
+        undated = len(group) - len(dated)
+        if dated:
+            oldest, newest = dated[0], dated[-1]
+            span = f"oldest {age_text(oldest.as_of, now)} ({oldest.key}, {oldest.as_of:%Y-%m-%d}), newest {age_text(newest.as_of, now)}"
+        else:
+            span = "no capture time recorded"
+        lines.append(
+            f"  {kind + ':':<15}{len(group)} item{'s' if len(group) != 1 else ''}, {span}"
+            + (f", {undated} without a recorded time" if undated and dated else "")
+            + (f" — {RECHECKED_KINDS[kind]}" if kind in RECHECKED_KINDS else "")
+        )
+    if every_item:
+        lines.append("Every item, oldest first:")
+        for group in by_kind.values():
+            for capture in group:
+                detail = f"fetched {capture.captured_at:%Y-%m-%dT%H:%M:%SZ}" if capture.captured_at is not None else "fetch time not recorded"
+                if capture.confirmed_at is not None:
+                    detail += f", confirmed unchanged {capture.confirmed_at:%Y-%m-%dT%H:%M:%SZ}"
+                lines.append(f"  {capture.key}: {detail} ({age_text(capture.as_of, now)})")
+    return lines

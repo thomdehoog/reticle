@@ -52,7 +52,7 @@ def test_uploading_a_png_returns_the_domain_media_object(author, media_root):
 
     assert response.status_code == 201
     body = response.json()
-    assert set(body) == {"id", "kind", "url", "alt", "width", "height", "annotations"}
+    assert set(body) == {"id", "kind", "url", "displayUrl", "alt", "width", "height", "annotations"}
     assert body["kind"] == "image"
     assert body["annotations"] == []
     assert body["width"] == 64
@@ -734,7 +734,9 @@ def test_removing_an_image_from_a_page_body_withdraws_it(viewer, author):
     assert viewer.get(f"/api/media/{image['id']}").status_code == 200
 
     save_page(author, page, body="The picture has gone.")
+    assert viewer.get(f"/api/media/{image['id']}").status_code == 200, "readers still have the version that shows it"
 
+    assert author.post(f"/api/pages/{page['id']}/publish").status_code == 200
     assert viewer.get(f"/api/media/{image['id']}").status_code == 404
 
 

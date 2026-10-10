@@ -28,6 +28,11 @@ export interface ServerOwned {
   version: number
   updatedAt: string
   publishedAt: string | null
+  /**
+   * Whether the saved copy differs from what readers have. Only the server can
+   * say: it is the one holding the published version to compare against.
+   */
+  hasUnpublishedChanges: boolean
 }
 
 /**
@@ -43,6 +48,7 @@ function withServerFields<T extends ServerOwned>(local: T, server: T): T {
     version: server.version,
     updatedAt: server.updatedAt,
     publishedAt: server.publishedAt,
+    hasUnpublishedChanges: server.hasUnpublishedChanges,
   }
 }
 
@@ -74,6 +80,12 @@ export interface Autosave<T> {
   adopt: (document: T) => void
   /** Replaces the document outright and marks it clean, discarding local edits. */
   reset: (document: T) => void
+  /**
+   * Resolves once no save is in the air. For an action that is about to
+   * replace the document on the server and must not be overtaken by a save
+   * that left before it.
+   */
+  settled: () => Promise<void>
   /** Shows a failure from a related action (an upload, a publish) in the same place. */
   reportError: (error: unknown) => void
 }
@@ -218,6 +230,12 @@ export function useAutosave<T extends ServerOwned>({
     [apply],
   )
 
+  const settled = useCallback(async () => {
+    while (inFlightRef.current) {
+      await inFlightRef.current.catch(() => undefined)
+    }
+  }, [])
+
   const reportError = useCallback((cause: unknown) => {
     setError(cause)
   }, [])
@@ -231,6 +249,7 @@ export function useAutosave<T extends ServerOwned>({
     saveNow: persist,
     adopt,
     reset,
+    settled,
     reportError,
   }
 }

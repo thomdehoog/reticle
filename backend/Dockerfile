@@ -9,8 +9,17 @@
 #
 # Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 
-# Minor version and distribution are pinned; patch releases arrive on rebuild.
-# To pin harder, append the digest: python:3.13-slim-bookworm@sha256:...
+# Minor version and distribution are pinned; patch releases of the base image
+# arrive on rebuild, and Dependabot proposes the next minor.
+#
+# To pin the base image to exact bytes, append its digest:
+#
+#   ARG PYTHON_IMAGE=python:3.13-slim-bookworm@sha256:<digest>
+#
+# (find it with `docker buildx imagetools inspect python:3.13-slim-bookworm`).
+# The price is that security fixes to the base image then arrive only when
+# somebody — or Dependabot — moves the digest. The Python packages below are
+# pinned to hashes either way.
 ARG PYTHON_IMAGE=python:3.13-slim-bookworm
 
 
@@ -24,11 +33,19 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 
 RUN python -m venv /opt/venv
 
-# Only the requirements file, so this layer is rebuilt when the dependencies
-# change and not every time a line of application code does.
-COPY backend/requirements.txt /tmp/requirements.txt
+# Only the lock file, so this layer is rebuilt when the dependencies change
+# and not every time a line of application code does.
+#
+# requirements.lock is requirements.txt resolved to exact versions, every one
+# with the hashes of its published files (pip-compile; the command is in the
+# lock file's header and in docs/MAINTENANCE.md, section 5). --require-hashes makes pip
+# refuse anything that is not in the lock or whose bytes differ from what was
+# locked: a build next month installs what was tested this month, and a
+# tampered or re-uploaded package fails the build instead of entering it.
+COPY backend/requirements.lock /tmp/requirements.lock
 RUN --mount=type=cache,target=/root/.cache/pip \
-    /opt/venv/bin/pip install -r /tmp/requirements.txt \
+    /opt/venv/bin/pip install --require-hashes -r /tmp/requirements.lock \
+ && /opt/venv/bin/pip check \
  && rm -rf /opt/venv/lib/python*/site-packages/pip \
            /opt/venv/lib/python*/site-packages/pip-*.dist-info \
            /opt/venv/bin/pip*

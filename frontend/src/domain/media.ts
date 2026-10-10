@@ -49,6 +49,33 @@ export function uploadLimitsFrom(answer: unknown): UploadLimits {
   return limits
 }
 
+/**
+ * The longest side of the copy of an image the server hands out for display
+ * (`Media.displayUrl`). A picture no larger than this has no separate copy —
+ * what is shown *is* the original — so there is nothing more to offer.
+ */
+export const DISPLAY_MAX_SIDE = 2560
+
+/** Whether the original is larger than what the reader is being shown. */
+export function hasLargerOriginal(media: { width: number | null; height: number | null }): boolean {
+  return Math.max(media.width ?? 0, media.height ?? 0) > DISPLAY_MAX_SIDE
+}
+
+const BARE_MEDIA_URL = /^\/api\/media\/[0-9A-Za-z]+$/
+
+/**
+ * The address to load for a picture written into a wiki page.
+ *
+ * A page body names an upload by its plain address, `/api/media/<id>`, because
+ * that is what the editor inserts and what pages written before display copies
+ * existed contain. Shown as it stands, that is the full original. An address
+ * that already says which size it wants, and any address that is not one of
+ * ours, is left exactly as the author wrote it.
+ */
+export function displayUrlFor(src: string): string {
+  return BARE_MEDIA_URL.test(src) ? `${src}?size=display` : src
+}
+
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 const VIDEO_TYPES = ['video/mp4', 'video/webm']
 

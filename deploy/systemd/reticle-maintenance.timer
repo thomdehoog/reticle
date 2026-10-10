@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly Reticle housekeeping
+
+[Timer]
+# Sunday, two hours after the nightly backup (02:30 plus its jitter): whatever
+# this removes is in last night's archive, should it turn out to be missed.
+OnCalendar=Sun *-*-* 04:30:00
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

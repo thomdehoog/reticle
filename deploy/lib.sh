@@ -34,11 +34,18 @@ app_is_running() {
     [ -n "$(compose ps --status running --quiet app 2>/dev/null)" ]
 }
 
+# Running AND answering its health check. A container that Docker is
+# restarting over and over (one that refuses to start, say) is "running" for a
+# second at a time; a command sent into it dies with it.
+app_is_healthy() {
+    [ "$(compose ps --format '{{.Health}}' app 2>/dev/null | head -n 1)" = "healthy" ]
+}
+
 # Run a command in the application image with the data volume attached: inside
-# the running container when there is one, in a throwaway one when there is
+# the serving container when there is one, in a throwaway one when there is
 # not (so a backup can still be taken from a stack that will not start).
 in_app() {
-    if app_is_running; then
+    if app_is_healthy; then
         compose exec -T app "$@"
     else
         compose run --rm --no-deps -T app "$@"

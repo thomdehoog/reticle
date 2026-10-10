@@ -8,6 +8,7 @@
 import type {
   Category,
   ContentStatus,
+  ContentView,
   Guide,
   GuideSummary,
   Media,
@@ -116,8 +117,14 @@ export class ReticleApi {
     return this.http.get<GuideSummary[]>(`/guides${queryString(query)}`)
   }
 
-  getGuide(idOrSlug: string): Promise<Guide> {
-    return this.http.get<Guide>(`/guides/${encodeURIComponent(idOrSlug)}`)
+  /**
+   * One guide. A viewer always receives the published snapshot. An author
+   * receives the working copy — what the editor needs — unless `view` is
+   * `'published'`, which is exactly what a viewer would get and is `not_found`
+   * for a guide that is not published at the moment.
+   */
+  getGuide(idOrSlug: string, view?: ContentView): Promise<Guide> {
+    return this.http.get<Guide>(`/guides/${encodeURIComponent(idOrSlug)}${queryString({ view })}`)
   }
 
   createGuide(title: string, categoryId: string): Promise<Guide> {
@@ -144,6 +151,14 @@ export class ReticleApi {
     return this.http.post<Guide>(`/guides/${id}/unpublish`)
   }
 
+  /**
+   * Discards unpublished changes: the working copy becomes the published
+   * version again. Resolves to that working copy.
+   */
+  revertGuide(id: string): Promise<Guide> {
+    return this.http.post<Guide>(`/guides/${id}/revert`)
+  }
+
   archiveGuide(id: string): Promise<void> {
     return this.http.delete<void>(`/guides/${id}`)
   }
@@ -156,9 +171,17 @@ export class ReticleApi {
     return this.http.post<void>(`/guides/${id}/view`)
   }
 
-  /** A link, not a request: the browser downloads the PDF with the session cookie. */
-  guidePdfUrl(idOrSlug: string): string {
-    return this.http.url(`/guides/${encodeURIComponent(idOrSlug)}/pdf`)
+  /**
+   * The guide as a PDF file.
+   *
+   * A request, not a link: the export is rationed, and a busy server answers
+   * `rate_limited` with how long to wait. Followed as a plain link, that answer
+   * would have been saved to disk as "guide.pdf".
+   */
+  downloadGuidePdf(idOrSlug: string, view?: ContentView): Promise<Blob> {
+    return this.http.download(
+      `/guides/${encodeURIComponent(idOrSlug)}/pdf${queryString({ view })}`,
+    )
   }
 
   listGuideRevisions(id: string): Promise<RevisionSummary[]> {
@@ -173,8 +196,9 @@ export class ReticleApi {
     return this.http.get<PageSummary[]>(`/pages${queryString(query)}`)
   }
 
-  getPage(idOrSlug: string): Promise<Page> {
-    return this.http.get<Page>(`/pages/${encodeURIComponent(idOrSlug)}`)
+  /** One page; `view` as for `getGuide`. */
+  getPage(idOrSlug: string, view?: ContentView): Promise<Page> {
+    return this.http.get<Page>(`/pages/${encodeURIComponent(idOrSlug)}${queryString({ view })}`)
   }
 
   /**
@@ -182,8 +206,8 @@ export class ReticleApi {
    * see — the server answers 200 with a JSON `null`, not 404, so "no landing
    * page" is an ordinary result rather than an error to catch.
    */
-  getCategoryLandingPage(categoryId: string): Promise<Page | null> {
-    return this.http.get<Page | null>(`/categories/${categoryId}/page`)
+  getCategoryLandingPage(categoryId: string, view?: ContentView): Promise<Page | null> {
+    return this.http.get<Page | null>(`/categories/${categoryId}/page${queryString({ view })}`)
   }
 
   createPage(input: NewPageInput): Promise<Page> {
@@ -203,6 +227,10 @@ export class ReticleApi {
 
   unpublishPage(id: string): Promise<Page> {
     return this.http.post<Page>(`/pages/${id}/unpublish`)
+  }
+
+  revertPage(id: string): Promise<Page> {
+    return this.http.post<Page>(`/pages/${id}/revert`)
   }
 
   archivePage(id: string): Promise<void> {
@@ -247,6 +275,11 @@ export class ReticleApi {
   /** Where the browser fetches a media item's bytes, for an `<img>` built from an id. */
   mediaUrl(id: string): string {
     return this.http.url(`/media/${encodeURIComponent(id)}`)
+  }
+
+  /** The copy of an image meant for showing; see `Media.displayUrl`. */
+  mediaDisplayUrl(id: string): string {
+    return `${this.mediaUrl(id)}?size=display`
   }
 
   listUsers(): Promise<User[]> {

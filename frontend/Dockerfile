@@ -8,6 +8,10 @@
 #
 # Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 
+# Readable tags; Dependabot proposes updates. Any of the three can be pinned
+# to exact bytes by appending @sha256:<digest> (see backend/Dockerfile). The
+# npm packages are pinned to hashes by package-lock.json, which `npm ci`
+# enforces.
 ARG NODE_IMAGE=node:22-bookworm-slim
 ARG CADDY_IMAGE=caddy:2.11-alpine
 ARG ALPINE_IMAGE=alpine:3.22

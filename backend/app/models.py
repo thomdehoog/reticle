@@ -73,6 +73,12 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16), default="viewer")
     password_hash: Mapped[str] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Counts the times this account's credentials stopped being what they were:
+    # a password change, an administrator's reset, a deactivation. Everything
+    # that vouches for "this browser has signed in to this account" is signed
+    # over the number, so raising it withdraws every such voucher at once
+    # without there having to be a table of them.
+    auth_epoch: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, onupdate=utcnow)
 
@@ -116,7 +122,9 @@ class LoginAttempt(Base):
     restart is not a free reset for an attacker mid-spray.
 
     ``key`` is wide enough for the longest scope, ``email_ip``, whose key is an
-    address and a source address joined together.
+    address and a source address joined together. ``scope`` is one of
+    ``email``, ``ip``, ``email_ip``, ``device`` and ``devices``; see
+    ``security.login_is_throttled`` for what each one counts.
     """
 
     __tablename__ = "login_attempts"
@@ -189,6 +197,11 @@ class ContentMixin:
     counter and the record of who touched it are one mechanism in ``content``;
     these are the columns that mechanism reads and writes, declared once so the
     two tables cannot drift apart.
+
+    The row, with its steps or its body, is the **working copy**: what the
+    editor loads and autosaves into. It is not what readers are served. Readers
+    get the snapshot written by the last publish, and the ``published_*`` tables
+    below are that snapshot's listing and search columns.
     """
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
@@ -201,6 +214,13 @@ class ContentMixin:
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, index=True)
     published_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    # The ``updated_at`` this row carried when it last read the same as its
+    # published snapshot: set by a publish, by discarding changes, and by a save
+    # that happens to restore the published text. Every edit moves
+    # ``updated_at`` on, so "has unpublished changes" is the two differing —
+    # one comparison, available to a listing without opening a snapshot. A view
+    # is counted without touching either.
+    snapshot_updated_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
     @declared_attr
     def author_id(cls) -> Mapped[str]:
@@ -221,6 +241,11 @@ class ContentMixin:
     @property
     def contributors(self) -> list[User]:
         return [link.user for link in self.contributor_links]
+
+    @property
+    def has_unpublished_changes(self) -> bool:
+        """Whether readers are being shown something older than the working copy."""
+        return self.status == PUBLISHED and self.snapshot_updated_at != self.updated_at
 
 
 class ContributorMixin:
@@ -303,6 +328,69 @@ class GuideRevision(RevisionMixin, Base):
     __table_args__ = (UniqueConstraint("guide_id", "version", name="uq_guide_revision_version"),)
 
     owner_id: Mapped[str] = mapped_column("guide_id", ForeignKey("guides.id", ondelete="CASCADE"), index=True)
+
+
+class PublishedGuide(Base):
+    """The listing and search columns of a guide's published snapshot.
+
+    One row per guide that is currently published, written in the transaction
+    that writes the snapshot and removed when the guide is unpublished or
+    archived. It exists so that what a viewer may list, filter and search is a
+    ``WHERE`` clause over the *published* text: the working copy an author is
+    half-way through must not match a reader's search, and opening every
+    snapshot's JSON to find out would not survive a landing page that embeds
+    eighty guides. The snapshot itself is ``revision``; this is its index.
+    """
+
+    __tablename__ = "published_guides"
+
+    owner_id: Mapped[str] = mapped_column(
+        "guide_id", ForeignKey("guides.id", ondelete="CASCADE"), primary_key=True
+    )
+    revision_id: Mapped[str] = mapped_column(ForeignKey("guide_revisions.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(240))
+    summary: Mapped[str] = mapped_column(Text, default="")
+    category_id: Mapped[str] = mapped_column(ForeignKey("categories.id"), index=True)
+    difficulty: Mapped[str] = mapped_column(String(20), default="moderate")
+    time_required_min_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    time_required_max_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    step_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Step titles and bullet text, one per line: what search looks through.
+    search_text: Mapped[str] = mapped_column(Text, default="")
+
+    revision: Mapped[GuideRevision] = relationship()
+    tags: Mapped[list[Tag]] = relationship(secondary="published_guide_tags", order_by="Tag.slug", viewonly=True)
+
+    @property
+    def tag_slugs(self) -> list[str]:
+        return sorted(tag.slug for tag in self.tags)
+
+
+class PublishedGuideTag(Base):
+    """The tags the published snapshot carries, which need not be the working copy's."""
+
+    __tablename__ = "published_guide_tags"
+
+    owner_id: Mapped[str] = mapped_column(
+        "guide_id", ForeignKey("published_guides.guide_id", ondelete="CASCADE"), primary_key=True
+    )
+    tag_id: Mapped[str] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True, index=True)
+
+
+class PublishedGuideMedia(Base):
+    """The uploads the published snapshot shows.
+
+    This, and not ``step_media``, is what decides whether a viewer may fetch a
+    file: a screenshot dropped into an unpublished edit is in the working copy
+    at once and is nobody's to see until that edit is published.
+    """
+
+    __tablename__ = "published_guide_media"
+
+    owner_id: Mapped[str] = mapped_column(
+        "guide_id", ForeignKey("published_guides.guide_id", ondelete="CASCADE"), primary_key=True
+    )
+    media_id: Mapped[str] = mapped_column(ForeignKey("media.id", ondelete="CASCADE"), primary_key=True, index=True)
 
 
 class Step(Base):
@@ -446,6 +534,39 @@ class PageRevision(RevisionMixin, Base):
     __table_args__ = (UniqueConstraint("page_id", "version", name="uq_page_revision_version"),)
 
     owner_id: Mapped[str] = mapped_column("page_id", ForeignKey("pages.id", ondelete="CASCADE"), index=True)
+
+
+class PublishedPage(Base):
+    """The listing and search columns of a page's published snapshot.
+
+    The counterpart of :class:`PublishedGuide`. ``body`` is kept here in full
+    because the body is what a page search matches on.
+    """
+
+    __tablename__ = "published_pages"
+
+    owner_id: Mapped[str] = mapped_column(
+        "page_id", ForeignKey("pages.id", ondelete="CASCADE"), primary_key=True
+    )
+    revision_id: Mapped[str] = mapped_column(ForeignKey("page_revisions.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(240))
+    summary: Mapped[str] = mapped_column(Text, default="")
+    category_id: Mapped[str | None] = mapped_column(ForeignKey("categories.id"), nullable=True, index=True)
+    is_landing: Mapped[bool] = mapped_column(Boolean, default=False)
+    body: Mapped[str] = mapped_column(Text, default="")
+
+    revision: Mapped[PageRevision] = relationship()
+
+
+class PublishedPageMedia(Base):
+    """The uploads a published page shows: its hero and whatever its body points at."""
+
+    __tablename__ = "published_page_media"
+
+    owner_id: Mapped[str] = mapped_column(
+        "page_id", ForeignKey("published_pages.page_id", ondelete="CASCADE"), primary_key=True
+    )
+    media_id: Mapped[str] = mapped_column(ForeignKey("media.id", ondelete="CASCADE"), primary_key=True, index=True)
 
 
 class PageMedia(Base):

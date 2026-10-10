@@ -31,8 +31,10 @@ from ..security import (
     DEVICE_COOKIE_MAX_AGE_SECONDS,
     SESSION_COOKIE,
     LoginSubject,
+    DEVICE_TOKEN_REFRESH_SECONDS,
     burn_password_time,
     create_session,
+    device_token_age,
     email_fingerprint,
     forgive_login_attempts,
     hash_password,
@@ -138,7 +140,19 @@ def login(payload: LoginIn, request: Request, response: Response, db: DbDep) -> 
     email = payload.email.strip().lower()
     address = client_address(request)
     device_token = request.cookies.get(DEVICE_COOKIE)
-    subject = LoginSubject.of(email, address, device_token)
+
+    # The account is looked up first because a device cookie is only as good as
+    # the credentials it was earned with: it is checked against the account's
+    # present epoch, and against nothing at all when the account is unknown or
+    # switched off. Either way the request below is throttled, and refused when
+    # over the limit, before any password hashing is done — for a real account
+    # and for the decoy alike.
+    user = db.scalars(select(User).where(User.email == email)).one_or_none()
+    user_id = user.id if user is not None else None
+    active = user is not None and user.is_active
+    stored_hash = user.password_hash if active else None
+    auth_epoch = user.auth_epoch if active else None
+    subject = LoginSubject.of(email, address, device_token, auth_epoch)
 
     prune_if_due(db)
     if login_is_throttled(db, subject):
@@ -147,9 +161,6 @@ def login(payload: LoginIn, request: Request, response: Response, db: DbDep) -> 
         raise errors.rate_limited()
 
     attempt_ids = record_login_attempt(db, subject)
-    user = db.scalars(select(User).where(User.email == email)).one_or_none()
-    user_id = user.id if user is not None else None
-    stored_hash = user.password_hash if user is not None and user.is_active else None
     db.commit()
 
     if stored_hash is None:
@@ -186,11 +197,16 @@ def login(payload: LoginIn, request: Request, response: Response, db: DbDep) -> 
     )
     csrf_token = session_row.csrf_token
     body = user_out(user)
+    # Read again rather than reused from above: the password may have been
+    # changed while this one was being verified, and the cookie has to be
+    # signed for the epoch the account is in now.
+    current_epoch = user.auth_epoch
     db.commit()
 
     set_session_cookies(response, token, csrf_token, settings)
-    if subject.device is None:
-        set_device_cookie(response, new_device_token(email), settings)
+    age = device_token_age(device_token)
+    if subject.device is None or age is None or age > DEVICE_TOKEN_REFRESH_SECONDS:
+        set_device_cookie(response, new_device_token(email, current_epoch), settings)
     return body
 
 

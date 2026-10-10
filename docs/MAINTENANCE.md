@@ -15,6 +15,7 @@ Your real obligations are short:
 | --- | --- |
 | Automatic, nightly | Backups run (set up once, section 2) |
 | Automatic, daily | Backups are copied off the machine (section 2) |
+| Automatic, weekly | Housekeeping removes what nothing refers to (set up once, section 7) |
 | Monthly, 5 minutes | Confirm last night's backup exists and has a sensible size |
 | Every 6 months | Restore a backup somewhere else and log in to it (section 3) |
 | When staff change | Add or deactivate the person (section 4) |
@@ -35,7 +36,12 @@ One Docker volume, `reticle_reticle-data`, mounted in the `app` container at
   folded into the main one. The three files are one database. Copying only
   `reticle.db`, or copying all three while the server is writing, can give
   you a file that opens today and fails next month.
-- `/data/media/` — every uploaded image and video.
+- `/data/media/` — every uploaded image and video, and next to each image
+  the smaller display copy that readers are actually sent.
+
+Also on the volume, and deliberately in no backup because nothing in it is
+needed to rebuild the site: `/data/tmp/` (uploads in transit) and the cache of
+rendered PDFs (`/data/media/.pdf-cache/`).
 
 Outside the volume, and not in any backup archive:
 
@@ -66,9 +72,22 @@ What it does, and why each part is there:
   volume while the stack runs.
 - The snapshot is **integrity-checked** before it goes into the archive, and
   the finished archive is read back before the script reports success.
-- **Database first, media second.** Uploaded files are written once and never
-  modified, so the media in the archive is always at least what the database
-  snapshot refers to.
+- **Database first, media second.** An uploaded file is on disk before the
+  database learns about it, so everything the snapshot refers to is there to
+  be copied.
+- **An upload in progress does not break the backup.** A video that is still
+  arriving at 02:30 is not in the database snapshot yet, so it is left out —
+  the run reports it ("left for the next backup") and succeeds, and the
+  file is in tomorrow's archive. The same goes for a file that somebody
+  deletes while the backup runs. What *does* fail the backup is a file the
+  snapshot refers to that cannot be read.
+- **Scratch and cache directories are left out**: anything in a directory
+  called `tmp` or `cache`, or whose name starts with a dot — which is where
+  the cache of rendered PDFs lives (`.pdf-cache`) — and any file that is by
+  its name unfinished. Display copies of images *are* included, so a restored
+  site is as fast as the one that was backed up. The rule for what is taken
+  from the media directory is written down in exactly one place, at the top
+  of `deploy/docker/dbtool.py`.
 - A failed run leaves **no partial archive** behind and exits non-zero.
 - Archives older than `RETICLE_BACKUP_KEEP_DAYS` (default 14) are deleted —
   only after a successful run, so a backup that has been failing for a month
@@ -78,6 +97,16 @@ What it does, and why each part is there:
 
 It also works when the `app` container is stopped or will not start (it then
 uses a throwaway container on the same volume) — worth knowing on a bad day.
+
+If the output includes `warning: the database refers to …, which is not on
+disk`, the backup is still good, but look: either someone deleted that upload
+in the seconds between the two halves of the backup (harmless), or a file has
+gone missing from the media directory (not harmless — the previous archives
+still have it).
+
+A successful run also leaves a small note on the data volume saying that a
+backup of the database as it now is exists. That note is what lets an upgrade
+that changes the database go ahead (section 5).
 
 Settings, in `.env`: `RETICLE_BACKUP_DIR` (default `./backups`),
 `RETICLE_BACKUP_KEEP_DAYS`. A directory given on the command line wins:
@@ -130,9 +159,10 @@ It shows what is in the archive, asks you to type `restore`, and then:
 2. stops the site;
 3. checks the database in the archive, and only then replaces the database
    (removing the old `-wal` and `-shm` files, which would otherwise be
-   replayed into the restored one) and the media directory;
-4. starts the site and waits until it is healthy. If the backup comes from an
-   older release, its schema is upgraded on the way up.
+   replayed into the restored one) and the media directory, and empties the
+   caches — a cached PDF belongs to the database that has just been replaced;
+4. if the backup comes from an older release, upgrades its schema;
+5. starts the site and waits until it is healthy.
 
 An unreadable archive, or one with a damaged database inside, stops before
 anything is touched. `--yes` skips the question (for scripts);
@@ -156,6 +186,7 @@ git clone https://github.com/thomdehoog/reticle reticle-drill && cd reticle-dril
 cat > .env <<EOF
 RETICLE_DOMAIN=localhost
 RETICLE_SECRET_KEY=$(openssl rand -base64 48)
+RETICLE_VERSION=dev
 RETICLE_TLS_MODE=off
 RETICLE_COOKIE_SECURE=false
 RETICLE_HTTP_PORT=8080
@@ -186,6 +217,13 @@ Everything is in **People** in the top bar (admins only).
 - **"Too many attempts"** — sign-in is throttled after repeated wrong
   passwords, for 15 minutes. Waiting fixes it; there is nothing to reset. If
   *everybody* is throttled at once, that is the proxy problem in section 9.
+- **A browser is remembered, for a while.** After a successful sign-in the
+  browser keeps a signed "this device has signed in to this account before"
+  cookie, which is what stops a stranger's wrong guesses from locking a
+  colleague out. That cookie now expires, and changing the account's password
+  — by the person or by an admin — invalidates it everywhere, together with
+  the account's sessions. So after a password change every device signs in
+  afresh; that is intended.
 
 Keep at least two admins. One admin who is on sabbatical is not an admin.
 
@@ -207,13 +245,22 @@ passwords.
 ## 5. Updates
 
 ```bash
+tar -xzf reticle-deploy-<new version>.tar.gz --strip-components=1 -C /opt/reticle
 nano .env                # RETICLE_VERSION=<new version>
 deploy/upgrade.sh
 ```
 
-It backs up, fetches the new images and restarts on them; the database schema
-is migrated automatically as the new `app` container starts. Details, and how
-to go back if it goes wrong, are in `DEPLOYMENT.md` sections 7 and 8.
+It backs up, fetches the new images, migrates the database if the release
+changes its schema, and restarts. Details, and how to go back if it goes
+wrong, are in `DEPLOYMENT.md` sections 7 and 8.
+
+**Use the script, not `docker compose pull && docker compose up -d`.** If you
+do the latter with a release that changes the database, nothing is damaged —
+the new container refuses to start, says why in `docker compose logs app`,
+and leaves the database alone — but the site is down until you either run
+`deploy/upgrade.sh` or put the old version number back. A release is only
+allowed to migrate the database when a backup was taken within the last hour;
+the script is what takes it.
 
 Other things that need updating, and how they get it:
 
@@ -224,10 +271,37 @@ Other things that need updating, and how they get it:
   release. Upgrading Reticle is how they are refreshed; if there has been no
   release for months and you build from a checkout,
   `deploy/upgrade.sh --build` rebuilds on current base images.
-- **Dependencies** (for whoever cuts releases): `backend/requirements.txt` and
-  `frontend/package.json` pin to compatible releases, so patch and minor
-  updates arrive on rebuild and major versions never arrive by surprise. Bump
-  majors deliberately, one at a time, with CI green before tagging.
+- **Dependencies** (for whoever cuts releases). Nothing arrives on its own
+  any more; everything a build takes from elsewhere is pinned, and Dependabot
+  (`.github/dependabot.yml`) opens a pull request when a pin can move:
+
+  | What | Pinned by | Moved by |
+  | --- | --- | --- |
+  | Python packages | `backend/requirements.lock` — exact versions with file hashes; the image is built with `pip install --require-hashes` | you, with the command below |
+  | npm packages | `frontend/package-lock.json`, enforced by `npm ci` | Dependabot |
+  | GitHub Actions | full commit SHAs in `.github/workflows/` | Dependabot |
+  | Base images | minor-version tags in the two Dockerfiles (a digest can be appended; the Dockerfiles say how) | Dependabot |
+
+  `backend/requirements.txt` stays the file people edit: the direct
+  dependencies, as ranges. `requirements.lock` is generated from it and never
+  edited by hand. After changing `requirements.txt`, or to take newer
+  versions within its ranges, regenerate the lock **with Python 3.13 on
+  Linux** (what the image runs — the lock is resolved for the interpreter
+  that runs the command):
+
+  ```bash
+  cd backend
+  python3.13 -m pip install pip-tools
+  pip-compile --generate-hashes --strip-extras --output-file=requirements.lock requirements.txt            # after editing requirements.txt
+  pip-compile --generate-hashes --strip-extras --output-file=requirements.lock --upgrade requirements.txt  # take newer versions
+  ```
+
+  CI installs from the lock, runs the tests on exactly that set, and fails if
+  the lock no longer satisfies `requirements.txt`. One gap to know about:
+  Dependabot does not understand the `.lock` name, so its Python pull
+  requests change `requirements.txt` only and stay red until someone runs the
+  command above on that branch. Bump majors deliberately, one at a time, with
+  CI green before tagging.
 
 ## 6. Logs
 
@@ -277,13 +351,63 @@ What grows, in the order it usually matters:
 1. **Backups** — full copies, times the retention.
 2. **Media** — videos above all. The 20 largest files:
    `docker compose exec app sh -c 'find /data/media -type f -exec ls -s {} + | sort -rn | head -20'`
+   What can be reclaimed is under "Housekeeping" below.
 3. **Old images** after upgrades. `docker image prune` removes the ones no
    container uses. Keep the previous release until the new one has proven
    itself — it is your rollback.
 
-Media is never removed automatically: a file stays on disk after the step
-or page that showed it is deleted. There is no clean-up of unreferenced
-uploads yet, so the media directory only ever grows.
+### Housekeeping: uploads nothing refers to
+
+Removing an image from a step, or deleting the step, does not delete the
+file: until the next publish the version people are reading may still show
+it, and "undo" should work. So files accumulate that no guide, page or kept
+version refers to any more. The housekeeping command removes those — together
+with expired sessions, old sign-in attempts and cached PDFs of versions that
+are no longer current:
+
+```bash
+deploy/maintenance.sh purge-orphans --dry-run     # what would go; nothing is deleted
+deploy/maintenance.sh purge-orphans               # do it
+deploy/maintenance.sh purge-orphans --help        # the options of the release you run
+```
+
+The script is a thin wrapper: everything after its name goes unchanged to
+`python -m app.maintenance` inside the `app` container, so the authoritative
+list of options is `--help`, not this page. The one you are most likely to
+want is `--older-than-days N`, which spares anything uploaded in the last N
+days — an author may have uploaded this morning what they will place this
+afternoon.
+
+Schedule it weekly; the timer runs on Sunday at 04:30, two hours after the
+nightly backup, so whatever it removes is in the archive taken that night:
+
+```bash
+sudo cp deploy/systemd/reticle-maintenance.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now reticle-maintenance.timer
+journalctl -u reticle-maintenance.service -n 40   # what it removed last time
+```
+
+(or cron: `30 4 * * 0 /opt/reticle/deploy/maintenance.sh purge-orphans >> /var/log/reticle-maintenance.log 2>&1`).
+
+What it deletes is gone from the live site for good; the way back is a
+backup. Run it with `--dry-run` once by hand before you enable the timer, and
+read the list.
+
+**One upload that should never have happened** — the wrong file, a screenshot
+with a patient name in it — does not have to wait for Sunday: an
+administrator can delete a single upload outright
+(`DELETE /api/media/{id}`; `API.md` describes what happens to the places
+that showed it). The file and its display copy are removed from the server
+for good. That does not reach into backups: an archive taken while the file
+existed still contains it, until that archive ages out
+(`RETICLE_BACKUP_KEEP_DAYS`) or you delete it — and the same is true of
+wherever the archives are copied to.
+
+**A ceiling, if you want one.** `RETICLE_MAX_MEDIA_STORE_BYTES` in `.env`
+makes the server refuse further uploads once the media directory holds that
+much, with a message that says so, instead of filling the disk. Unset, there
+is no ceiling. After changing it: `docker compose up -d`.
 
 A full disk shows up as failed uploads first and as failed saves ("database or
 disk is full" in `docker compose logs app`) second. Free space, then
@@ -335,6 +459,11 @@ docker compose logs --tail 50 web
 | Symptom | Usual cause | Fix |
 | --- | --- | --- |
 | `docker compose` prints "Set RETICLE_SECRET_KEY…" or "Set RETICLE_DOMAIN…" and does nothing | `.env` is missing, or you are not in `/opt/reticle` | `cd /opt/reticle`; create `.env` from `.env.example` |
+| `docker compose` prints "Set RETICLE_VERSION…" | `.env` names no release; there is deliberately no default | `RETICLE_VERSION=<the release you run>` — `docker compose images` or the bundle's `.env.example` tells you which; `dev` for a git checkout |
+| After `docker compose pull && docker compose up -d` the site is down; `app` log says "NOT STARTED, and nothing has been changed … has to migrate the database" | The new release changes the database and no backup was taken first | `deploy/upgrade.sh` — or put the old `RETICLE_VERSION` back and `docker compose up -d`. Nothing was damaged (section 5) |
+| `backup.sh`: "files the database refers to could not be copied" | A media file is unreadable (permissions, a failing disk) | Read the lines above it for the file; check `dmesg` and the disk. Earlier archives still hold the file |
+| PDF export answers "busy" (HTTP 429) | Several exports were being rendered at once; rendering is rationed so it cannot slow the site | Try again in a few seconds. A version that has been exported once is served from the cache |
+| Uploads are refused with a message about the media store being full | `RETICLE_MAX_MEDIA_STORE_BYTES` has been reached | `deploy/maintenance.sh purge-orphans`, or raise the ceiling (section 7) |
 | `web` keeps restarting; log ends with `File to import not found: modes/….caddy` | Typo in `RETICLE_TLS_MODE` | It is one of `auto`, `files`, `internal`, `off` |
 | `web` keeps restarting; log ends with `open /certs/privkey.pem: permission denied` | The key is not readable by Caddy's user | `sudo chown 10002 deploy/certs/*.pem`, then `docker compose up -d` |
 | `web` keeps restarting; log says `no such file or directory` under `/certs` | File names differ from `fullchain.pem` / `privkey.pem` | Rename, or set `RETICLE_TLS_CERT_FILE` / `RETICLE_TLS_KEY_FILE` |
@@ -343,6 +472,7 @@ docker compose logs --tail 50 web
 | Site suddenly down for everyone with a certificate error | The certificate expired | Replace the files, `docker compose restart web` |
 | `app` keeps restarting; log mentions `secret_key` | `RETICLE_SECRET_KEY` shorter than 16 characters | Generate a proper one |
 | `app` will not start after going back to an older version; log explains the schema is newer | The newer release migrated the database | Restore the pre-upgrade backup, or return to the newer release (`DEPLOYMENT.md` section 8) |
+| An author's change does not show up for readers | It is in the working copy and has not been published | "Publish update" in the editor — or "Discard changes" if it was not meant to be |
 | `app` log: "already has tables but no migration history" | A database from a development build that predates migrations | There is no upgrade path; move it aside and start empty |
 | Site loads, but every action fails | The API is down or unhealthy | `docker compose ps`, read the `app` log, `docker compose restart app` |
 | Nobody can sign in, no error anywhere | The session cookie is not coming back: plain http with `RETICLE_COOKIE_SECURE=true` | Use HTTPS — or, for a localhost trial only, set it to `false` |

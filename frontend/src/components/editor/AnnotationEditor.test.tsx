@@ -37,6 +37,7 @@ const IMAGE: Media = {
   id: 'm1',
   kind: 'image',
   url: '/api/media/m1',
+  displayUrl: '/api/media/m1?size=display',
   alt: '',
   width: 800,
   height: 600,

@@ -33,14 +33,12 @@ describe('ReticleApi — the contract in docs/API.md', () => {
     ])
   })
 
-  it('builds the PDF address without asking the server anything', () => {
+  it('builds media addresses without asking the server anything', () => {
     const { api, calls } = recordingApi()
 
-    expect(api.guidePdfUrl('confocal-startup')).toBe('/api/guides/confocal-startup/pdf')
-    expect(api.guidePdfUrl('a slug/with?odd#bits')).toBe(
-      '/api/guides/a%20slug%2Fwith%3Fodd%23bits/pdf',
-    )
     expect(api.mediaUrl('m1')).toBe('/api/media/m1')
+    expect(api.mediaDisplayUrl('m1')).toBe('/api/media/m1?size=display')
+    expect(api.mediaUrl('a/b')).toBe('/api/media/a%2Fb')
     expect(calls).toHaveLength(0)
   })
 
@@ -111,5 +109,52 @@ describe('ReticleApi — the contract in docs/API.md', () => {
     await api.listGuides({ tags: 'stellaris,confocal', categoryId: '' })
 
     expect(calls[0].url).toBe('/api/guides?tags=stellaris%2Cconfocal')
+  })
+
+  it('asks for the published version only when told to', async () => {
+    const { api, calls } = recordingApi(json({}))
+
+    await api.getGuide('confocal-startup')
+    await api.getGuide('confocal-startup', 'published')
+    await api.getPage('rules', 'published')
+    await api.getPage('a slug/with?odd#bits', 'working')
+    await api.getCategoryLandingPage('c1')
+    await api.getCategoryLandingPage('c1', 'published')
+
+    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
+      'GET /api/guides/confocal-startup',
+      'GET /api/guides/confocal-startup?view=published',
+      'GET /api/pages/rules?view=published',
+      'GET /api/pages/a%20slug%2Fwith%3Fodd%23bits?view=working',
+      'GET /api/categories/c1/page',
+      'GET /api/categories/c1/page?view=published',
+    ])
+  })
+
+  it('discards unpublished changes with a POST that carries no body', async () => {
+    const { api, calls } = recordingApi(json({}))
+
+    await api.revertGuide('g1')
+    await api.revertPage('p1')
+
+    expect(calls).toEqual([
+      { method: 'POST', url: '/api/guides/g1/revert', body: undefined },
+      { method: 'POST', url: '/api/pages/p1/revert', body: undefined },
+    ])
+  })
+
+  it('fetches the PDF as a file, for the view it is asked for', async () => {
+    const { api, calls } = recordingApi(
+      () => new Response('%PDF-1.4', { headers: { 'Content-Type': 'application/pdf' } }),
+    )
+
+    const blob = await api.downloadGuidePdf('a slug/with?odd#bits')
+    await api.downloadGuidePdf('confocal-startup', 'published')
+
+    expect(await blob.text()).toBe('%PDF-1.4')
+    expect(calls.map((call) => call.url)).toEqual([
+      '/api/guides/a%20slug%2Fwith%3Fodd%23bits/pdf',
+      '/api/guides/confocal-startup/pdf?view=published',
+    ])
   })
 })

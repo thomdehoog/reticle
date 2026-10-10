@@ -205,7 +205,16 @@ export function AnnotationEditor({ media, bullets, onChange, onClose }: Annotati
 
         <div className="annotate__surface" ref={surfaceRef}>
           <div className="annotated" ref={ref}>
-            <img src={media.url} alt={media.alt} draggable={false} />
+            {/* The display copy: shapes are stored as fractions of the picture,
+                so drawing on the smaller file puts them in the same place. */}
+            <img
+              src={media.displayUrl ?? media.url}
+              alt={media.alt}
+              draggable={false}
+              decoding="async"
+              width={media.width ?? undefined}
+              height={media.height ?? undefined}
+            />
             {size.width > 0 && (
               <svg
                 className="annotated__overlay annotated__overlay--interactive"

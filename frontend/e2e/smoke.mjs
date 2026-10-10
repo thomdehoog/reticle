@@ -15,7 +15,7 @@
  */
 
 import { chromium } from 'playwright'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -52,6 +52,7 @@ const browser = await chromium.launch({
 for (const viewport of VIEWPORTS) {
   const context = await browser.newContext({
     viewport: { width: viewport.width, height: viewport.height },
+    acceptDownloads: true,
   })
   const page = await context.newPage()
 
@@ -153,16 +154,20 @@ for (const viewport of VIEWPORTS) {
     /* A published one: a draft has no history to list further down. */
     await page.locator('.guide-row:not(:has(.badge)) .guide-row__title').first().click()
     await page.waitForSelector('.guide__meta')
-    const pdf = page.getByRole('link', { name: 'PDF' })
-    const href = await pdf.getAttribute('href')
-    const answer = await page.evaluate(async (url) => {
-      const response = await fetch(url)
-      return `${response.status} ${response.headers.get('content-type')}`
-    }, href)
+    /* The PDF is fetched by the page, not followed as a link, so that a busy
+       server can be reported instead of saved to disk as "guide.pdf". What
+       matters here is what lands in the downloads folder. */
+    const pdf = page.getByRole('button', { name: 'PDF' })
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 30000 }),
+      pdf.click(),
+    ])
+    const saved = await download.path()
+    const opening = saved ? readFileSync(saved).subarray(0, 5).toString('latin1') : ''
     record(
-      `[${viewport.name}] PDF link downloads a PDF`,
-      (await pdf.getAttribute('download')) !== null && answer.startsWith('200 application/pdf'),
-      answer,
+      `[${viewport.name}] PDF button downloads a PDF`,
+      download.suggestedFilename().endsWith('.pdf') && opening === '%PDF-',
+      `${download.suggestedFilename()} starting ${JSON.stringify(opening)}`,
     )
     await checkWidth('guide')
 

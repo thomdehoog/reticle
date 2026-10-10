@@ -101,6 +101,14 @@ class Settings(BaseSettings):
     max_image_dimension: int = 10_000
     max_image_pixels: int = MAX_IMAGE_PIXELS_DEFAULT
     max_media_per_step: int = 3
+    # Total size of the stored uploads at which new ones are refused; 0 means
+    # no limit. A guard for a volume of known size, not an accounting system.
+    max_media_store_bytes: int = Field(default=0, ge=0)
+
+    # Where rendered PDF exports of published guides are kept. Unset, it is a
+    # ``.pdf-cache`` directory inside the media root, which is writable on every
+    # installation that can accept an upload. Nothing in it needs backing up.
+    pdf_cache_dir: Path | None = None
 
     min_password_length: int = 12
 
@@ -111,6 +119,16 @@ class Settings(BaseSettings):
     admin_email: str = "admin@zmb.uzh.ch"
     admin_password: str | None = None
     demo_password: str | None = None
+
+    @property
+    def pdf_cache_root(self) -> Path:
+        return self.pdf_cache_dir if self.pdf_cache_dir is not None else self.media_root / ".pdf-cache"
+
+    @field_validator("pdf_cache_dir", mode="before")
+    @classmethod
+    def _empty_means_default(cls, value: object) -> object:
+        """``RETICLE_PDF_CACHE_DIR=`` in an env file means "not set", not the current directory."""
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("cors_origins", "trusted_proxies", mode="before")
     @classmethod

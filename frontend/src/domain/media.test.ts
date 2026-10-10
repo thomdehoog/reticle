@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import {
   DEFAULT_UPLOAD_LIMITS,
+  DISPLAY_MAX_SIDE,
   MAX_IMAGE_BYTES,
   MAX_VIDEO_BYTES,
+  displayUrlFor,
   formatBytes,
+  hasLargerOriginal,
   mediaKindOf,
   stepMediaProblem,
   uploadLimitsFrom,
@@ -129,5 +132,37 @@ describe('uploadLimitsFrom', () => {
     expect(uploadLimitsFrom({ maxImageBytes: Number.NaN, maxVideoBytes: -1 })).toEqual(
       DEFAULT_UPLOAD_LIMITS,
     )
+  })
+})
+
+describe('display copies', () => {
+  it('knows when the original is larger than what is being shown', () => {
+    expect(hasLargerOriginal({ width: 8000, height: 5000 })).toBe(true)
+    expect(hasLargerOriginal({ width: 1200, height: DISPLAY_MAX_SIDE + 1 })).toBe(true)
+    expect(hasLargerOriginal({ width: DISPLAY_MAX_SIDE, height: 1600 })).toBe(false)
+    expect(hasLargerOriginal({ width: 800, height: 600 })).toBe(false)
+    /* A video, or an image whose size the server never recorded. */
+    expect(hasLargerOriginal({ width: null, height: null })).toBe(false)
+  })
+
+  it('asks for the display copy of an upload named by its plain address', () => {
+    expect(displayUrlFor('/api/media/01JQ8ZK3X0Y5T4R2W1V9S7N6M3')).toBe(
+      '/api/media/01JQ8ZK3X0Y5T4R2W1V9S7N6M3?size=display',
+    )
+    expect(displayUrlFor('/api/media/m1')).toBe('/api/media/m1?size=display')
+  })
+
+  it.each([
+    '/api/media/m1?size=display',
+    '/api/media/m1?anything=else',
+    '/api/media/m1/extra',
+    '/api/media/',
+    'https://example.org/api/media/m1',
+    'https://example.org/picture.png',
+    '/g/confocal-startup',
+    'data:image/png;base64,AAAA',
+    '',
+  ])('leaves %j exactly as the author wrote it', (src) => {
+    expect(displayUrlFor(src)).toBe(src)
   })
 })

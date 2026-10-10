@@ -47,6 +47,7 @@ const FIRST: Guide = {
           id: 'm1',
           kind: 'image',
           url: '/api/media/m1',
+          displayUrl: '/api/media/m1?size=display',
           alt: 'The key switch',
           width: 800,
           height: 600,
@@ -179,6 +180,9 @@ describe('guide history', () => {
     await screen.findByRole('link', { name: /Version 2/ })
     await user.click(screen.getByRole('link', { name: 'Back to the guide' }))
     await user.click(await screen.findByRole('link', { name: 'Edit' }))
+    /* With nothing changed there is nothing to publish, so change something. */
+    expect(await screen.findByRole('button', { name: 'Publish update' })).toBeDisabled()
+    await user.type(await screen.findByDisplayValue('Turn the key to position II.'), ' Then wait.')
     await user.click(await screen.findByRole('button', { name: 'Publish update' }))
     await user.click(await screen.findByRole('link', { name: 'History' }))
 

@@ -7,7 +7,7 @@ import {
 
 import { useApi } from '../api/context'
 import type { NewPageInput, PageQuery, ReticleApi } from '../api/reticle'
-import type { Page } from '../domain/types'
+import type { ContentView, Page } from '../domain/types'
 import { searchKeys } from './search'
 
 export const pageKeys = {
@@ -16,13 +16,16 @@ export const pageKeys = {
   list: (query: PageQuery) => [...pageKeys.lists(), query] as const,
   details: () => [...pageKeys.all, 'detail'] as const,
   detail: (idOrSlug: string) => [...pageKeys.details(), idOrSlug] as const,
+  /** See `guideKeys.published`. */
+  published: (idOrSlug: string) => [...pageKeys.all, 'published', idOrSlug] as const,
   /**
    * A category's landing page is a page, so it is keyed with the pages: saving
    * or publishing one then refreshes the category that shows it without the
    * page mutations having to know categories exist.
    */
   landings: () => [...pageKeys.all, 'landing'] as const,
-  landing: (categoryId: string) => [...pageKeys.landings(), categoryId] as const,
+  landing: (categoryId: string, view: ContentView | 'default' = 'default') =>
+    [...pageKeys.landings(), categoryId, view] as const,
   /** See `guideKeys.revisions`. */
   revisions: (id: string) => [...pageKeys.all, 'revisions', id] as const,
   revision: (id: string, version: number) => [...pageKeys.revisions(id), version] as const,
@@ -41,11 +44,22 @@ export const pageQueries = {
       queryFn: () => api.getPage(idOrSlug),
     }),
 
-  /** Resolves to `null`, not an error, when the category has no landing page. */
-  landing: (api: ReticleApi, categoryId: string) =>
+  /** Exactly what a viewer gets; see `guideQueries.published`. */
+  published: (api: ReticleApi, idOrSlug: string) =>
     queryOptions({
-      queryKey: pageKeys.landing(categoryId),
-      queryFn: () => api.getCategoryLandingPage(categoryId),
+      queryKey: pageKeys.published(idOrSlug),
+      queryFn: () => api.getPage(idOrSlug, 'published'),
+    }),
+
+  /**
+   * Resolves to `null`, not an error, when the category has no landing page.
+   * Without a `view` it is what this person is given by default; an author
+   * asks with `'published'` for the landing page readers actually have.
+   */
+  landing: (api: ReticleApi, categoryId: string, view?: ContentView) =>
+    queryOptions({
+      queryKey: pageKeys.landing(categoryId, view),
+      queryFn: () => api.getCategoryLandingPage(categoryId, view),
     }),
 
   revisions: (api: ReticleApi, id: string) =>
@@ -111,14 +125,25 @@ export function useUnpublishPage() {
   })
 }
 
+export function useRevertPage() {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.revertPage(id),
+    onSuccess: (reverted) => pageWritten(queryClient, reverted),
+  })
+}
+
 export function useArchivePage() {
   const api = useApi()
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (page: Pick<Page, 'id' | 'slug'>) => api.archivePage(page.id),
     onSuccess: (_, page) => {
-      queryClient.removeQueries({ queryKey: pageKeys.detail(page.id) })
-      queryClient.removeQueries({ queryKey: pageKeys.detail(page.slug) })
+      for (const key of [page.id, page.slug]) {
+        queryClient.removeQueries({ queryKey: pageKeys.detail(key) })
+        queryClient.removeQueries({ queryKey: pageKeys.published(key) })
+      }
       void queryClient.invalidateQueries({ queryKey: pageKeys.lists() })
       void queryClient.invalidateQueries({ queryKey: pageKeys.landings() })
       void queryClient.invalidateQueries({ queryKey: searchKeys.all })

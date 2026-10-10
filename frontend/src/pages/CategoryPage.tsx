@@ -12,6 +12,7 @@ import { LazyMarkdownBody } from '../components/LazyMarkdownBody'
 import { NewPageDialog } from '../components/NewPageDialog'
 import { NotFound } from '../components/RouteStates'
 import { EmptyState, StatusBadge } from '../components/ui'
+import { UnpublishedChangesNotice } from '../components/UnpublishedChanges'
 import { browsableChildren } from '../domain/category'
 import type { Category, Page } from '../domain/types'
 import { useRecordView } from '../hooks/useRecordView'
@@ -52,7 +53,19 @@ function CategoryContent({ category, categories }: { category: Category; categor
   const { can } = useSession()
   const { data: guides } = useSuspenseQuery(guideQueries.list(api, { categoryId: category.id }))
   const { data: pages } = useSuspenseQuery(pageQueries.list(api, { categoryId: category.id }))
-  const { data: landing } = useSuspenseQuery(pageQueries.landing(api, category.id))
+  /* What readers have as the landing page, and what this person is given by
+     default. For a viewer the two are one request and one answer. For an
+     author the second is the working copy, which is only what to show when
+     nothing is published here yet — a landing page still being written. */
+  const author = can('author')
+  const { data: given } = useSuspenseQuery(pageQueries.landing(api, category.id))
+  const { data: published } = useSuspenseQuery(
+    pageQueries.landing(api, category.id, author ? 'published' : undefined),
+  )
+  const landing = published ?? given
+  /* Shown to its author but not to readers: a draft, or a published page whose
+     move to this category has been saved and not yet published. */
+  const unseenByReaders = author && landing !== null && published === null
 
   const [dialog, setDialog] = useState<'landing' | 'category' | null>(null)
 
@@ -91,11 +104,31 @@ function CategoryContent({ category, categories }: { category: Category; categor
         )}
       </div>
 
-      {landing && landing.status !== 'published' && (
+      {landing && unseenByReaders && (
         <div className="alert alert--info" role="note">
-          <strong>The landing page below is a draft.</strong> Readers see this category without it
-          until it is published.
+          <strong>
+            {landing.status === 'published'
+              ? 'The landing page below is not published here yet.'
+              : 'The landing page below is a draft.'}
+          </strong>{' '}
+          Readers see this category without it until it is published.
         </div>
+      )}
+
+      {landing && landing.hasUnpublishedChanges && !unseenByReaders && (
+        <UnpublishedChangesNotice noun="landing page" version={landing.version}>
+          <Link
+            className="button button--sm"
+            to="/w/$slug"
+            params={{ slug: landing.slug }}
+            search={{ preview: true }}
+          >
+            Preview changes
+          </Link>
+          <Link className="button button--sm" to="/w/$id/edit" params={{ id: landing.id }}>
+            Edit
+          </Link>
+        </UnpublishedChangesNotice>
       )}
 
       {landing && (

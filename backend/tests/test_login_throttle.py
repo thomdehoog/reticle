@@ -97,7 +97,11 @@ def test_a_device_cookie_is_worthless_for_any_other_account(client_factory, make
 
 @pytest.mark.parametrize(
     "forged",
-    ["", "no-dot", ".", "nonce.", ".signature", "nonce.deadbeef", "x" * 500, "nonce.\xe9", "a.b.c"],
+    [
+        "", "no-dot", ".", "nonce.", ".signature", "nonce.deadbeef", "x" * 500, "nonce.\xe9", "a.b.c",
+        "v2.nonce.123.deadbeef", "v2..123.sig", "v2.nonce.notanumber.sig", "v1.nonce.123.sig", "v2.nonce.١٢٣.sig",
+        "v2.nonce." + "9" * 40 + ".sig",
+    ],
 )
 def test_a_forged_device_cookie_is_ignored(forged):
     assert security.verified_device(VICTIM, forged) is None
@@ -105,12 +109,239 @@ def test_a_forged_device_cookie_is_ignored(forged):
 
 def test_a_genuine_device_cookie_verifies_only_for_its_own_account():
     token = security.new_device_token(VICTIM)
-    nonce = token.split(".")[0]
+    nonce = token.split(".")[1]
 
     assert security.verified_device(VICTIM, token) == nonce
     assert security.verified_device("someone.else@zmb.uzh.ch", token) is None
     assert security.verified_device(VICTIM, None) is None
     assert security.new_device_token(VICTIM) != token
+
+
+def test_a_device_cookie_from_before_the_format_changed_no_longer_verifies():
+    """The first format was ``nonce.signature`` over the address alone: no
+    issue time, nothing tying it to a password. One of those must not be
+    accepted as if it were current."""
+    import hashlib
+    import hmac
+
+    secret = get_settings().secret_key.encode()
+    nonce = "0123456789abcdef"
+    old = f"{nonce}.{hmac.new(secret, f'device\x00{VICTIM}\x00{nonce}'.encode(), hashlib.sha256).hexdigest()}"
+
+    assert security.verified_device(VICTIM, old) is None
+
+
+# ------------------------------------------- a device cookie expires and is bound
+
+
+def test_a_device_cookie_stops_verifying_when_it_is_too_old():
+    now = int(security.time.time())
+    fresh = security.new_device_token(VICTIM, issued_at=now - security.DEVICE_COOKIE_MAX_AGE_SECONDS + 60)
+    stale = security.new_device_token(VICTIM, issued_at=now - security.DEVICE_COOKIE_MAX_AGE_SECONDS - 60)
+    from_the_future = security.new_device_token(VICTIM, issued_at=now + 3600)
+
+    assert security.verified_device(VICTIM, fresh) is not None
+    assert security.verified_device(VICTIM, stale) is None
+    assert security.verified_device(VICTIM, from_the_future) is None
+
+
+def test_the_issue_time_is_signed_so_an_old_cookie_cannot_be_made_young():
+    old = security.new_device_token(VICTIM, issued_at=1_000_000)
+    version, nonce, _, signature = old.split(".")
+
+    redated = f"{version}.{nonce}.{int(security.time.time())}.{signature}"
+
+    assert security.verified_device(VICTIM, redated) is None
+
+
+def test_a_device_cookie_is_bound_to_the_credentials_it_was_earned_with():
+    token = security.new_device_token(VICTIM, auth_epoch=3)
+
+    assert security.verified_device(VICTIM, token, 3) is not None
+    assert security.verified_device(VICTIM, token, 4) is None
+    assert security.verified_device(VICTIM, token, None) is None, "no active account, nothing to verify against"
+
+
+def _device_attempts(db_session) -> list[str]:
+    db_session.expire_all()
+    return sorted(attempt.scope for attempt in db_session.scalars(select(LoginAttempt)))
+
+
+def test_changing_the_password_retires_every_device_cookie_issued_before(client_factory, make_user, db_session):
+    """The finding: anyone who ever knew a password kept a cookie that bought
+    guesses outside the shared ceilings for ever. After a password change the
+    old cookie is a stranger's — counted per source and per account again."""
+    user = make_user(VICTIM, role="author")
+    former = client_factory("203.0.113.9")
+    assert former.login(VICTIM).status_code == 200
+    owner = client_factory("192.0.2.50")
+    assert owner.login(VICTIM).status_code == 200
+
+    changed = owner.post(
+        f"/api/users/{user.id}/password",
+        json={"currentPassword": TEST_PASSWORD, "newPassword": "A-Different-Passphrase-7"},
+    )
+    assert changed.status_code == 204
+
+    assert former.login(VICTIM, "wrong-guess").status_code == 401
+    assert _device_attempts(db_session) == ["email", "email_ip", "ip"], "counted as a stranger, not as a known device"
+
+    assert owner.post("/api/auth/logout").status_code == 204, "the session that made the change survives it"
+    assert owner.login(VICTIM, "wrong-guess").status_code == 401
+    assert "device" in _device_attempts(db_session), "the browser that made the change kept its standing"
+
+
+def test_an_admin_reset_retires_the_device_cookies_too(client_factory, make_user, as_role, db_session):
+    user = make_user(VICTIM)
+    browser = client_factory("203.0.113.9")
+    assert browser.login(VICTIM).status_code == 200
+
+    admin = as_role("admin")
+    assert admin.post(f"/api/users/{user.id}/password", json={"newPassword": "Reset-By-An-Admin-22"}).status_code == 204
+
+    browser.login(VICTIM, "wrong-guess")
+    assert _device_attempts(db_session) == ["email", "email_ip", "ip"]
+
+
+def test_a_deactivated_account_cannot_be_guessed_at_outside_the_ceilings(client_factory, make_user, as_role, db_session):
+    """Each attempt at a deactivated account runs a full password hash. With a
+    cookie that skipped the shared counters that was unlimited work to ask of
+    the server; now the cookie is void and the ordinary limits apply."""
+    user = make_user(VICTIM)
+    browser = client_factory("203.0.113.9")
+    assert browser.login(VICTIM).status_code == 200
+    admin = as_role("admin")
+    assert admin.patch(f"/api/users/{user.id}", json={"isActive": False}).status_code == 200
+
+    limit = get_settings().login_max_attempts_per_email_and_ip
+    for _ in range(limit):
+        assert browser.login(VICTIM).status_code == 401
+    assert browser.login(VICTIM).status_code == 429
+    assert "device" not in _device_attempts(db_session)
+
+    db_session.expire_all()
+    assert db_session.get(User, user.id).auth_epoch == 1
+
+
+def test_reactivating_an_account_does_not_bring_its_old_cookies_back(client_factory, make_user, as_role, db_session):
+    user = make_user(VICTIM)
+    browser = client_factory("203.0.113.9")
+    browser.login(VICTIM)
+    admin = as_role("admin")
+    admin.patch(f"/api/users/{user.id}", json={"isActive": False})
+    admin.patch(f"/api/users/{user.id}", json={"isActive": True})
+
+    browser.login(VICTIM, "wrong-guess")
+
+    assert _device_attempts(db_session) == ["email", "email_ip", "ip"]
+
+
+def test_a_throttled_login_is_refused_before_any_password_hashing(client_factory, make_user, monkeypatch):
+    """429 has to be the cheap answer. Verifying first and refusing afterwards
+    would let a throttled client keep the server hashing at full speed."""
+    from app.routers import auth as auth_router
+
+    make_user(VICTIM)
+    client = client_factory("203.0.113.9")
+    for _ in range(get_settings().login_max_attempts_per_email_and_ip):
+        client.login(VICTIM, "wrong-guess")
+
+    hashed = []
+    monkeypatch.setattr(auth_router, "verify_password", lambda *a: hashed.append("real") or False)
+    monkeypatch.setattr(auth_router, "burn_password_time", lambda: hashed.append("decoy"))
+
+    assert client.login(VICTIM).status_code == 429
+    assert client.login("nobody@zmb.uzh.ch").status_code == 401
+    assert hashed == ["decoy"], "the throttled request hashed nothing; the unknown account burned exactly one"
+
+
+def test_an_inactive_account_costs_one_decoy_hash_like_an_unknown_one(client_factory, make_user, monkeypatch):
+    from app.routers import auth as auth_router
+
+    make_user(VICTIM, is_active=False)
+    hashed = []
+    monkeypatch.setattr(auth_router, "verify_password", lambda *a: hashed.append("real") or False)
+    monkeypatch.setattr(auth_router, "burn_password_time", lambda: hashed.append("decoy"))
+
+    assert client_factory("203.0.113.9").login(VICTIM).status_code == 401
+    assert hashed == ["decoy"]
+
+
+# ----------------------------------------- what a device cookie does and does not buy
+
+
+def test_noise_from_a_shared_address_does_not_lock_out_a_colleague_who_has_signed_in_here(client_factory, make_user):
+    """Twenty failures on made-up addresses from one source — a NAT, a shared
+    instrument PC — close that source for everybody behind it. Somebody whose
+    browser has signed in before is who the device cookie is for."""
+    make_user(VICTIM)
+    regular = client_factory("192.0.2.50")
+    assert regular.login(VICTIM).status_code == 200
+    regular.post("/api/auth/logout")
+
+    noisy = client_factory("192.0.2.50")
+    for index in range(get_settings().login_max_attempts_per_ip):
+        noisy.login(f"made-up-{index}@zmb.uzh.ch", "whatever")
+    assert noisy.login(VICTIM).status_code == 429, "a browser with no history here is still shut out"
+
+    assert regular.login(VICTIM).status_code == 200
+
+
+def test_attempts_from_a_known_device_still_count_towards_the_account(client_factory, make_user, db_session):
+    make_user(VICTIM)
+    browser = client_factory("192.0.2.50")
+    browser.login(VICTIM)
+
+    browser.login(VICTIM, "wrong-guess")
+
+    assert _device_attempts(db_session) == ["device", "devices", "email"]
+
+
+def test_many_device_cookies_do_not_add_up_to_more_than_the_account_ceiling(client_factory, make_user, db_session):
+    """Every successful sign-in from a new browser mints a cookie, and each has
+    its own allowance. Someone who collected many would otherwise have that many
+    allowances per window; together they are held to the account's ceiling."""
+    make_user(VICTIM)
+    settings = get_settings()
+    per_device = settings.login_max_attempts_per_email_and_ip
+    devices_needed = settings.login_max_attempts_per_email // per_device
+
+    guesses = 0
+    for index in range(devices_needed):
+        browser = client_factory(f"198.51.100.{index + 1}")
+        assert browser.login(VICTIM).status_code == 200
+        for _ in range(per_device):
+            assert browser.login(VICTIM, "wrong-guess").status_code == 401
+            guesses += 1
+    assert guesses == settings.login_max_attempts_per_email
+
+    one_more = client_factory("198.51.100.250")
+    one_more.cookies.set("reticle_device", security.new_device_token(VICTIM), path="/api/auth")
+    assert one_more.login(VICTIM, "wrong-guess").status_code == 429
+
+
+def test_strangers_cannot_fill_the_ceiling_that_known_devices_are_held_to(client_factory, make_user):
+    make_user(VICTIM)
+    owner = client_factory("192.0.2.50")
+    owner.login(VICTIM)
+    owner.post("/api/auth/logout")
+
+    exhaust_the_account_ceiling(client_factory)
+
+    assert owner.login(VICTIM).status_code == 200
+
+
+def test_an_ageing_device_cookie_is_renewed_at_the_next_sign_in(anon, make_user):
+    make_user(VICTIM)
+    old = security.new_device_token(
+        VICTIM, issued_at=int(security.time.time()) - security.DEVICE_TOKEN_REFRESH_SECONDS - 60
+    )
+    anon.cookies.set("reticle_device", old, path="/api/auth")
+
+    response = anon.login(VICTIM)
+
+    renewed = [h for h in response.headers.get_list("set-cookie") if h.startswith("reticle_device=")]
+    assert len(renewed) == 1 and old not in renewed[0]
 
 
 def test_the_device_cookie_is_httponly_scoped_to_auth_and_outlives_logout(anon, make_user):

@@ -15,11 +15,18 @@
 export type Role = 'viewer' | 'author' | 'admin'
 
 /**
- * Guides and wiki pages share one lifecycle. Readers only ever resolve a
- * published version; editing happens in place and each publish writes an
- * immutable snapshot, which is what the revision endpoints expose.
+ * Guides and wiki pages share one lifecycle. What the editor saves into is the
+ * working copy; each publish writes an immutable snapshot, and that snapshot is
+ * what readers are served until the next publish. The revision endpoints
+ * expose every snapshot ever written.
  */
 export type ContentStatus = 'draft' | 'in_review' | 'published' | 'archived'
+
+/**
+ * Which of the two an author is asking for. A viewer is never asked: a viewer
+ * gets the published snapshot.
+ */
+export type ContentView = 'working' | 'published'
 
 export type Difficulty =
   | 'very_easy'
@@ -82,9 +89,20 @@ export interface Media {
    * kind is what tells a renderer not to treat one as a picture.
    */
   kind: 'image' | 'video'
-  /** Server-relative path, e.g. /api/media/<id>. Never a data URI once saved. */
+  /**
+   * Server-relative path of the file as it was uploaded, e.g. /api/media/<id>.
+   * Never a data URI once saved. This is the one to open at full size.
+   */
   url: string
+  /**
+   * What an `<img>` should load: for an image, a copy held to a size a screen
+   * can use, so a forty-megapixel panel is not sent to a phone; for a video the
+   * same address as `url`. Snapshots published before the field existed are
+   * given it by the server, so it is always there.
+   */
+  displayUrl: string
   alt: string
+  /** The original's pixel size — the right proportions for the display copy too. */
   width: number | null
   height: number | null
   annotations: Annotation[]
@@ -157,6 +175,13 @@ export interface Guide {
   publishedAt: string | null
   /** Increments on each publish, so readers can cite a stable revision. */
   version: number
+  /**
+   * True when this is published and its working copy no longer reads the same
+   * as the version readers have. Only ever true for an author: to a viewer the
+   * server always says false, because that newer work exists is not theirs to
+   * know.
+   */
+  hasUnpublishedChanges: boolean
 }
 
 /** Listing projection: everything a card needs, without the step payload. */
@@ -176,6 +201,7 @@ export interface GuideSummary {
   viewCount: number
   updatedAt: string
   publishedAt: string | null
+  hasUnpublishedChanges: boolean
 }
 
 /**
@@ -214,6 +240,8 @@ export interface Page {
   updatedAt: string
   publishedAt: string | null
   version: number
+  /** See `Guide.hasUnpublishedChanges`. */
+  hasUnpublishedChanges: boolean
 }
 
 export interface PageSummary {
@@ -226,6 +254,7 @@ export interface PageSummary {
   status: ContentStatus
   updatedAt: string
   publishedAt: string | null
+  hasUnpublishedChanges: boolean
 }
 
 export interface Category {

@@ -211,15 +211,17 @@ def test_hardening_headers_are_present_on_every_response(anon, author):
         assert headers["cache-control"] == "no-store"
 
 
-def test_authenticated_json_is_never_cached_but_media_may_be(author):
+def test_authenticated_json_is_never_cached_and_media_only_to_be_asked_about_again(author):
     """A shared instrument PC's back button must not show the last user's
-    drafts; an image fetched a moment ago can be reused by the same browser."""
+    drafts. An image may be kept by the browser that fetched it, but not used
+    again without asking: ``max-age`` let it be shown from the disk cache after
+    its reader had signed out."""
     from .conftest import upload_media
 
     image = upload_media(author)
 
     assert author.get("/api/auth/me").headers["cache-control"] == "no-store"
-    assert author.get(f"/api/media/{image['id']}").headers["cache-control"] == "private, max-age=3600"
+    assert author.get(f"/api/media/{image['id']}").headers["cache-control"] == "private, no-cache"
 
 
 def test_hsts_is_sent_exactly_when_the_deployment_is_https_only(anon, monkeypatch):
@@ -398,3 +400,111 @@ def test_an_unmapped_http_error_still_uses_the_error_envelope(author):
     assert response.status_code == 422
     assert set(response.json()) == {"error"}
     assert response.json()["error"]["code"] == "validation_failed"
+
+
+# ------------------------------------------------- failures nobody planned for
+
+
+@pytest.fixture()
+def tolerant(make_user):
+    """A signed-in author whose client reports a server error instead of raising it."""
+    make_user("tolerant@zmb.uzh.ch", role="author")
+    client = ApiClient(TestClient(app, raise_server_exceptions=False))
+    assert client.login("tolerant@zmb.uzh.ch").status_code == 200
+    return client
+
+
+def test_an_unexpected_exception_answers_in_the_error_envelope_and_says_nothing(tolerant, monkeypatch, caplog):
+    """Whatever went wrong, the caller gets the contract's shape and a message
+    that describes nothing of the server — and the log line names the route
+    and the kind of failure without a byte of what was submitted."""
+    from app import content
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("column 'password_hash' of row 7: hunter2")
+
+    monkeypatch.setattr(content, "read", explode)
+
+    with caplog.at_level("ERROR", logger="app.main"):
+        response = tolerant.get("/api/guides/anything?secret-in-the-query=topsecret")
+
+    assert response.status_code == 500
+    body = response.json()
+    assert set(body) == {"error"} and set(body["error"]) == {"code", "message"}
+    assert body["error"]["code"] == "internal_error"
+    assert "hunter2" not in response.text and "password_hash" not in response.text and "RuntimeError" not in response.text
+    assert response.headers["cache-control"] == "no-store"
+    record = next(entry for entry in caplog.records if entry.name == "app.main")
+    assert record.getMessage() == "Unhandled RuntimeError on GET /api/guides/anything"
+    assert "topsecret" not in record.getMessage()
+    assert record.exc_info is not None, "the traceback is kept for whoever has to fix it"
+
+
+def test_an_unexpected_failure_while_saving_does_not_log_the_document(tolerant, category, monkeypatch, caplog):
+    from app.routers import guides as guides_router
+
+    from .conftest import bullet, create_guide, document_from, step
+
+    created = create_guide(tolerant, category.id)
+
+    def explode(*args, **kwargs):
+        raise ZeroDivisionError
+
+    monkeypatch.setattr(guides_router, "apply_document", explode)
+    document = document_from(created, steps=[step("One", bullets=[bullet("The door code is 4471.")])])
+
+    with caplog.at_level("ERROR", logger="app.main"):
+        response = tolerant.put(f"/api/guides/{created['id']}", json=document)
+
+    assert response.status_code == 500 and response.json()["error"]["code"] == "internal_error"
+    assert "4471" not in caplog.text
+
+
+def test_an_integrity_error_nobody_anticipated_is_a_conflict_not_a_crash(tolerant, monkeypatch, caplog):
+    """Two requests that each passed every check and then collided in the
+    database. That is a 409 to retry; and on PostgreSQL the driver's message
+    goes on to quote the offending values, so only its first line is logged."""
+    from sqlalchemy.exc import IntegrityError
+
+    from app import content
+
+    def collide(*args, **kwargs):
+        driver_message = 'duplicate key value violates unique constraint "bullets_pkey"\nDETAIL:  Key (text)=(the door code is 4471)'
+        raise IntegrityError("INSERT INTO bullets ...", {"text": "the door code is 4471"}, Exception(driver_message))
+
+    monkeypatch.setattr(content, "read", collide)
+
+    with caplog.at_level("WARNING", logger="app.main"):
+        response = tolerant.get("/api/guides/anything")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
+    assert "4471" not in response.text and "bullets" not in response.text
+    assert "bullets_pkey" in caplog.text, "which constraint is worth knowing"
+    assert "4471" not in caplog.text
+
+
+def test_sql_errors_never_carry_the_values_that_were_bound(tmp_path):
+    """The values are what people wrote, and on one table password hashes. With
+    the engine's default a failed statement is logged with all of them."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app import db
+
+    engine = db.build_engine(f"sqlite:///{tmp_path / 'hidden.db'}")
+    try:
+        with engine.connect() as connection, pytest.raises(SQLAlchemyError) as failure:
+            connection.execute(text("INSERT INTO no_such_table (body) VALUES (:body)"), {"body": "the door code is 4471"})
+    finally:
+        engine.dispose()
+
+    assert "4471" not in str(failure.value)
+    assert "hidden" in str(failure.value).lower()
+
+
+def test_a_rate_limit_can_say_when_to_come_back():
+    from app import errors
+
+    assert errors.rate_limited().headers is None, "the login throttle tells an attacker nothing about its window"
+    assert errors.rate_limited("Busy.", retry_after=5).headers == {"Retry-After": "5"}

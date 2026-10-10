@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import sqlite3
+import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -25,7 +27,7 @@ from PIL import Image
 from pypdf import PdfReader
 from sqlalchemy import func, select
 
-from app import db, errors, migrate
+from app import db, errors, images, migrate, videos
 from app.importer import cli, loader as loader_module
 from app.importer.archive import Archive
 from app.importer.loader import UNUSABLE_PASSWORD_HASH, Loader, LoadOptions, _positive_int, fingerprint
@@ -36,7 +38,7 @@ from app.security import hash_password, verify_password
 from app.settings import get_settings
 
 from .conftest import TEST_PASSWORD, ApiClient, document_from, instant
-from .importer_site import HOST, photo, write_archive
+from .importer_site import HOST, FakeSite, photo, write_archive
 
 GUIDE_15 = "leica-stellaris-5-inverse-usz-how-to-get-there"
 GUIDE_27 = "mesospim-part-1-start-up"
@@ -506,7 +508,11 @@ def test_the_report_is_complete_and_readable(world):
     assert "### Images imported with their markers burned in (not editable annotations) (2)" in report
     assert "Holding categories marked hidden (kept out of the browsable tree):" in report
     assert "Not available from the vendor API and therefore not imported: view counts" in report
-    assert f"- guide 15 “Leica Stellaris 5 inverse (USZ) - How to get there” — published, /g/{GUIDE_15}" in report
+    assert f"- guide 15 “Leica Stellaris 5 inverse (USZ) - How to get there” — published, /g/{GUIDE_15} — public on the old site" in report
+    assert "- guide 430 “Internal: laser safety interlock” — draft, /g/internal-laser-safety-interlock — private or unpublished on the old site" in report
+    assert f"- page WIKI “Strategy to Run a Full Multiplex SeqIF” — published, /w/{SEQIF} — shown to visitors who were not signed in on the old site" in report
+    assert "- page CATEGORY “LS - hidden guides” — published, /w/ls-hidden-guides — the landing page of its category" in report
+    assert "- **Database write lock:** 9 write transactions, " in report
     assert "## Failed" not in report
 
 
@@ -566,8 +572,8 @@ def test_content_edited_in_reticle_is_not_overwritten(fresh, archive):
     assert "  guide:     3 unchanged, 1 skipped" in result.lines
     report = (archive / "import-report.md").read_text()
     assert "- guide 15 “Leica Stellaris 5 inverse (USZ) - How to get there”: edited in Reticle since it was imported; left untouched (use --force to overwrite)" in report
-    with signed_in("viewer@zmb.example") as viewer:
-        kept = viewer.get(f"/api/guides/{GUIDE_15}").json()
+    with signed_in("ada.example@zmb.example") as author:
+        kept = author.get(f"/api/guides/{GUIDE_15}").json()
     assert kept["title"] == "Stellaris 5 (USZ): finding the room" and kept["summary"] == "How to get to the Stellaris 5 inverse in USZ."
 
 
@@ -628,8 +634,9 @@ def test_a_page_edited_in_reticle_is_kept_and_a_changed_one_is_updated(fresh, ar
     result = load(archive)
 
     assert "  page:      1 updated, 2 unchanged, 2 skipped" in result.lines
+    with signed_in("ada.example@zmb.example") as author:
+        assert author.get(f"/api/pages/{SEQIF}").json()["body"] == "Rewritten in Reticle."
     with signed_in("viewer@zmb.example") as viewer:
-        assert viewer.get(f"/api/pages/{SEQIF}").json()["body"] == "Rewritten in Reticle."
         landing = viewer.get("/api/pages/confocal-microscopy").json()
     assert landing["body"] == "## New heading\n\n```guidelist\ntags: stellusz\n```\n"
     assert landing["version"] == 2 and landing["isLanding"] is True
@@ -1172,3 +1179,635 @@ def test_a_minimal_archive_without_categories_or_pages_loads(fresh, tmp_path):
     with db.SessionLocal() as session:
         assert session.scalars(select(User.email).where(User.display_name == "Sam Sample")).one() == "dozuki-user-3@import.invalid"
         assert session.scalars(select(ImportRecord.source).distinct()).all() == ["tiny.example"]
+
+
+# ---------------------------------------------------------------- beside the running server
+
+
+def live_database() -> Path:
+    return Path(get_settings().database_url.removeprefix("sqlite:///"))
+
+
+class LockProbe:
+    """A second connection to the live database, standing in for the running server.
+
+    ``try_write`` asks for the database's write lock without waiting, the way a
+    login would have to get it, and gives it straight back.
+    """
+
+    def __init__(self) -> None:
+        self.connection = sqlite3.connect(live_database(), timeout=0, isolation_level=None, check_same_thread=False)
+        self.attempts = 0
+        self.refused: list[str] = []
+
+    def try_write(self, where: str) -> None:
+        self.attempts += 1
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError:
+            self.refused.append(where)
+        else:
+            self.connection.execute("ROLLBACK")
+
+    def wrap(self, patch: pytest.MonkeyPatch, owner: Any, name: str) -> None:
+        original = getattr(owner, name)
+
+        def probed(*arguments: Any, **keywords: Any) -> Any:
+            self.try_write(name)
+            return original(*arguments, **keywords)
+
+        patch.setattr(owner, name, probed)
+
+    def watch_the_slow_work(self, patch: pytest.MonkeyPatch) -> None:
+        """Ask for the write lock every time the loader does something that takes time."""
+        self.wrap(patch, Archive, "read_json")
+        self.wrap(patch, Archive, "media_file")
+        self.wrap(patch, images, "normalise")
+        self.wrap(patch, images, "write_file")
+        self.wrap(patch, videos, "store")
+        self.wrap(patch, videos, "sniff")
+        self.wrap(patch, loader_module.markers, "interpret")
+        self.wrap(patch, loader_module.markers, "realise")
+        self.wrap(patch, loader_module, "to_markdown")
+        self.wrap(patch, loader_module, "to_plain")
+        self.wrap(patch, loader_module, "html_to_plain")
+        self.wrap(patch, Loader, "_open")
+        self.wrap(patch, Loader, "_encode")
+
+
+def test_a_load_holds_the_write_lock_only_while_it_writes_rows(fresh, archive, monkeypatch):
+    """All the slow work happens with the database free for the server's own writes."""
+    probe = LockProbe()
+    probe.watch_the_slow_work(monkeypatch)
+    logins: list[int] = []
+    store = videos.store
+
+    def store_while_someone_signs_in(*arguments: Any, **keywords: Any) -> int:
+        with TestClient(app) as raw:  # a login writes a session row: it needs the write lock, and has five seconds to get it
+            logins.append(ApiClient(raw).login("viewer@zmb.example").status_code)
+        return store(*arguments, **keywords)
+
+    monkeypatch.setattr(videos, "store", store_while_someone_signs_in)
+
+    result = load(archive)
+
+    assert result.status == 0, result.text
+    assert "  guide:     4 created" in result.lines and "  page:      4 created, 1 skipped" in result.lines
+    assert probe.attempts > 150, "the probe really was consulted throughout"
+    assert probe.refused == [], "a writer was turned away while the loader was reading files or working on pictures"
+    assert logins == [200], "someone signed in while a video was being copied into the media store"
+    summary = next(line for line in result.lines if line.startswith("  database write lock: "))
+    held = re.fullmatch(r"  database write lock: 9 write transactions, (\d+\.\d+) s in total, longest (\d+) ms \((.+)\)", summary)
+    assert held, summary
+    assert int(held.group(2)) < 2000 and float(held.group(1)) < 5, "milliseconds per item, not the minutes the pictures take"
+
+
+def test_the_write_lock_really_is_held_during_the_write_and_released_after_each_item(fresh, archive, monkeypatch):
+    """The other half: the probe is not blind, and nothing stays locked between items."""
+    probe = LockProbe()
+    during: list[bool] = []
+    finish = Loader._finish
+
+    def finish_and_probe(self: Loader, *arguments: Any, **keywords: Any) -> None:
+        refused = len(probe.refused)
+        probe.try_write("write phase")
+        during.append(len(probe.refused) > refused)
+        finish(self, *arguments, **keywords)
+
+    monkeypatch.setattr(Loader, "_finish", finish_and_probe)
+    between: list[int] = []
+
+    def pause(seconds: float) -> None:
+        refused = len(probe.refused)
+        probe.try_write("between items")
+        between.append(len(probe.refused) - refused)
+        assert seconds == 0.05
+
+    lines: list[str] = []
+    status = cli.main(["load", "--archive", str(archive)], out=lines.append, sleep=pause)
+
+    assert status == 0, "\n".join(lines)
+    assert during == [True] * 8, "while an item's rows are being written, the lock is the loader's"
+    assert between == [0] * 9, "after each item written (the categories, four guides, four pages) the lock is free, and the loader waits a moment"
+
+
+def test_a_dry_run_never_takes_the_write_lock_of_the_live_database(fresh, archive, tmp_path, monkeypatch):
+    """Held by somebody else from start to finish, and the dry run does not notice."""
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    before = {model: count(model) for model in (Guide, Page, Category, Media, User, Tag, ImportRecord, AuditLog)}
+    blocker = sqlite3.connect(live_database(), timeout=0, isolation_level=None)
+    blocker.execute("BEGIN IMMEDIATE")
+    blocker.execute("UPDATE users SET display_name = display_name")
+    try:
+        result = load(archive, "--dry-run")
+    finally:
+        blocker.execute("ROLLBACK")
+        blocker.close()
+
+    assert result.status == 0, result.text
+    assert "  guide:     4 created" in result.lines and "  page:      4 created, 1 skipped" in result.lines
+    assert any(line.startswith("Dry run: working on a snapshot copy of the database in ") for line in result.lines)
+    assert not any("database write lock" in line for line in result.lines)
+    assert {model: count(model) for model in before} == before
+    assert list(scratch.iterdir()) == [], "the snapshot and its throwaway media directory are removed"
+    assert not get_settings().media_root.exists()
+    report = (archive / "import-report-dry-run.md").read_text()
+    assert "(dry run on a private snapshot copy; the database itself was only read)" in report
+    assert "Database write lock" not in report
+
+
+def test_a_dry_run_after_a_load_sees_what_is_already_there(fresh, archive):
+    load(archive)
+    files = media_files()
+    edit_json(archive, "api/guides/27/guide.json", lambda document: document.update(title="MesoSPIM, retitled", modified_date=document["modified_date"] + 60))
+
+    result = load(archive, "--dry-run")
+
+    assert result.status == 0, result.text
+    assert "  guide:     1 updated, 3 unchanged" in result.lines and "  page:      4 unchanged, 1 skipped" in result.lines
+    assert media_files() == files
+    with db.SessionLocal() as session:
+        assert session.scalars(select(Guide.title).where(Guide.slug == GUIDE_27)).one() == "MesoSPIM - Part 1: Start-up"
+
+
+def test_the_dry_run_snapshot_is_removed_even_when_the_load_cannot_start(fresh, archive, tmp_path, monkeypatch):
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+
+    result = load(archive, "--dry-run", "--owner-email", "nobody@zmb.example")
+
+    assert result.status == 2 and "is not an existing Reticle account" in result.text
+    assert list(scratch.iterdir()) == []
+
+
+def test_a_dry_run_that_cannot_copy_the_database_says_so_and_cleans_up(fresh, archive, tmp_path, monkeypatch):
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+
+    def full(source: Path, target: Path) -> None:
+        target.write_bytes(b"partial")
+        raise sqlite3.OperationalError("database or disk is full")
+
+    monkeypatch.setattr(cli, "snapshot_database", full)
+
+    result = load(archive, "--dry-run")
+
+    assert result.status == 2
+    assert "The database could not be copied for the dry run (database or disk is full). The copy goes to the temporary directory (TMPDIR, now " in result.text
+    assert list(scratch.iterdir()) == [] and count(Guide) == 0
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "does-not-exist"))
+    missing = load(archive, "--dry-run")
+    assert missing.status == 2 and "has to exist, be writable" in missing.text
+
+
+def test_a_dry_run_on_a_database_that_cannot_be_snapshotted_is_one_rolled_back_transaction(fresh, archive, monkeypatch):
+    """PostgreSQL, in practice: no single write lock there, so one uncommitted transaction is harmless."""
+    monkeypatch.setattr(cli, "sqlite_file", lambda url: None)
+    before = {model: count(model) for model in (Guide, Page, Category, Media, User, Tag, ImportRecord, AuditLog)}
+    slept: list[float] = []
+    lines: list[str] = []
+
+    status = cli.main(["load", "--archive", str(archive), "--dry-run"], out=lines.append, sleep=slept.append)
+
+    text = "\n".join(lines)
+    assert status == 0, text
+    assert "  guide:     4 created" in text and "  page:      4 created, 1 skipped" in text
+    assert {model: count(model) for model in before} == before
+    assert media_files() == [] and slept == []
+    assert "(dry run in one transaction that was rolled back)" in (archive / "import-report-dry-run.md").read_text()
+    assert load(archive).status == 0
+
+
+def test_which_databases_can_be_snapshotted():
+    assert cli.sqlite_file("sqlite:////data/reticle.db") == Path("/data/reticle.db")
+    assert cli.sqlite_file("sqlite:///relative/reticle.db") == Path("relative/reticle.db")
+    for url in ("sqlite://", "sqlite:///:memory:", "sqlite:///file:shared?mode=memory&uri=true", "postgresql+psycopg://reticle:secret@db/reticle"):
+        assert cli.sqlite_file(url) is None, url
+
+
+def test_the_snapshot_is_a_consistent_copy_taken_while_the_database_is_in_use(fresh, tmp_path):
+    writer = sqlite3.connect(live_database(), timeout=0, isolation_level=None)
+    writer.execute("BEGIN IMMEDIATE")
+    writer.execute("UPDATE users SET display_name = 'uncommitted'")
+
+    cli.snapshot_database(live_database(), tmp_path / "copy.db")
+    writer.execute("ROLLBACK")
+    writer.close()
+
+    with sqlite3.connect(tmp_path / "copy.db") as copy:
+        names = {row[0] for row in copy.execute("SELECT display_name FROM users")}
+    assert names == {"ada.example", "viewer", "admin"}, "the copy holds what was committed, not what was in flight"
+
+
+def test_nothing_is_written_and_nobody_waits_when_nothing_changed(fresh, archive):
+    load(archive)
+    slept: list[float] = []
+    lines: list[str] = []
+
+    status = cli.main(["load", "--archive", str(archive)], out=lines.append, sleep=slept.append)
+
+    assert status == 0
+    assert "  database write lock: no write transaction was needed" in lines
+    assert slept == []
+    assert "- **Database write lock:** no write transaction was needed" in (archive / "import-report.md").read_text()
+
+
+def test_the_pause_between_items_can_be_changed_or_switched_off(fresh, archive, capsys):
+    slept: list[float] = []
+
+    cli.main(["load", "--archive", str(archive), "--guide", "422", "--namespaces", "ITEM", "--pause", "0.5"], out=lambda line: None, sleep=slept.append)
+    cli.main(["load", "--archive", str(archive), "--force", "--guide", "422", "--namespaces", "ITEM", "--pause", "0"], out=lambda line: None, sleep=slept.append)
+
+    assert slept == [0.5, 0.5]
+    for value in ("-1", "61", "soon"):
+        with pytest.raises(SystemExit):
+            cli.main(["load", "--archive", str(archive), "--pause", value])
+    assert "pause" in capsys.readouterr().err
+
+
+def test_a_failure_while_writing_takes_back_the_files_the_rows_and_the_report_lines(fresh, archive, monkeypatch):
+    def refuse(*arguments: Any, **keywords: Any) -> None:
+        raise errors.validation_failed("The application refused the document.")
+
+    monkeypatch.setattr(loader_module, "apply_guide_document", refuse)
+    probe = LockProbe()
+
+    result = load(archive, "--guide", "27", "--namespaces", "ITEM")
+    probe.try_write("afterwards")
+
+    assert result.status == 1
+    assert "  guide:     1 failed" in result.lines
+    assert not any(line.strip().startswith("user:") for line in result.lines), "the author account was rolled back, so the report does not claim it"
+    report = (archive / "import-report.md").read_text()
+    assert "- guide 27 “MesoSPIM - Part 1: Start-up”: The application refused the document." in report
+    assert count(Media) == 0 and media_files() == [], "pictures and the video stored before the transaction are removed again"
+    assert count(Guide) == 0 and count(ImportRecord) == count(Category)
+    with db.SessionLocal() as session:
+        assert session.scalars(select(User).where(User.email == "new.author@zmb.example")).one_or_none() is None
+    assert probe.refused == [], "and the failed transaction did not leave the database locked"
+
+
+def test_an_interrupted_load_leaves_no_orphaned_media_files(fresh, archive, monkeypatch):
+    realise = loader_module.markers.realise
+    calls: list[int] = []
+
+    def interrupt(*arguments: Any, **keywords: Any) -> Any:
+        calls.append(1)
+        if len(calls) == 2:
+            raise KeyboardInterrupt
+        return realise(*arguments, **keywords)
+
+    monkeypatch.setattr(loader_module.markers, "realise", interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        load(archive, "--guide", "15", "--namespaces", "ITEM")
+
+    assert media_files() == [] and count(Media) == 0 and count(Guide) == 0
+
+
+def test_an_interruption_in_the_middle_of_a_write_rolls_it_back(fresh, archive, monkeypatch):
+    def interrupt(*arguments: Any, **keywords: Any) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(loader_module.audit, "record", interrupt)
+    probe = LockProbe()
+
+    with pytest.raises(KeyboardInterrupt):
+        load(archive, "--guide", "15", "--namespaces", "ITEM")
+    probe.try_write("afterwards")
+
+    assert media_files() == [] and count(Media) == 0 and count(Guide) == 0 and probe.refused == []
+
+
+def test_a_guide_saved_in_reticle_while_its_import_was_being_prepared_is_left_alone(fresh, archive, monkeypatch):
+    """Preparing a guide can take a while, and the server is running: the check is made again under the lock."""
+    load(archive)
+    edit_json(archive, "api/guides/15/guide.json", lambda document: document.update(summary="Changed on the vendor site."))
+    steps = Loader._steps
+
+    def steps_while_an_author_saves(self: Loader, *arguments: Any, **keywords: Any) -> Any:
+        prepared = steps(self, *arguments, **keywords)
+        with signed_in("ada.example@zmb.example") as author:
+            guide = author.get(f"/api/guides/{GUIDE_15}").json()
+            assert author.put(f"/api/guides/{guide['id']}", json=document_from(guide, title="Saved meanwhile")).status_code == 200
+        return prepared
+
+    monkeypatch.setattr(Loader, "_steps", steps_while_an_author_saves)
+    files = media_files()
+
+    result = load(archive, "--guide", "15", "--namespaces", "ITEM")
+
+    assert result.status == 0, result.text
+    assert "  guide:     1 skipped" in result.lines
+    assert "- guide 15 “Leica Stellaris 5 inverse (USZ) - How to get there”: edited in Reticle since it was imported; left untouched" in (archive / "import-report.md").read_text()
+    with signed_in("ada.example@zmb.example") as author:
+        kept = author.get(f"/api/guides/{GUIDE_15}").json()
+    assert kept["title"] == "Saved meanwhile" and kept["summary"] == "How to get to the Stellaris 5 inverse in USZ."
+    assert media_files() == files
+
+
+def test_a_page_saved_in_reticle_while_its_import_was_being_prepared_is_left_alone(fresh, archive, monkeypatch):
+    load(archive)
+    edit_json(archive, "api/wikis/WIKI/108.json", lambda document: document.update(contents_raw="== Vendor rewrite =="))
+    convert = loader_module.to_markdown
+
+    def convert_while_an_author_saves(*arguments: Any, **keywords: Any) -> Any:
+        with signed_in("ada.example@zmb.example") as author:
+            page = author.get(f"/api/pages/{SEQIF}").json()
+            assert author.put(f"/api/pages/{page['id']}", json=document_from(page, body="Saved meanwhile.")).status_code == 200
+        return convert(*arguments, **keywords)
+
+    monkeypatch.setattr(loader_module, "to_markdown", convert_while_an_author_saves)
+
+    result = load(archive, "--namespaces", "WIKI", "--guide", "15")
+
+    assert "  page:      1 skipped" in result.lines
+    with signed_in("ada.example@zmb.example") as author:
+        assert author.get(f"/api/pages/{SEQIF}").json()["body"] == "Saved meanwhile."
+
+
+# ---------------------------------------------------------------- what may be published
+
+
+def exported(directory: Path, change: Any = None, token: str | None = "good-token-123") -> Path:
+    site = FakeSite()
+    if change is not None:
+        change(site)
+    write_archive(directory, site, token)
+    return directory
+
+
+def statuses(model: type) -> dict[str, str]:
+    with db.SessionLocal() as session:
+        return {item.slug: item.status for item in session.scalars(select(model))}
+
+
+def test_a_page_the_old_site_did_not_show_publicly_is_imported_as_a_draft(fresh, tmp_path):
+    archive = exported(tmp_path / "archive", lambda site: site.private_wikis.update({108, 1}))
+
+    result = load(archive)
+
+    assert result.status == 0, result.text
+    assert statuses(Page) == {
+        SEQIF: "draft",
+        "center-for-microscopy-and-image-analysis": "draft",
+        "confocal-microscopy": "published",
+        "ls-hidden-guides": "published",
+    }
+    assert set(statuses(Guide).values()) == {"published", "draft"}, "guides follow the old site's own public flag, as before"
+    with signed_in("viewer@zmb.example") as viewer, signed_in("ada.example@zmb.example") as author:
+        assert viewer.get(f"/api/pages/{SEQIF}").status_code == 404
+        assert sorted(page["slug"] for page in viewer.get("/api/pages").json()) == ["confocal-microscopy", "ls-hidden-guides"]
+        draft = author.get(f"/api/pages/{SEQIF}").json()
+        assert draft["status"] == "draft" and draft["version"] == 0 and "Run the **full** panel" in draft["body"]
+    assert count(PageRevision) == 2
+    report = (archive / "import-report.md").read_text()
+    assert "### Pages imported as drafts because the old site did not show them publicly (2)" in report
+    assert (
+        "- page WIKI “Strategy to Run a Full Multiplex SeqIF”: Imported as a draft: NOT shown to visitors who were not signed in on the old site. "
+        "Publish it in Reticle if every reader may see it."
+    ) in report
+    assert f"- page WIKI “Strategy to Run a Full Multiplex SeqIF” — draft, /w/{SEQIF} — NOT shown to visitors who were not signed in on the old site" in report
+    assert "- page CATEGORY “Confocal Microscopy” — published, /w/confocal-microscopy — the landing page of its category" in report
+    assert "Content imported as a draft although the original was public" not in report
+
+
+def test_an_archive_that_cannot_say_what_was_public_gets_drafts_except_for_landing_pages(fresh, archive):
+    """An export made before the anonymous pass existed, or from a site that shows nothing without a login."""
+    for namespace in ("WIKI", "CATEGORY"):
+        edit_json(archive, f"api/wikis/{namespace}/index.json", lambda entries: [entry.pop("anonymousVisible") for entry in entries])
+    edit_json(archive, "api/wikis/WIKI/index.json", lambda entries: entries[0].update(anonymousVisible="yes"))
+
+    result = load(archive)
+
+    assert result.status == 0, result.text
+    assert statuses(Page) == {
+        SEQIF: "draft",
+        "center-for-microscopy-and-image-analysis": "draft",
+        "confocal-microscopy": "published",
+        "ls-hidden-guides": "published",
+    }
+    report = (archive / "import-report.md").read_text()
+    assert (
+        "- page CATEGORY “Center for Microscopy and Image Analysis”: Imported as a draft: the archive does not say whether the old site showed it "
+        "to visitors who were not signed in. Publish it in Reticle if every reader may see it. (Running the export again records this for every page.)"
+    ) in report
+
+
+def test_a_page_becomes_public_when_a_later_export_finds_it_was(fresh, tmp_path):
+    archive = exported(tmp_path / "archive", lambda site: site.private_wikis.add(108))
+    load(archive)
+    edit_json(archive, "api/wikis/WIKI/index.json", lambda entries: entries[0].update(anonymousVisible=True))
+
+    result = load(archive)
+
+    assert "  page:      1 updated, 3 unchanged, 1 skipped" in result.lines
+    assert statuses(Page)[SEQIF] == "published"
+    with signed_in("viewer@zmb.example") as viewer:
+        assert viewer.get(f"/api/pages/{SEQIF}").json()["version"] == 1
+
+
+def test_a_page_that_stops_being_public_is_withdrawn_from_readers(fresh, archive):
+    load(archive)
+    edit_json(archive, "api/wikis/WIKI/index.json", lambda entries: entries[0].update(anonymousVisible=False))
+
+    result = load(archive)
+
+    assert "  page:      1 updated, 3 unchanged, 1 skipped" in result.lines
+    with signed_in("viewer@zmb.example") as viewer, signed_in("ada.example@zmb.example") as author:
+        assert viewer.get(f"/api/pages/{SEQIF}").status_code == 404
+        assert SEQIF not in [page["slug"] for page in viewer.get("/api/pages").json()]
+        assert author.get(f"/api/pages/{SEQIF}").json()["status"] == "draft"
+
+
+def test_an_anonymous_export_publishes_what_it_holds(fresh, tmp_path):
+    archive = exported(tmp_path / "archive", token=None)
+
+    result = load(archive)
+
+    assert result.status == 0, result.text
+    assert set(statuses(Page).values()) == {"published"} and set(statuses(Guide).values()) == {"published"}
+    assert "Pages imported as drafts" not in (archive / "import-report.md").read_text()
+
+
+def test_a_public_guide_the_old_site_did_not_list_anonymously_is_published_and_flagged(fresh, archive):
+    edit_json(archive, "api/guides/index.json", lambda entries: entries[0].update(anonymousVisible=False))
+
+    result = load(archive, "--namespaces", "ITEM")
+
+    assert result.status == 0 and statuses(Guide)[GUIDE_15] == "published"
+    report = (archive / "import-report.md").read_text()
+    assert "### Guides published as marked, though the old site did not list them to anonymous visitors (1)" in report
+    assert "It is published here as the old site marked it; check that it should be." in report
+    assert f"published, /g/{GUIDE_15} — public on the old site, though not listed to visitors who were not signed in" in report
+
+
+def test_an_archived_guide_is_a_draft_and_the_report_says_why(fresh, archive):
+    edit_json(archive, "api/guides/index.json", lambda entries: entries[0].update(isArchived=True))
+
+    load(archive, "--namespaces", "ITEM")
+
+    assert statuses(Guide)[GUIDE_15] == "draft"
+    assert f"draft, /g/{GUIDE_15} — archived on the old site" in (archive / "import-report.md").read_text()
+
+
+# ---------------------------------------------------------------- a doctored archive
+
+
+def test_a_manifest_cannot_point_the_loader_at_a_file_outside_the_archive(fresh, archive, tmp_path):
+    secret = tmp_path / "secret.png"
+    photo(64, 48, 7).save(secret, format="PNG")
+    (archive / "files/images/planted.png").symlink_to(secret)
+    (archive / "api/guides/430/guide.json").rename(archive / "api/guides/430/real.json")
+    (archive / "api/guides/430/guide.json").symlink_to(archive / "api/guides/430/real.json")
+
+    def doctor(manifest: dict) -> None:
+        manifest["items"]["image-file:900"]["path"] = str(secret)
+        manifest["items"]["image-file:901"]["path"] = "../secret.png"
+        manifest["items"]["image-file:902"]["path"] = "files/images/planted.png"
+        manifest["items"]["image-file:903"]["path"] = "files/images/../../../secret.png"
+
+    edit_json(archive, "manifest.json", doctor)
+    edit_json(archive, "api/guides/index.json", lambda entries: entries.extend([{"guideid": "../../../etc", "title": "Hostile"}, {"guideid": "27/../15"}]))
+    edit_json(archive, "api/wikis/WIKI/index.json", lambda entries: entries.append({"wikiid": "../../x", "title": "Hostile"}))
+
+    result = load(archive)
+
+    assert result.status == 1, result.text
+    assert "  guide:     3 created, 1 failed" in result.lines and "  page:      4 created, 1 skipped" in result.lines
+    report = (archive / "import-report.md").read_text()
+    for image_id in (900, 901, 902, 903):
+        assert f"Image {image_id} is not in the archive." in report
+    assert "- guide 430 “Internal: laser safety interlock”: LookupError: the guide is not in the archive" in report, "a link in place of a file is not read"
+    with db.SessionLocal() as session:
+        sizes = {(media.width, media.height) for media in session.scalars(select(Media))}
+    assert (64, 48) not in sizes, "the file outside the archive was not imported"
+    assert "Hostile" not in report
+
+
+def test_an_archive_whose_folders_are_links_is_not_read(fresh, archive, tmp_path):
+    (archive / "api/categories/detail").rename(tmp_path / "detail")
+    (archive / "api/categories/detail").symlink_to(tmp_path / "detail", target_is_directory=True)
+
+    result = load(archive, "--namespaces", "ITEM")
+
+    assert result.status == 0, result.text
+    with db.SessionLocal() as session:
+        assert session.scalars(select(Category).where(Category.name == "Confocal - hidden guides")).one_or_none() is None, (
+            "that category is known only from the detail files, which were not read"
+        )
+
+
+# ---------------------------------------------------------------- shared rules, not copies
+
+
+def sideways(picture: Image.Image) -> tuple[Image.Image, Image.Exif]:
+    """The picture as a phone held upright stores it: turned, with a tag saying so."""
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    return picture.transpose(Image.Transpose.ROTATE_90), exif
+
+
+def test_a_sideways_picture_that_has_to_be_re_encoded_is_turned_exactly_once(tmp_path, archive):
+    stored, exif = sideways(photo(320, 240, 904))
+    stored.save(archive / "files/images/904.png", format="PNG", exif=exif)
+    with reticle(tmp_path / "reticle", RETICLE_MAX_IMAGE_DIMENSION="200"):
+        migrate.upgrade()
+        staff()
+
+        result = load(archive, "--guide", "430", "--namespaces", "ITEM")
+
+        assert result.status == 0, result.text
+        with db.SessionLocal() as session:
+            media = session.scalars(select(Media)).one()
+            assert (media.width, media.height) == (200, 150), "landscape, as the photograph is shown — not turned twice into portrait"
+            with Image.open(get_settings().media_root / media.storage_path) as kept:
+                assert kept.size == (200, 150) and kept.getexif().get(0x0112) is None
+                expected = photo(320, 240, 904).resize((200, 150)).convert("RGB")
+                difference = sum(abs(a - b) for a, b in zip(kept.convert("RGB").resize((20, 15)).tobytes(), expected.resize((20, 15)).tobytes())) / (20 * 15 * 3)
+                assert difference < 12, "and it is the same way up as the original"
+        assert "Image 904 was re-encoded to fit Reticle’s limits" in (archive / "import-report.md").read_text()
+
+
+def test_markers_land_in_the_right_place_on_a_photograph_stored_sideways(fresh, archive):
+    """The clean source is turned once, by the application; the marker check sees it the same way up."""
+    stored, exif = sideways(photo(800, 600, 1))
+    stored.save(archive / "files/images/477.jpg", format="JPEG", quality=95, exif=exif)
+
+    result = load(archive, "--guide", "15", "--namespaces", "ITEM")
+
+    assert result.status == 0, result.text
+    with signed_in("viewer@zmb.example") as viewer:
+        media = viewer.get(f"/api/guides/{GUIDE_15}").json()["steps"][0]["media"][0]
+        assert (media["width"], media["height"]) == (800, 600)
+        (arrow,) = media["annotations"]
+        assert (arrow["x"], arrow["y"]) == pytest.approx((505 / 800, 440 / 600), abs=1e-4)
+        with Image.open(BytesIO(viewer.get(media["url"]).content)) as served:
+            assert served.size == (800, 600) and served.getexif().get(0x0112) is None
+    assert "Image 507" not in (archive / "import-report.md").read_text(), "no fallback to the burned-in picture was needed"
+
+
+def test_tags_and_slugs_follow_the_applications_own_rules(fresh, archive):
+    """Umlauts transliterate; the importer uses the application's functions, so the two cannot drift."""
+    from app import slugs
+    from app.importer import wikitext
+
+    assert wikitext.tag_slug is slugs.tag_slug and loader_module.tag_slug is slugs.tag_slug
+    assert loader_module.slugify is slugs.slugify and loader_module.unique_slug is slugs.unique_slug
+
+    edit_json(archive, "api/guides/422/guide.json", lambda document: document.update(title="Präparation für die Übersicht"))
+    edit_json(archive, "api/guides/index.json", lambda entries: [entry.update(title="Präparation für die Übersicht") for entry in entries if entry["guideid"] == 422])
+    (archive / "api/guides/422/tags.json").write_text(json.dumps(["Präparation", "Größe"]))
+    edit_json(archive, "api/wikis/CATEGORY/23.json", lambda document: document.update(
+        contents_raw="== Präparation ==\n\n[guidelist|tags=Präparation]\n\nSee [guide|422] and [guide|422|die Anleitung].\n"))
+
+    result = load(archive)
+
+    assert result.status == 0, result.text
+    with signed_in("viewer@zmb.example") as viewer:
+        guide = viewer.get("/api/guides/praeparation-fuer-die-uebersicht").json()
+        assert sorted(guide["tags"]) == sorted([slugs.tag_slug("Präparation"), slugs.tag_slug("Größe")]) == ["groesse", "praeparation"]
+        page = viewer.get("/api/pages/confocal-microscopy").json()
+        assert page["body"] == (
+            "## Präparation\n\n```guidelist\ntags: praeparation\n```\n\n"
+            "See [Präparation für die Übersicht](/g/praeparation-fuer-die-uebersicht) and [die Anleitung](/g/praeparation-fuer-die-uebersicht).\n"
+        )
+        (asked,) = re.findall(r"^tags: (.+)$", page["body"], flags=re.MULTILINE)
+        assert [listed["slug"] for listed in viewer.get("/api/guides", params={"tags": asked}).json()] == ["praeparation-fuer-die-uebersicht"]
+        assert {tag["slug"]: tag["name"] for tag in viewer.get("/api/tags").json()}["praeparation"] == "Präparation"
+
+
+def test_a_hero_image_takes_its_description_when_the_vendor_has_one(fresh, archive):
+    edit_json(archive, "api/wikis/CATEGORY/23.json", lambda document: document["image"].update(caption="  The confocal\nroom, seen from the door  "))
+
+    load(archive, "--guide", "15")
+
+    with signed_in("viewer@zmb.example") as viewer:
+        landing = viewer.get("/api/pages/confocal-microscopy").json()
+    assert landing["heroMediaId"] and landing["heroAlt"] == "The confocal room, seen from the door"
+
+
+def test_a_hero_image_without_a_description_has_no_alt_text(world):
+    """What the live API sends: an id, a guid and URLs. Nothing is made up to fill the gap."""
+    landing = world.viewer.get("/api/pages/confocal-microscopy").json()
+
+    assert landing["heroMediaId"] and landing["heroAlt"] == ""
+    assert Loader._image_description({"description": "D", "alt": "A"}) == "D"
+    assert Loader._image_description({"caption": 7, "alt": " A "}) == "A"
+    assert len(Loader._image_description({"caption": "c" * 2000})) == 1000
+
+
+def test_a_hero_image_that_cannot_be_imported_brings_no_description_with_it(fresh, archive):
+    edit_json(archive, "api/wikis/CATEGORY/23.json", lambda document: document["image"].update(caption="Described, but missing"))
+    (archive / "files/images/12099.jpg").unlink()
+
+    load(archive, "--guide", "15")
+
+    with signed_in("viewer@zmb.example") as viewer:
+        landing = viewer.get("/api/pages/confocal-microscopy").json()
+    assert landing["heroMediaId"] is None and landing["heroAlt"] == ""

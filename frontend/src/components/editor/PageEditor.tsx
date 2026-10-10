@@ -15,6 +15,7 @@ import {
   pageQueries,
   useArchivePage,
   usePublishPage,
+  useRevertPage,
   useSavePage,
   useUnpublishPage,
 } from '../../queries/pages'
@@ -59,6 +60,7 @@ export function PageEditor({ initial }: { initial: Page }) {
   const save = useSavePage()
   const publish = usePublishPage()
   const unpublish = useUnpublishPage()
+  const revert = useRevertPage()
   const archive = useArchivePage()
 
   const autosave = useAutosave({ initial, save: save.mutateAsync })
@@ -80,13 +82,21 @@ export function PageEditor({ initial }: { initial: Page }) {
     },
     publish: publish.mutateAsync,
     unpublish: unpublish.mutateAsync,
+    revert: revert.mutateAsync,
     archive: (current) => archive.mutateAsync(current),
     onPublished: (published) =>
       void navigate({ to: '/w/$slug', params: { slug: published.slug } }),
+    onDiscarded: (restored) => {
+      setChecking(false)
+      return restored
+    },
     onArchived: () => void navigate({ to: '/' }),
     archiveWarning:
       'Archive this page? It disappears for everyone, including authors. The content is kept ' +
       'on the server, but bringing it back needs an administrator with database access.',
+    discardWarning: (version) =>
+      `Discard every change made to this page since version ${version} was published? ` +
+      'The editor goes back to that version — the one readers see. This cannot be undone.',
   })
 
   /**
@@ -221,6 +231,8 @@ export function PageEditor({ initial }: { initial: Page }) {
         }
         title={page.title || 'Untitled page'}
         status={page.status}
+        version={page.version}
+        hasUnpublishedChanges={page.hasUnpublishedChanges}
         saveState={autosave.saveState}
         busy={actions.busy}
         canArchive={can('admin')}
@@ -236,6 +248,7 @@ export function PageEditor({ initial }: { initial: Page }) {
         }
         onPublish={actions.publish}
         onUnpublish={actions.unpublish}
+        onDiscard={actions.discard}
         onArchive={actions.archive}
       />
 

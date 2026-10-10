@@ -152,19 +152,20 @@ def _validated_media(db: DbSession, payload: GuideDocumentIn, cap: int) -> dict[
     return media_by_id
 
 
-def _stored_annotations(annotations: list[AnnotationIn]) -> list[dict]:
+def _stored_annotations(annotations: list[AnnotationIn], claimed: set[str]) -> list[dict]:
     """The annotations as they are kept on the step-media link.
 
     Identifiers the client minted are kept so a shape stays selected across an
-    autosave; they only have to be unique within their own image.
+    autosave. They are held unique across the whole guide, like step and bullet
+    identifiers: the editor keys its selection by them, and two shapes answering
+    to one identifier on different images would be selected, moved and deleted
+    together.
     """
     stored: list[dict] = []
-    seen: set[str] = set()
     for annotation in annotations:
-        annotation_id = annotation.id or new_id()
-        if annotation_id in seen:
-            raise errors.validation_failed("The same annotation appears twice on an image.")
-        seen.add(annotation_id)
+        annotation_id = _claim_once(
+            claimed, annotation.id or new_id(), "The same annotation appears twice in this guide."
+        )
         stored.append(
             {
                 "id": annotation_id,
@@ -198,6 +199,20 @@ def _claim_id(db: DbSession, model: type, candidate: str | None, owned: set[str]
     return candidate
 
 
+def _claim_once(claimed: set[str], identifier: str, message: str) -> str:
+    """Refuse an identifier that this same document has already used.
+
+    The set is the whole document's, not one step's. A primary key is unique
+    across the table, so the same new bullet identifier in two different steps
+    passed a per-step check and then died on the insert — as a 500 whose
+    traceback carried the bullet text into the log.
+    """
+    if identifier in claimed:
+        raise errors.validation_failed(message)
+    claimed.add(identifier)
+    return identifier
+
+
 def _sync_steps(db: DbSession, guide: Guide, steps_in: list[StepIn], media_by_id: dict[str, Media]) -> None:
     existing_steps = {step.id: step for step in guide.steps}
 
@@ -205,24 +220,25 @@ def _sync_steps(db: DbSession, guide: Guide, steps_in: list[StepIn], media_by_id
     claimed: set[str] = set()
     for step_in in steps_in:
         step_id = _claim_id(db, Step, step_in.id, set(existing_steps), "step")
-        if step_id in claimed:
-            raise errors.validation_failed("The same step appears twice in this guide.")
-        claimed.add(step_id)
-        plan.append((step_id, step_in))
+        plan.append((_claim_once(claimed, step_id, "The same step appears twice in this guide."), step_in))
 
     bullet_plan: dict[str, list[tuple[str, BulletIn]]] = {}
+    claimed_bullets: set[str] = set()
     for step_id, step_in in plan:
         step = existing_steps.get(step_id)
         owned_bullets = {bullet.id for bullet in step.bullets} if step is not None else set()
         entries: list[tuple[str, BulletIn]] = []
-        seen: set[str] = set()
         for bullet_in in step_in.bullets:
             bullet_id = _claim_id(db, Bullet, bullet_in.id, owned_bullets, "bullet")
-            if bullet_id in seen:
-                raise errors.validation_failed("The same bullet appears twice in a step.")
-            seen.add(bullet_id)
+            _claim_once(claimed_bullets, bullet_id, "The same bullet appears twice in this guide.")
             entries.append((bullet_id, bullet_in))
         bullet_plan[step_id] = entries
+
+    annotation_plan: dict[tuple[str, int], list[dict]] = {}
+    claimed_annotations: set[str] = set()
+    for step_id, step_in in plan:
+        for position, item in enumerate(step_in.media):
+            annotation_plan[step_id, position] = _stored_annotations(item.annotations, claimed_annotations)
 
     for step_id, step in existing_steps.items():
         if step_id not in claimed:
@@ -268,6 +284,6 @@ def _sync_steps(db: DbSession, guide: Guide, steps_in: list[StepIn], media_by_id
                     media_id=media_by_id[item.id].id,
                     order_index=position,
                     alt=item.alt,
-                    annotations=_stored_annotations(item.annotations),
+                    annotations=annotation_plan[step_id, position],
                 )
             )

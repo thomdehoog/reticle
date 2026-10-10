@@ -10,18 +10,28 @@ Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 
 from __future__ import annotations
 
-from typing import BinaryIO
+import os
+from typing import BinaryIO, Literal
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from sqlalchemy import ColumnElement, exists, or_, select
 from sqlalchemy.orm import Session as DbSession
 from starlette.datastructures import UploadFile
 
-from .. import audit, errors, images, videos
+from .. import audit, errors, images, uploads, videos
 from ..auth import AnyUser, AuthorUser, DbDep, client_address
-from ..models import PUBLISHED, Guide, Media, Page, PageMedia, Step, StepMedia, new_id
+from ..models import (
+    PUBLISHED,
+    Guide,
+    Media,
+    Page,
+    PublishedGuideMedia,
+    PublishedPageMedia,
+    is_valid_id,
+    new_id,
+)
 from ..schemas import MediaOut, media_out
 from ..settings import Settings, get_settings
 
@@ -42,11 +52,26 @@ the application's.
 """
 
 
+MEDIA_CACHE_CONTROL = "private, no-cache"
+"""Keep a copy, but ask before using it.
+
+A plain ``max-age`` let a browser show a picture from its disk cache for an
+hour without asking anybody — including after the person who loaded it had
+signed out, on an instrument PC the next person was now sitting at.
+``no-cache`` makes every use a conditional request, which goes through the
+login and the visibility rule like any other and costs a 304 when the answer is
+still yes. ``private`` keeps it out of any shared cache in between.
+"""
+
+
 def _store_image(payload: bytes, settings: Settings) -> Media:
-    normalised = images.normalise(payload, settings.max_image_dimension, settings.max_image_pixels)
+    processed = images.process(payload, settings.max_image_dimension, settings.max_image_pixels)
+    normalised = processed.image
     media_id = new_id()
     storage_path = images.relative_storage_path(media_id, normalised.extension)
     images.write_file(settings.media_root, storage_path, normalised.payload)
+    if processed.display is not None:
+        images.write_file(settings.media_root, images.display_storage_path(storage_path), processed.display)
     return Media(
         id=media_id,
         kind="image",
@@ -89,6 +114,16 @@ def _accept_upload(
     rejects everything that is neither.
     """
     settings = get_settings()
+    # The spooled upload knows its own length, so the store's ceiling can be
+    # applied before a byte is processed. The transaction that question opened
+    # is ended again at once: what follows can take seconds, and on SQLite an
+    # open write transaction is the only writer there is.
+    stream.seek(0, os.SEEK_END)
+    incoming = stream.tell()
+    stream.seek(0)
+    uploads.assert_room_for(db, settings, incoming)
+    db.rollback()
+
     head = stream.read(videos.SNIFF_BYTES)
     stream.seek(0)
     video_format = videos.sniff(head)
@@ -122,7 +157,7 @@ def _accept_upload(
         )
         db.commit()
     except BaseException:
-        (settings.media_root / media.storage_path).unlink(missing_ok=True)
+        uploads.remove_files(settings.media_root, media.storage_path)
         raise
     return media_out(media)
 
@@ -168,45 +203,155 @@ def shown_to_viewers() -> ColumnElement[bool]:
     Authentication was once the only gate on the bytes, and authentication is
     not visibility: a viewer who was correctly given 404 for a draft guide was
     given 200 for the photographs inside it, so the whole unpublished pipeline
-    was readable one image at a time by anybody with an account. This is the
-    visibility rule asked of every path that can put an upload in front of a
-    reader — a step of a guide, the hero of a page, the body of a page.
+    was readable one image at a time by anybody with an account.
+
+    "Published" means the published *snapshot*. The working copy's own links —
+    ``step_media``, a page's hero, the references in its body — say what an
+    author has put in, which includes the screenshot dropped into an edit five
+    minutes ago that nobody has published. What a viewer may fetch is what the
+    snapshot they are being served shows: the links written when it was
+    published, for a guide or page that is still published now.
     """
     in_published_guide = exists(
-        select(StepMedia.id)
-        .join(Step, Step.id == StepMedia.step_id)
-        .join(Guide, Guide.id == Step.guide_id)
-        .where(StepMedia.media_id == Media.id, Guide.status == PUBLISHED)
+        select(PublishedGuideMedia.owner_id)
+        .join(Guide, Guide.id == PublishedGuideMedia.owner_id)
+        .where(PublishedGuideMedia.media_id == Media.id, Guide.status == PUBLISHED)
     )
-    hero_of_published_page = exists(
-        select(Page.id).where(Page.hero_media_id == Media.id, Page.status == PUBLISHED)
+    in_published_page = exists(
+        select(PublishedPageMedia.owner_id)
+        .join(Page, Page.id == PublishedPageMedia.owner_id)
+        .where(PublishedPageMedia.media_id == Media.id, Page.status == PUBLISHED)
     )
-    in_published_page_body = exists(
-        select(PageMedia.page_id)
-        .join(Page, Page.id == PageMedia.page_id)
-        .where(PageMedia.media_id == Media.id, Page.status == PUBLISHED)
-    )
-    return or_(in_published_guide, hero_of_published_page, in_published_page_body)
+    return or_(in_published_guide, in_published_page)
 
 
-@router.get("/{media_id}")
-def read_media(media_id: str, db: DbDep, user: AnyUser) -> FileResponse:
-    """The bytes, with ``Range`` honoured so that a video can seek."""
-    statement = select(Media).where(Media.id == media_id)
+def _entity_tag(media_id: str, variant: str, path: os.PathLike[str]) -> str:
+    """A strong validator for exactly these bytes.
+
+    The identifier names the upload, the variant says whether this is the
+    original or the display copy, and the size and modification time change if
+    the file on disk is ever replaced — a display copy made later, a restore.
+    """
+    stat = os.stat(path)
+    return f'"{media_id}-{variant}-{stat.st_size:x}-{stat.st_mtime_ns:x}"'
+
+
+def _matches(header: str | None, entity_tag: str) -> bool:
+    """Whether an ``If-None-Match`` header names this entity tag.
+
+    The comparison is the weak one the header calls for: a ``W/`` prefix on
+    what the client sends is ignored.
+    """
+    if not header:
+        return False
+    candidates = [candidate.strip() for candidate in header.split(",")]
+    return "*" in candidates or any(candidate.removeprefix("W/") == entity_tag for candidate in candidates)
+
+
+@router.api_route("/{media_id}", methods=["GET", "HEAD"])
+def read_media(
+    media_id: str,
+    request: Request,
+    db: DbDep,
+    user: AnyUser,
+    size: Literal["display"] | None = None,
+) -> Response:
+    """The bytes, with ``Range`` honoured so that a video can seek.
+
+    ``?size=display`` asks for the copy meant to be looked at: an image held to
+    ``images.DISPLAY_MAX_SIDE`` on its longer edge. It is the same file as the
+    original when the original is already that small, and for a video.
+
+    Every response can be revalidated. A matching ``If-None-Match`` is answered
+    304 — after the same login and visibility checks as a full response, which
+    is the point of making the browser ask.
+
+    ``HEAD`` is answered like ``GET`` without the bytes: it is how a player or
+    a script asks whether a file is there, and how large, before fetching it.
+    """
+    statement = select(Media.id, Media.storage_path, Media.content_type, Media.kind, Media.width, Media.height).where(
+        Media.id == media_id
+    )
     if user.role == "viewer":
         statement = statement.where(shown_to_viewers())
-    media = db.scalars(statement).one_or_none()
-    if media is None:
+    found = db.execute(statement).one_or_none()
+    # Making a display copy can take a second or two; the connection is not
+    # needed for it.
+    db.close()
+    if found is None:
         raise errors.not_found("That file does not exist.")
 
-    path = images.resolve_file(get_settings().media_root, media.storage_path)
-    return FileResponse(
-        path,
-        media_type=media.content_type,
-        headers={
-            "Content-Disposition": f'inline; filename="{media.id}.{path.suffix.lstrip(".")}"',
-            "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": MEDIA_CONTENT_SECURITY_POLICY,
-            "Cache-Control": "private, max-age=3600",
+    media_root = get_settings().media_root
+    variant = "original"
+    if size == "display" and found.kind == "image":
+        path = images.display_file(media_root, found.storage_path, found.width, found.height, found.content_type)
+        variant = "display" if path.name != os.path.basename(found.storage_path) else "original"
+    else:
+        path = images.resolve_file(media_root, found.storage_path)
+
+    entity_tag = _entity_tag(found.id, variant, path)
+    headers = {
+        "Content-Disposition": f'inline; filename="{found.id}.{path.suffix.lstrip(".")}"',
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": MEDIA_CONTENT_SECURITY_POLICY,
+        "Cache-Control": MEDIA_CACHE_CONTROL,
+        "ETag": entity_tag,
+    }
+    if _matches(request.headers.get("if-none-match"), entity_tag):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+    return FileResponse(path, media_type=found.content_type, headers=headers)
+
+
+@router.delete("/{media_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def delete_media(media_id: str, request: Request, db: DbDep, user: AuthorUser, force: bool = False) -> Response:
+    """Remove an upload for good: its row, its file and its display copy.
+
+    An upload could once only ever be unlinked. A badge photographed by
+    accident stayed on disk, in every backup, and fetchable by any author who
+    had the address, with no way to make it not so.
+
+    Who may: an administrator, or the person who uploaded the file. What may be
+    deleted: a file nothing uses — no working copy and no published snapshot,
+    past or present. One that is still used is refused with 409 and a list of
+    where, because the usual cause is a mistake about which file this is.
+
+    ``?force=true`` is the administrator's "this must be gone": the file is
+    taken out of every working copy and every stored snapshot first, and their
+    cached PDF exports are dropped. Backups made before this moment still
+    contain it; that is a matter for whoever keeps the backups.
+    """
+    if force and user.role != "admin":
+        raise errors.forbidden("Only an administrator can delete a file that is still in use.")
+    media = db.get(Media, media_id) if is_valid_id(media_id) else None
+    if media is None:
+        raise errors.not_found("That file does not exist.")
+    if user.role != "admin" and media.uploaded_by_id != user.id:
+        raise errors.forbidden("Only the person who uploaded a file, or an administrator, can delete it.")
+
+    settings = get_settings()
+    uses = uploads.uses_of(db, media.id)
+    if uses and not force:
+        raise errors.conflict(uploads.still_used_message(uses))
+    if uses:
+        uploads.strip_everywhere(db, media.id, uses, user, settings)
+
+    storage_path = media.storage_path
+    audit.record(
+        db,
+        action="media.delete",
+        entity_type="media",
+        entity_id=media.id,
+        actor=user,
+        ip_address=client_address(request),
+        detail={
+            "kind": media.kind,
+            "byteSize": media.byte_size,
+            "uploadedBy": media.uploaded_by_id,
+            "forced": bool(uses),
+            "removedFrom": uses.counts(),
         },
     )
+    db.delete(media)
+    db.commit()
+    uploads.remove_files(settings.media_root, storage_path)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

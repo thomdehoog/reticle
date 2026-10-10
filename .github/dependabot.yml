@@ -1,0 +1,79 @@
+# Keeps the pins moving. Everything a build takes from somewhere else is
+# pinned — actions to commit SHAs, Python packages to hashes
+# (backend/requirements.lock), npm packages to hashes (package-lock.json),
+# base images to a minor version — and a pin that nobody updates becomes a
+# list of known vulnerabilities. Dependabot opens the pull request; CI says
+# whether it is safe to merge.
+#
+# Weekly, on Monday morning, grouped so that a quiet repository gets a handful
+# of pull requests a month and not one per package.
+#
+# Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
+version: 2
+
+updates:
+  # The commit SHAs in .github/workflows/*.yml (the version comment behind
+  # each is updated with it).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Zurich
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # backend/requirements.txt and requirements-dev.txt: the ranges people edit.
+  #
+  # NOT covered: backend/requirements.lock. Dependabot recognises pip-compile
+  # output only under the names requirements.in -> requirements.txt, so it
+  # will raise a range here but cannot regenerate the lock. A pull request
+  # from this entry that changes requirements.txt therefore fails the CI step
+  # "The lock is in step with requirements.txt" until the lock is regenerated
+  # on that branch (the command is in the failure message and in
+  # docs/MAINTENANCE.md, section 5). Versions INSIDE the existing ranges are
+  # picked up by running that same command with --upgrade.
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Zurich
+    groups:
+      python:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # frontend/package.json and package-lock.json.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Zurich
+    groups:
+      javascript:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # The base images named in backend/Dockerfile (python) ...
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Zurich
+
+  # ... and in frontend/Dockerfile (node, caddy, alpine).
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Zurich

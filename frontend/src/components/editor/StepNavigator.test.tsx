@@ -64,6 +64,7 @@ const IMAGE: Media = {
   id: 'm-key',
   kind: 'image',
   url: '/api/media/m-key',
+  displayUrl: '/api/media/m-key?size=display',
   alt: 'The laser key',
   width: 800,
   height: 600,
@@ -137,7 +138,7 @@ describe('StepNavigator', () => {
     render(<Editor initial={guideSteps()} />)
 
     const [withoutImage, withImage] = entries()
-    expect(withImage.querySelector('img')).toHaveAttribute('src', '/api/media/m-key')
+    expect(withImage.querySelector('img')).toHaveAttribute('src', '/api/media/m-key?size=display')
     expect(withoutImage.querySelector('img')).toBeNull()
   })
 

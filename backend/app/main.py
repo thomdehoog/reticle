@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator, Iterable, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import anyio.to_thread
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -25,6 +26,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from . import db, errors, migrate
@@ -184,15 +186,29 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault("Referrer-Policy", "no-referrer")
-        response.headers.setdefault("Cross-Origin-Resource-Policy", "same-site")
-        response.headers.setdefault("Content-Security-Policy", API_CONTENT_SECURITY_POLICY)
-        response.headers.setdefault("Cache-Control", "no-store")
-        if get_settings().cookie_secure:
-            response.headers.setdefault("Strict-Transport-Security", HSTS)
+        for name, value in hardening_headers().items():
+            response.headers.setdefault(name, value)
         return response
+
+
+def hardening_headers() -> dict[str, str]:
+    """The headers every response carries unless it has said otherwise itself.
+
+    A function rather than a detail of the middleware because one response is
+    produced outside every middleware: the answer to an exception nobody
+    handled is written by the server-error layer, which wraps the whole stack.
+    """
+    headers = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "no-referrer",
+        "Cross-Origin-Resource-Policy": "same-site",
+        "Content-Security-Policy": API_CONTENT_SECURITY_POLICY,
+        "Cache-Control": "no-store",
+    }
+    if get_settings().cookie_secure:
+        headers["Strict-Transport-Security"] = HSTS
+    return headers
 
 
 @asynccontextmanager
@@ -209,6 +225,10 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     signs in to for a month.
     """
     migrate.assert_current(db.engine)
+    # The connection pool in ``db`` is sized against this number; setting it
+    # here rather than trusting the library's default is what keeps the two
+    # from drifting apart on an upgrade.
+    anyio.to_thread.current_default_thread_limiter().total_tokens = db.REQUEST_THREADS
     with db.SessionLocal() as session:
         prune_stale_rows(session)
         session.commit()
@@ -254,7 +274,7 @@ def create_app() -> FastAPI:
 
     @application.exception_handler(errors.ApiError)
     async def handle_api_error(request: Request, exc: errors.ApiError) -> JSONResponse:
-        return JSONResponse(status_code=exc.status_code, content=exc.body())
+        return JSONResponse(status_code=exc.status_code, content=exc.body(), headers=exc.headers)
 
     @application.exception_handler(RequestValidationError)
     async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -269,6 +289,40 @@ def create_app() -> FastAPI:
             return JSONResponse(status_code=exc.status_code, content=failure.body())
         failure = errors.ApiError(code, str(exc.detail))
         return JSONResponse(status_code=exc.status_code, content=failure.body())
+
+    @application.exception_handler(IntegrityError)
+    async def handle_integrity_error(request: Request, exc: IntegrityError) -> JSONResponse:
+        """A constraint the handler did not anticipate is a conflict, not a crash.
+
+        Every rule that can be checked is checked before writing, with a message
+        that says what to do. What arrives here is what those checks could not
+        see: two requests that each passed and then collided in the database.
+        That is the caller's 409 to retry, and only the first line of the
+        driver's message is logged — on PostgreSQL the lines after it quote the
+        offending values.
+        """
+        reason = str(exc.orig).splitlines()[0] if str(exc.orig) else type(exc.orig).__name__
+        logger.warning("Integrity error on %s %s: %s", request.method, request.url.path, reason)
+        failure = errors.conflict(
+            "That change collided with something saved at the same moment. Reload and try again."
+        )
+        return JSONResponse(status_code=failure.status_code, content=failure.body())
+
+    @application.exception_handler(Exception)
+    async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        """Anything nobody planned for still answers in the contract's envelope.
+
+        The message is the same whatever went wrong: the text of an unexpected
+        exception describes the server's insides, and occasionally quotes what
+        was submitted. The log line names the route and the exception type and
+        deliberately nothing from the request — no body, no query string, no
+        headers. The traceback follows it, and with ``hide_parameters`` on the
+        engine a database error in it shows the statement without its values.
+        """
+        logger.error(
+            "Unhandled %s on %s %s", type(exc).__name__, request.method, request.url.path, exc_info=exc
+        )
+        return JSONResponse(status_code=500, content=errors.internal_error_body(), headers=hardening_headers())
 
     @application.get("/api/health", tags=["health"])
     def health(session: DbDep) -> JSONResponse:

@@ -2,7 +2,10 @@
 
 Password changes revoke the account's other sessions. If a password is being
 changed because it leaked, leaving the sessions it created alive would defeat
-the point of changing it.
+the point of changing it. The same goes for the device cookies that mark a
+browser as one the account has signed in from: a password change, an
+administrator's reset and a deactivation each raise the account's epoch, and
+every such cookie issued before stops counting (``security.end_credentials``).
 
 Author: Thom de Hoog <thom.dehoog@zmb.uzh.ch>, <thomdehoog@gmail.com>
 """
@@ -17,8 +20,9 @@ from .. import audit, errors
 from ..auth import AdminUser, CurrentSession, DbDep, client_address
 from ..models import User
 from ..schemas import PasswordChangeIn, UserCreateIn, UserOut, UserPatchIn, user_out
-from ..security import hash_password, revoke_all_sessions, verify_password
+from ..security import end_credentials, hash_password, new_device_token, verify_password
 from ..settings import get_settings
+from .auth import set_device_cookie
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -93,9 +97,9 @@ def patch_user(user_id: str, payload: UserPatchIn, request: Request, db: DbDep, 
     if "role" in changed and payload.role is not None:
         user.role = payload.role
     if "is_active" in changed and payload.is_active is not None:
+        if user.is_active and not payload.is_active:
+            end_credentials(db, user)
         user.is_active = payload.is_active
-        if not payload.is_active:
-            revoke_all_sessions(db, user.id)
 
     audit.record(
         db,
@@ -133,7 +137,7 @@ def change_password(
             raise errors.invalid_credentials("That is not your current password.")
 
     user.password_hash = hash_password(payload.new_password)
-    revoke_all_sessions(db, user.id, except_session_id=session_row.id if is_self else None)
+    end_credentials(db, user, except_session_id=session_row.id if is_self else None)
     audit.record(
         db,
         action="user.password_change",
@@ -143,5 +147,12 @@ def change_password(
         ip_address=client_address(request),
         detail={"self": is_self},
     )
+    email, epoch = user.email, user.auth_epoch
     db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    if is_self:
+        # The browser that just proved the old password and chose the new one
+        # keeps its standing; every other browser has to earn it again.
+        set_device_cookie(response, new_device_token(email, epoch), get_settings())
+    return response

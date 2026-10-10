@@ -19,13 +19,13 @@ left — see "What is left".
 
 | | as of 2026-10-10 |
 | --- | --- |
-| Backend tests | 960 passing, 99% branch coverage (the gate is 95%) |
-| Frontend tests | 575 passing |
 | Browser tests | smoke test at 1440 / 768 / 390 px and an authoring round-trip, both also run against the Docker stack under the production Content-Security-Policy |
-| Deployment | two images, `compose.yaml`, backup / restore / upgrade scripts — exercised end to end, with the caveats under "Deployment: what was and was not verified" |
+| Deployment | two images, `compose.yaml`, backup / restore / upgrade / housekeeping scripts — exercised end to end, with the caveats under "Deployment: what was and was not verified" |
 
-The test counts are a snapshot. UI polish and the importer are still being
-worked on and will add to both suites; trust CI, not this table.
+Backend tests: <FINAL>
+Frontend tests: <FINAL>
+
+The test counts are a snapshot; trust CI, not this file.
 
 ### Running it
 
@@ -108,9 +108,19 @@ Decisions worth not re-litigating:
   Uploads are reachable only through the API, per request, behind the login.
 - **The schema is owned by migrations.** `python -m app.migrate` (Alembic) is a
   deliberate step and the server refuses to start on a schema it does not
-  recognise. In the container that step runs before uvicorn, so an upgrade is
-  "start the new image" — and a rollback across a migration needs the
-  pre-upgrade backup, which `deploy/upgrade.sh` always takes.
+  recognise. In the container that step runs before uvicorn — but a migration
+  that would change an existing database runs only with a backup less than an
+  hour old on record (or an explicit `RETICLE_ALLOW_MIGRATE=1`), because a
+  rollback across a migration needs that backup. `deploy/upgrade.sh` takes it;
+  a bare `docker compose pull && up -d` is refused, with the database
+  untouched. There is no default image version and no implicit `latest`.
+- **Readers get the published version, authors a working copy.** Editing
+  something that is published changes a working copy; "Publish update" makes
+  it the version readers see, "Discard changes" drops it.
+- **Everything a build fetches is pinned.** Python packages by hash
+  (`backend/requirements.lock`, generated from the hand-edited
+  `requirements.txt`), npm by lockfile, GitHub Actions by commit SHA, base
+  images by minor tag; Dependabot moves the pins.
 - **Server state lives in TanStack Query, navigation in TanStack Router.** The
   hand-rolled fetching hooks and the hand-rolled router are gone.
 - **Releases are images; servers pull.** A `v*` tag publishes two images to
@@ -162,8 +172,20 @@ Decisions worth not re-litigating:
       images and tests the Compose stack from outside (login wall, limits,
       headers, forged `X-Forwarded-For`, backup → wipe → restore, browser test
       under the production CSP)
-- [x] **Release workflow** — `v*` tag → images on GHCR with provenance and
-      SBOM, plus a deployment bundle on the GitHub release
+- [x] **Release workflow** — version tag (`v1.2.3`, validated before
+      anything runs with it) → images on GHCR with provenance and SBOM, plus
+      a deployment bundle on the GitHub release
+- [x] **Independent review of 2026-10-10** — findings fixed; see "Security"
+- [x] **Published version vs. working copy** — "Publish update" /
+      "Discard changes"; readers never see an edit in progress
+- [x] **Display copies of images**, a **PDF cache** per published version and
+      a limit on concurrent PDF rendering (429 when busy)
+- [x] **Removing things** — admin `DELETE /api/media/{id}`;
+      `python -m app.maintenance purge-orphans`, wrapped by
+      `deploy/maintenance.sh` with a weekly systemd timer; optional
+      `RETICLE_MAX_MEDIA_STORE_BYTES`
+- [x] **Supply chain** — hash-locked Python dependencies, actions pinned to
+      commit SHAs, Dependabot for actions / pip / npm / base images
 - [x] `DEPLOYMENT.md` and `MAINTENANCE.md` rewritten for the above
 - [x] **Importer written** (`backend/app/importer`: export via the vendor API
       into a resumable archive, verify, dry-run, load) — **not yet run against
@@ -195,16 +217,33 @@ Ordered by how much it blocks a real switch from Dozuki.
    person and hands out an initial password. Keep local login afterwards for
    break-glass access. Needs IT: a SAML service-provider registration.
 5. **Smaller gaps found while packaging:**
-   - no clean-up of uploads that nothing references any more — the media
-     directory only grows;
-   - no administrative command line in the application: `deploy/reset-password.sh`
-     reaches into the ORM directly, and the audit trail can only be read with
-     SQL (there is no screen for it);
+   - the administrative command line covers housekeeping only:
+     `deploy/reset-password.sh` still reaches into the ORM directly, and the
+     audit trail can only be read with SQL (there is no screen for it);
    - backups are full copies; with many videos, incremental backups (restic,
      borg) of the backup directory will be wanted;
-   - dependencies are pinned to compatible ranges, not locked to hashes, so two
-     builds a month apart are not byte-identical;
+   - **the Python lock is refreshed by hand.** Dependabot recognises
+     pip-compile output only as `requirements.in` → `requirements.txt`; with
+     our names (`requirements.txt` → `requirements.lock`) its pull requests
+     change the ranges and leave the lock to a person (command:
+     `MAINTENANCE.md` section 5; CI fails until it is done). Renaming the two
+     files to Dependabot's convention would close this, at the price of
+     changing what `requirements.txt` means everywhere it is mentioned;
+   - base images are pinned by tag, not digest (documented as an option in
+     the Dockerfiles). Whether Dependabot updates a `FROM ${ARG}` whose
+     default is set in an `ARG` line, as both Dockerfiles do, has not been
+     observed — check its first pull requests;
+   - the GitHub Actions are pinned to the newest release of the major version
+     each workflow was written for (checkout v4, setup-python v5, setup-node
+     v4, upload-artifact v4, buildx v3, build-push v6, login v3, metadata v5).
+     Newer majors exist for all of them; Dependabot will propose them, and
+     each is a deliberate bump with a CI run, not a formality;
    - PostgreSQL has never been run — fine until concurrent editing hurts.
+6. **To verify once, on real infrastructure** (could not be done in the build
+   sandbox, see below): the behind-a-proxy setting with the proxy on
+   *another* machine (`DEPLOYMENT.md` section 5 says which address to expect
+   and how to check); the first Dependabot run; the release workflow's tag
+   check on GitHub itself.
 
 ### Deployment: what was and was not verified
 
@@ -218,6 +257,38 @@ across a schema migration and the rollback from it; TLS in `internal` and
 `files` mode and the behind-a-proxy mode; both browser tests through Caddy
 with zero CSP violations; the bare-VM nginx configuration in `DEPLOYMENT.md`.
 
+Verified again after the review fixes (2026-10-10, same sandbox, the image
+this time on Python 3.13 and installed from the hash lock):
+
+- **backup while a file is being written** into the media directory: the old
+  script's failure reproduced (`tar: file changed as we read it`, exit 1);
+  the new one succeeds, leaves the growing file out, and the archive restores
+  byte-identically after `down --volumes`; a file missing from disk is a
+  warning, scratch and cache directories are left out, a restore empties
+  caches;
+- **the migration guard**, with a second image carrying an extra migration:
+  fresh install migrates; restart with nothing pending is not held up; a bare
+  `docker compose up -d` on the new version refuses and leaves the database
+  at the old revision (the old version then starts again with all data);
+  `deploy/upgrade.sh` backs up, migrates and swaps, also when started from
+  that refused state; `deploy/backup.sh` followed by `up -d` migrates; a
+  two-hour-old backup note does not count; `RETICLE_ALLOW_MIGRATE=1` does;
+  rollback of the image alone is refused with the "newer release" message
+  and `deploy/restore.sh` of the pre-upgrade backup brings the old release
+  back; restoring an old backup under the new release migrates it;
+- **the address the application records** behind a second proxy on the same
+  host: through `127.0.0.1` it is the `edge` gateway `172.31.251.1`; with
+  that in `RETICLE_UPSTREAM_PROXIES` the audit log shows the real client and
+  ignores a forged header sent through the proxy;
+- **the proxy leaves media alone**: `Cache-Control`, `ETag`, `Range` /
+  `If-Range` / `If-None-Match` pass through in both directions, media and
+  PDF are not compressed, JSON is, and a compressed response's `ETag`
+  revalidates correctly;
+- `caddy validate` for all four TLS modes (including the `/favicon.ico`
+  block), with and without upstream proxies; `shellcheck` and `actionlint`;
+  the shell steps of the release workflow run locally against hostile tag
+  names; a wrong hash in the lock fails the install.
+
 Not verified, because the build sandbox could reach neither Docker Hub nor
 GHCR nor the public internet:
 
@@ -227,11 +298,61 @@ GHCR nor the public internet:
   Dockerfiles name. The first CI run on GitHub is the first real build;
 - **Let's Encrypt** (`RETICLE_TLS_MODE=auto`) was only syntax-checked;
 - the **GitHub Actions workflows** themselves have not run. Their shell steps
-  were executed locally, the `uses:` steps and the GHCR push were not;
-- `deploy/upgrade.sh` was exercised with `--build`, not with `docker compose
-  pull` from a registry.
+  were executed locally, the `uses:` steps and the GHCR push were not. The
+  pinned commit SHAs were read from the action repositories with
+  `git ls-remote`, not exercised;
+- `deploy/upgrade.sh` was exercised with everything but the `docker compose
+  pull` itself (the images were already local);
+- a reverse proxy on **another machine**: the sandbox is one host. Docker
+  forwards such connections with their source address intact, so the proxy's
+  own address is what `RETICLE_UPSTREAM_PROXIES` should hold — expected, and
+  the check in `DEPLOYMENT.md` section 5 confirms it in a minute, but it was
+  not observed here;
+- `deploy/maintenance.sh` was tested for what it is — a pass-through — against
+  a stand-in for `python -m app.maintenance`, not against the real command.
 
 ## Security
+
+### Independent review, 2026-10-10
+
+A second, independent review covered the application and the deployment. Its
+findings are fixed. In the deployment:
+
+- **The nightly backup could fail while a video was uploading** (GNU tar
+  exits 1 when a file changes under it). The archive is now written by the
+  backup tool itself from the consistent database snapshot outwards: files
+  the snapshot refers to, plus settled files, never an upload in flight,
+  never scratch or cache directories. Reproduced before, verified after.
+- **`latest` plus migrate-on-start** meant `docker compose pull && up -d`
+  could migrate the database with no backup. There is no default version any
+  more, and a migration of an existing database needs a backup taken within
+  the hour or an explicit override; otherwise the container stops without
+  touching anything.
+- **Release workflow: the tag name reached a shell** through a workflow
+  expression. No expression is expanded inside a script any more, in either
+  workflow, and the tag must match `v<major>.<minor>.<patch>[-pre]` before
+  any other job starts.
+- **Supply chain.** Actions were pinned to movable tags and Python
+  dependencies to ranges. Actions are now pinned to commit SHAs, Python
+  packages to hashes (`--require-hashes`), and Dependabot maintains both.
+- **Same-host upstream proxy.** The documentation did not say that such a
+  proxy arrives from the Docker gateway rather than `127.0.0.1`. The `edge`
+  network now has a fixed subnet so that address can be named, and
+  `DEPLOYMENT.md` section 5 gives the value per case and the commands that
+  show what the application recorded.
+- **Media caching at the proxy.** Media is now `private, no-cache` with an
+  `ETag`; verified that Caddy neither overrides those headers nor strips the
+  conditional and range request headers, and compression is limited to an
+  explicit list of text types.
+
+In the application (each with a test): readers are served the last published
+version, never a working copy; the login device cookie expires and is
+invalidated by a password change; PDF rendering is cached per published
+version and rate-limited; images get a bounded display copy; uploads can be
+deleted for good by an administrator, and unreferenced ones by the
+housekeeping command; the media store can be capped.
+
+### Earlier adversarial review
 
 An adversarial review probed a running instance. Everything it found is fixed,
 and each fix has a test that fails without it:

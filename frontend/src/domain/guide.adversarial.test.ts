@@ -53,6 +53,7 @@ function guide(overrides: Partial<Guide> = {}): Guide {
     updatedAt: '2026-07-01T08:00:00Z',
     publishedAt: null,
     version: 0,
+    hasUnpublishedChanges: false,
     ...overrides,
   }
 }
@@ -187,6 +188,7 @@ describe('validateForPublish — what it lets through', () => {
           id: 'm1',
           kind: 'image',
           url: '/api/media/m1',
+          displayUrl: '/api/media/m1?size=display',
           alt: '',
           width: 1,
           height: 1,

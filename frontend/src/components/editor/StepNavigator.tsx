@@ -174,7 +174,13 @@ export function StepNavigator({ steps, stepsContainer, onReorder }: StepNavigato
               >
                 <span className="step-nav__number">{number}</span>
                 {thumbnail?.kind === 'image' && (
-                  <img className="step-nav__thumb" src={thumbnail.url} alt="" />
+                  <img
+                    className="step-nav__thumb"
+                    src={thumbnail.displayUrl ?? thumbnail.url}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                  />
                 )}
                 {/* A video has no still to shrink; the rail only needs to say
                     that this step has something to watch. */}

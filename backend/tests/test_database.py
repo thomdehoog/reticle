@@ -35,28 +35,6 @@ BACKEND = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture()
-def file_db(tmp_path, monkeypatch, media_root):
-    """Point the application at an empty SQLite file, as a deployment would."""
-    url = f"sqlite:///{tmp_path / 'reticle.db'}"
-    monkeypatch.setenv("RETICLE_DATABASE_URL", url)
-    get_settings.cache_clear()
-    engine = db.build_engine(url)
-    writer, reader = db.session_factories(engine)
-    monkeypatch.setattr(db, "engine", engine)
-    monkeypatch.setattr(db, "SessionLocal", writer)
-    monkeypatch.setattr(db, "ReadSessionLocal", reader)
-    yield engine
-    engine.dispose()
-    get_settings.cache_clear()
-
-
-@pytest.fixture()
-def migrated(file_db):
-    migrate.upgrade()
-    return file_db
-
-
-@pytest.fixture()
 def live(migrated):
     """The application served from the migrated file, with an author signed in."""
     with db.SessionLocal() as session:
@@ -145,6 +123,161 @@ def test_adding_the_hero_description_keeps_the_pages_that_were_already_there(fil
     assert "hero_alt" not in {column["name"] for column in inspect(file_db).get_columns("pages")}
     with file_db.connect() as connection:
         assert connection.execute(text("SELECT body FROM pages")).scalar_one() == "Body from before."
+
+
+U, C, C2 = "01HZZZZZZZZZZZZZZZZZZZZZZU", "01HZZZZZZZZZZZZZZZZZZZZZZC", "01HZZZZZZZZZZZZZZZZZZZZZZD"
+G, G2, GR = "01HZZZZZZZZZZZZZZZZZZZZZZG", "01HZZZZZZZZZZZZZZZZZZZZZZH", "01HZZZZZZZZZZZZZZZZZZZZZZR"
+P, PR = "01HZZZZZZZZZZZZZZZZZZZZZZP", "01HZZZZZZZZZZZZZZZZZZZZZZQ"
+M_OLD, M_NEW, M_HERO = "01HZZZZZZZZZZZZZZZZZZZZZM1", "01HZZZZZZZZZZZZZZZZZZZZZM2", "01HZZZZZZZZZZZZZZZZZZZZZM3"
+T_OLD, T_NEW = "01HZZZZZZZZZZZZZZZZZZZZZT1", "01HZZZZZZZZZZZZZZZZZZZZZT2"
+
+
+def _a_0003_database_with_content_edited_after_publishing(engine) -> None:
+    """What an installation looks like the day before this migration.
+
+    One guide and one page, each published once and then edited — which, on
+    that release, meant the edit was live. Their snapshots still say what was
+    published. A second guide was published and never touched again.
+    """
+    import json
+
+    def snapshot(**fields) -> str:
+        base = {
+            "author": {"id": U, "displayName": "A"}, "lastEditedBy": {"id": U, "displayName": "A"},
+            "contributors": [{"id": U, "displayName": "A"}], "viewCount": 4, "status": "published", "version": 1,
+            "createdAt": "2026-01-01T00:00:00.000000Z", "updatedAt": "2026-02-01T10:00:00.000000Z",
+            "publishedAt": "2026-02-01T10:00:00.000000Z", "summary": "",
+        }
+        return json.dumps({**base, **fields})
+
+    guide_document = snapshot(
+        id=G, slug="lamp", title="Published title", summary="Published summary", categoryId=C,
+        tags=["old-tag"], difficulty="easy", timeRequiredMinMinutes=5, timeRequiredMaxMinutes=None,
+        introduction="", conclusion="",
+        steps=[{
+            "id": "01HZZZZZZZZZZZZZZZZZZZZZS1", "orderIndex": 0, "title": "Published step",
+            "bullets": [{"id": "01HZZZZZZZZZZZZZZZZZZZZZB1", "text": "Published bullet", "color": "black", "icon": None, "level": 0}],
+            "media": [{"id": M_OLD, "kind": "image", "url": f"/api/media/{M_OLD}", "alt": "", "width": 4, "height": 4, "annotations": []}],
+        }],
+    )
+    untouched_document = snapshot(
+        id=G2, slug="quiet", title="Never edited", categoryId=C, tags=[], difficulty="moderate",
+        timeRequiredMinMinutes=None, timeRequiredMaxMinutes=None, introduction="", conclusion="", steps=[],
+    )
+    page_document = snapshot(
+        id=P, slug="rules", title="Published page", categoryId=C, isLanding=True,
+        body=f"Published body ![x](/api/media/{M_OLD})", heroMediaId=M_HERO,
+    )
+    guide_columns = (
+        "(id, slug, title, summary, status, version, view_count, created_at, updated_at, published_at, author_id, "
+        "last_edited_by_id, category_id, difficulty, introduction, conclusion)"
+    )
+    statements = [
+        f"INSERT INTO users (id, email, display_name, role, password_hash, is_active, created_at, updated_at) "
+        f"VALUES ('{U}', 'a@zmb.example', 'A', 'author', 'x', 1, '2026-01-01', '2026-01-01')",
+        f"INSERT INTO categories (id, slug, name, description, order_index, is_hidden, created_at, updated_at) "
+        f"VALUES ('{C}', 'lm', 'LM', '', 0, 0, '2026-01-01', '2026-01-01'), ('{C2}', 'em', 'EM', '', 1, 0, '2026-01-01', '2026-01-01')",
+        f"INSERT INTO tags (id, slug, name, created_at) VALUES ('{T_OLD}', 'old-tag', 'Old tag', '2026-01-01'), "
+        f"('{T_NEW}', 'new-tag', 'New tag', '2026-01-01')",
+        *[
+            f"INSERT INTO media (id, kind, storage_path, content_type, byte_size, width, height, alt, original_filename, "
+            f"uploaded_by_id, created_at) VALUES ('{media}', 'image', '{media}.png', 'image/png', 10, 4, 4, '', '', '{U}', '2026-01-01')"
+            for media in (M_OLD, M_NEW, M_HERO)
+        ],
+        # Edited on 3 March, a month after it was published: on 0003 that edit is what readers see.
+        f"INSERT INTO guides {guide_columns} VALUES ('{G}', 'lamp', 'Edited title', 'Edited summary', 'published', 1, 4, "
+        f"'2026-01-01', '2026-03-03 09:00:00.000000', '2026-02-01 10:00:00.000000', '{U}', '{U}', '{C2}', 'difficult', '', '')",
+        f"INSERT INTO guides {guide_columns} VALUES ('{G2}', 'quiet', 'Never edited', '', 'published', 1, 0, "
+        f"'2026-01-01', '2026-02-01 10:00:00.000000', '2026-02-01 10:00:00.000000', '{U}', '{U}', '{C}', 'moderate', '', '')",
+        f"INSERT INTO guide_tags (guide_id, tag_id) VALUES ('{G}', '{T_NEW}')",
+        f"INSERT INTO steps (id, guide_id, order_index, title) VALUES ('01HZZZZZZZZZZZZZZZZZZZZZS1', '{G}', 0, 'Edited step')",
+        f"INSERT INTO step_media (id, step_id, media_id, order_index, alt, annotations) VALUES "
+        f"('01HZZZZZZZZZZZZZZZZZZZZZL1', '01HZZZZZZZZZZZZZZZZZZZZZS1', '{M_NEW}', 0, '', '[]')",
+        f"INSERT INTO pages (id, slug, title, summary, status, version, view_count, created_at, updated_at, published_at, "
+        f"author_id, last_edited_by_id, category_id, is_landing, body, hero_alt) VALUES ('{P}', 'rules', 'Edited page', '', "
+        f"'published', 1, 0, '2026-01-01', '2026-03-03 09:00:00.000000', '2026-02-01 10:00:00.000000', '{U}', '{U}', '{C}', 1, "
+        f"'Edited body', '')",
+    ]
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+        for table, owner, revision_id, owner_id, document in (
+            ("guide_revisions", "guide_id", GR, G, guide_document),
+            ("guide_revisions", "guide_id", "01HZZZZZZZZZZZZZZZZZZZZZR2", G2, untouched_document),
+            ("page_revisions", "page_id", PR, P, page_document),
+        ):
+            connection.execute(
+                text(
+                    f"INSERT INTO {table} (id, {owner}, version, published_at, document, published_by_id) "
+                    f"VALUES (:id, :owner, 1, '2026-02-01 10:00:00.000000', :document, '{U}')"
+                ),
+                {"id": revision_id, "owner": owner_id, "document": document},
+            )
+
+
+def test_upgrading_puts_readers_back_on_what_was_actually_published(file_db, media_root):
+    """0004 on a database with content: the projection is filled from each
+    item's latest snapshot, and an item edited since comes up as having
+    unpublished changes rather than having its edit served or thrown away."""
+    command.upgrade(migrate.alembic_config(file_db), "0003")
+    _a_0003_database_with_content_edited_after_publishing(file_db)
+
+    assert migrate.upgrade() == migrate.head_revision()
+
+    with file_db.connect() as connection:
+        guide = connection.execute(text(
+            "SELECT revision_id, title, summary, category_id, difficulty, time_required_min_minutes, step_count, "
+            f"search_text FROM published_guides WHERE guide_id = '{G}'"
+        )).one()
+        assert tuple(guide) == (GR, "Published title", "Published summary", C, "easy", 5, 1, "Published step\nPublished bullet")
+        assert connection.execute(text("SELECT guide_id, tag_id FROM published_guide_tags")).all() == [(G, T_OLD)]
+        assert connection.execute(text("SELECT guide_id, media_id FROM published_guide_media")).all() == [(G, M_OLD)]
+        page = connection.execute(text("SELECT revision_id, title, category_id, is_landing, body FROM published_pages")).one()
+        assert tuple(page) == (PR, "Published page", C, 1, f"Published body ![x](/api/media/{M_OLD})")
+        shown = connection.execute(text("SELECT media_id FROM published_page_media ORDER BY media_id")).scalars().all()
+        assert shown == [M_OLD, M_HERO]
+        assert connection.execute(text("SELECT auth_epoch FROM users")).scalar_one() == 0
+        assert connection.execute(text("SELECT COUNT(*) FROM published_guides")).scalar_one() == 2
+
+    with db.SessionLocal() as session:
+        session.add(User(email="viewer@zmb.uzh.ch", display_name="V", role="viewer", password_hash=hash_password(TEST_PASSWORD)))
+        session.add(User(email="author@zmb.uzh.ch", display_name="W", role="author", password_hash=hash_password(TEST_PASSWORD)))
+        session.commit()
+    with TestClient(app) as raw:
+        viewer = ApiClient(raw)
+        assert viewer.login("viewer@zmb.uzh.ch").status_code == 200
+        seen = viewer.get("/api/guides/lamp").json()
+        assert (seen["title"], seen["steps"][0]["title"], seen["tags"]) == ("Published title", "Published step", ["old-tag"])
+        assert seen["steps"][0]["media"][0]["displayUrl"] == f"/api/media/{M_OLD}?size=display"
+        assert viewer.get("/api/pages/rules").json()["body"].startswith("Published body")
+        assert viewer.get("/api/guides", params={"tags": "new-tag"}).json() == []
+        assert viewer.get("/api/search", params={"q": "Edited title"}).json() == []
+        assert viewer.get("/api/search", params={"q": "Edited body"}).json() == []
+    with TestClient(app) as raw:
+        author = ApiClient(raw)
+        assert author.login("author@zmb.uzh.ch").status_code == 200
+        by_slug = {entry["slug"]: entry for entry in author.get("/api/guides").json()}
+        assert (by_slug["lamp"]["title"], by_slug["lamp"]["hasUnpublishedChanges"]) == ("Edited title", True)
+        assert by_slug["quiet"]["hasUnpublishedChanges"] is False, "never edited after publishing, so nothing is pending"
+        assert author.get("/api/pages/rules").json()["hasUnpublishedChanges"] is True
+
+
+def test_the_published_tables_can_be_rolled_back_on_a_database_with_content(file_db):
+    """The downgrade drops three columns from tables that have rows and are
+    pointed at by others; done as a table rebuild that is refused outright."""
+    command.upgrade(migrate.alembic_config(file_db), "0003")
+    _a_0003_database_with_content_edited_after_publishing(file_db)
+    migrate.upgrade()
+
+    command.downgrade(migrate.alembic_config(file_db), "0003")
+
+    tables = set(inspect(file_db).get_table_names())
+    assert not {name for name in tables if name.startswith("published_")}
+    assert "auth_epoch" not in {column["name"] for column in inspect(file_db).get_columns("users")}
+    assert "snapshot_updated_at" not in {column["name"] for column in inspect(file_db).get_columns("guides")}
+    with file_db.connect() as connection:
+        assert connection.execute(text(f"SELECT title FROM guides WHERE id = '{G}'")).scalar_one() == "Edited title"
+    assert migrate.upgrade() == migrate.head_revision(), "and forwards again"
 
 
 def test_a_database_from_before_migrations_is_refused_with_instructions(file_db):
@@ -367,7 +500,12 @@ def test_a_postgres_url_gets_a_plain_engine_with_none_of_the_sqlite_tuning(monke
     monkeypatch.setattr(db, "create_engine", fake_create_engine)
 
     assert db.build_engine("postgresql+psycopg://reticle@localhost/reticle") == "engine"
-    assert created["kwargs"] == {"future": True}
+    assert created["kwargs"] == {
+        "future": True,
+        "hide_parameters": True,
+        "pool_size": db.POOL_SIZE,
+        "max_overflow": db.POOL_OVERFLOW,
+    }
 
 
 def test_configure_repoints_the_application(tmp_path, monkeypatch):
@@ -634,3 +772,119 @@ def test_an_upload_does_not_hold_the_write_lock_while_its_body_is_handled(live, 
 
     assert response.status_code == 201
     assert state == {"in_transaction": False}
+
+
+# ------------------------------------------------ slow requests and the pool
+
+
+def test_the_pool_has_a_connection_for_every_request_thread():
+    """The default pool — five connections and ten more — is smaller than the
+    forty threads requests run on, so slow requests queued on *it* and the ones
+    still waiting after thirty seconds failed with "QueuePool limit reached"."""
+    assert db.POOL_SIZE + db.POOL_OVERFLOW >= db.REQUEST_THREADS
+    assert db.POOL_OVERFLOW >= db.REQUEST_THREADS
+
+
+def test_a_file_database_gets_that_pool_and_an_in_memory_one_does_not(file_db):
+    assert (file_db.pool.size(), file_db.pool._max_overflow) == (db.POOL_SIZE, db.POOL_OVERFLOW)
+
+    memory = db.build_engine("sqlite://")
+    try:
+        assert type(memory.pool).__name__ != "QueuePool", "one shared connection, or each would be its own empty database"
+    finally:
+        memory.dispose()
+
+
+def test_starting_the_server_sets_the_thread_pool_the_connection_pool_is_sized_for(migrated):
+    import anyio.to_thread
+
+    async def tokens() -> float:
+        return anyio.to_thread.current_default_thread_limiter().total_tokens
+
+    with TestClient(app) as client:
+        assert client.portal.call(tokens) == db.REQUEST_THREADS
+
+
+def test_a_stampede_of_pdf_exports_leaves_the_api_answering(live, monkeypatch):
+    """The reviewer's scenario: many exports asked for at once while two are
+    still rendering. Every one of the latecomers used to wait for a render
+    slot, holding a thread and a database connection as it waited; the health
+    check took a minute and seventeen requests died on the connection pool.
+
+    Now: the two that are rendering hold no connection, the rest are answered
+    429 at once with ``Retry-After``, and the health check does not notice.
+    """
+    from app import pdf
+
+    category_id = live.get("/api/categories").json()[0]["id"]
+    guide = live.post("/api/guides", json={"title": "Stampede", "categoryId": category_id}).json()
+    saved = live.put(
+        f"/api/guides/{guide['id']}",
+        json=document_from(guide, steps=[step("One", bullets=[bullet("Text")])]),
+    )
+    assert saved.status_code == 200 and live.post(f"/api/guides/{guide['id']}/publish").status_code == 200
+
+    with db.SessionLocal() as session:
+        for name in ("one", "two", "crowd"):
+            session.add(User(email=f"{name}@zmb.uzh.ch", display_name=name, role="viewer", password_hash=hash_password(TEST_PASSWORD)))
+        session.commit()
+
+    def signed_in(name: str) -> ApiClient:
+        client = ApiClient(TestClient(app))
+        assert client.login(f"{name}@zmb.uzh.ch").status_code == 200
+        return client
+
+    rendering, release = threading.Semaphore(0), threading.Event()
+    build = pdf.build
+
+    def slow_build(*args):
+        rendering.release()
+        assert release.wait(timeout=30)
+        return build(*args)
+
+    monkeypatch.setattr(pdf, "build", slow_build)
+    results: dict[str, list] = {"slow": [], "crowd": []}
+
+    def export(client: ApiClient, bucket: str) -> None:
+        started = time.monotonic()
+        response = client.get(f"/api/guides/{guide['slug']}/pdf")
+        results[bucket].append((response.status_code, response.headers.get("retry-after"), time.monotonic() - started))
+
+    slow = [threading.Thread(target=export, args=(signed_in(name), "slow")) for name in ("one", "two")]
+    crowd_clients = []
+    session_cookies = dict(signed_in("crowd").cookies)
+    for _ in range(30):
+        client = ApiClient(TestClient(app))
+        for name, value in session_cookies.items():
+            client.cookies.set(name, value)
+        crowd_clients.append(client)
+    crowd = [threading.Thread(target=export, args=(client, "crowd")) for client in crowd_clients]
+    try:
+        for thread in slow:
+            thread.start()
+        assert rendering.acquire(timeout=10) and rendering.acquire(timeout=10), "both render slots are taken"
+        assert db.engine.pool.checkedout() == 0, "a render in progress holds no database connection"
+
+        started = time.monotonic()
+        for thread in crowd:
+            thread.start()
+        health = ApiClient(TestClient(app)).get("/api/health")
+        health_took = time.monotonic() - started
+        for thread in crowd:
+            thread.join(timeout=30)
+        crowd_took = time.monotonic() - started
+
+        assert health.status_code == 200 and health_took < 5
+        assert [status for status, _, _ in results["crowd"]] == [429] * 30
+        assert {retry for _, retry, _ in results["crowd"]} == {str(pdf.RETRY_AFTER_SECONDS)}
+        assert crowd_took < 10, "nobody waited for a slot"
+        assert db.engine.pool.checkedout() == 0
+        assert db.engine.pool.overflow() <= db.POOL_OVERFLOW
+    finally:
+        release.set()
+        for thread in slow:
+            thread.join(timeout=30)
+
+    assert [status for status, _, _ in results["slow"]] == [200, 200]
+    monkeypatch.setattr(pdf, "build", build)
+    assert crowd_clients[0].get(f"/api/guides/{guide['slug']}/pdf").status_code == 200, "and afterwards it is simply there"

@@ -11,8 +11,8 @@
 #      that destroys data on purpose, and "the wrong archive" is a real mistake);
 #   3. the site goes down;
 #   4. database and media are replaced;
-#   5. the site comes back up; if the backup is from an older release, its
-#      schema is upgraded on the way.
+#   5. if the backup is from an older release, its schema is upgraded;
+#   6. the site comes back up.
 #
 # A backup taken by a NEWER release than the one installed cannot be used:
 # the server will refuse to start and say so. Install that release first.
@@ -79,6 +79,13 @@ if [ "$status" != "0" ]; then
     echo "the live data has not been touched: 'docker compose up -d' brings the site back as it was." >&2
     exit 1
 fi
+
+# A backup from an older release has an older schema. Bringing it up to date
+# is a migration like any other, and the server only runs one when told there
+# is a way back; here there is — the archive that has just been restored.
+echo "Bringing the database schema up to date..."
+compose run --rm --no-deps -T -e RETICLE_ALLOW_MIGRATE=1 app reticle-entrypoint migrate </dev/null ||
+    die "the data was restored, but its schema could not be brought to this release's (see above). If the backup is from a NEWER release, install that release and run 'docker compose up -d'"
 
 echo "Starting the site..."
 compose up -d --wait || die "the data was restored but the site did not come back healthy; see 'docker compose logs app'"

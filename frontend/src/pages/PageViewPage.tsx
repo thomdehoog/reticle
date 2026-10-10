@@ -6,22 +6,34 @@ import { useSession } from '../auth/session'
 import { CategoryCrumbs } from '../components/CategoryCrumbs'
 import { IconEdit, IconHistory } from '../components/icons'
 import { PageBody } from '../components/PageBody'
-import { DraftNotice, StatusBadge } from '../components/ui'
+import { DraftNotice, Spinner, StatusBadge } from '../components/ui'
+import { PreviewBanner, UnpublishedChangesNotice } from '../components/UnpublishedChanges'
+import { usePublishedView } from '../hooks/usePublishedView'
 import { useRecordView } from '../hooks/useRecordView'
 import { categoryQueries } from '../queries/categories'
 import { pageQueries } from '../queries/pages'
 
 const route = getRouteApi('/w/$slug')
 
-/** A wiki page: long-form guidance, with guide lists gathered by tag inside it. */
+/**
+ * A wiki page: long-form guidance, with guide lists gathered by tag inside it.
+ *
+ * Like the guide reader, it shows everyone what readers see; an author with
+ * unpublished changes is told so and can preview them.
+ */
 export function PageViewPage() {
   const { slug } = route.useParams()
+  const { preview } = route.useSearch()
   const api = useApi()
   const { can } = useSession()
-  const { data: page } = useSuspenseQuery(pageQueries.detail(api, slug))
+  const { data: given } = useSuspenseQuery(pageQueries.detail(api, slug))
   const { data: categories } = useSuspenseQuery(categoryQueries.list(api))
+  const view = usePublishedView(given, pageQueries.published(api, slug), preview === true)
 
-  useRecordView(page.id, (id) => api.recordPageView(id))
+  useRecordView(given.id, (id) => api.recordPageView(id))
+
+  const page = view.shown
+  if (!page) return <Spinner />
 
   return (
     <article className="guide">
@@ -31,6 +43,17 @@ export function PageViewPage() {
         /* A standalone article hangs off the wiki index, not off a category. */
         root={page.categoryId === null ? <Link to="/wiki">Wiki</Link> : undefined}
       />
+
+      {view.previewing && (
+        <PreviewBanner noun="page" version={given.version}>
+          <Link className="button button--sm" to="/w/$slug" params={{ slug: page.slug }}>
+            Back to what readers see
+          </Link>
+          <Link className="button button--sm" to="/w/$id/edit" params={{ id: page.id }}>
+            Edit
+          </Link>
+        </PreviewBanner>
+      )}
 
       <div className="page-header">
         <div className="page-header__text">
@@ -55,6 +78,22 @@ export function PageViewPage() {
       </div>
 
       {page.status !== 'published' && <DraftNotice noun="page" />}
+
+      {view.behind && (
+        <UnpublishedChangesNotice noun="page" version={page.version}>
+          <Link
+            className="button button--sm"
+            to="/w/$slug"
+            params={{ slug: page.slug }}
+            search={{ preview: true }}
+          >
+            Preview changes
+          </Link>
+          <Link className="button button--sm" to="/w/$id/edit" params={{ id: page.id }}>
+            Edit
+          </Link>
+        </UnpublishedChangesNotice>
+      )}
 
       <PageBody page={page} />
     </article>

@@ -130,9 +130,19 @@ class AnnotationOut(Wire):
 
 
 class MediaOut(Wire):
+    """An upload as a client shows it.
+
+    ``url`` is the file as it was uploaded. ``display_url`` is what belongs in
+    an ``<img>``: for an image, a copy held to a size a screen can use, so that
+    a forty-megapixel stitched panel is not pushed to a phone to be drawn four
+    hundred pixels wide; for a video, the same address as ``url``. ``width``
+    and ``height`` are the original's, which is the right aspect ratio for both.
+    """
+
     id: str
     kind: MediaKind
     url: str
+    display_url: str
     alt: str
     width: int | None
     height: int | None
@@ -177,6 +187,7 @@ class GuideOut(Wire):
     updated_at: Instant
     published_at: Instant | None
     version: int
+    has_unpublished_changes: bool = False
 
 
 class GuideSummaryOut(Wire):
@@ -195,6 +206,7 @@ class GuideSummaryOut(Wire):
     view_count: int
     updated_at: Instant
     published_at: Instant | None
+    has_unpublished_changes: bool = False
 
 
 class PageOut(Wire):
@@ -216,6 +228,7 @@ class PageOut(Wire):
     updated_at: Instant
     published_at: Instant | None
     version: int
+    has_unpublished_changes: bool = False
 
 
 class PageSummaryOut(Wire):
@@ -228,6 +241,7 @@ class PageSummaryOut(Wire):
     status: ContentStatus
     updated_at: Instant
     published_at: Instant | None
+    has_unpublished_changes: bool = False
 
 
 class GuideResultOut(Wire):
@@ -401,8 +415,21 @@ class PasswordChangeIn(Wire):
     new_password: str = Field(min_length=1, max_length=1024)
 
 
+ContentView = Literal["working", "published"]
+"""Which of the two things a guide or page is, for a caller allowed to choose.
+
+``working`` is the copy the editor saves into; ``published`` is the snapshot
+readers are served. A viewer is not asked: a viewer gets ``published``.
+"""
+
+
 def media_url(media_id: str) -> str:
     return f"/api/media/{media_id}"
+
+
+def media_display_url(media_id: str, kind: str) -> str:
+    """Where the copy meant for display is; a video has only the one file."""
+    return f"{media_url(media_id)}?size=display" if kind == "image" else media_url(media_id)
 
 
 def media_out(media: models.Media, alt: str | None = None, annotations: list[dict[str, Any]] | None = None) -> MediaOut:
@@ -411,6 +438,7 @@ def media_out(media: models.Media, alt: str | None = None, annotations: list[dic
         id=media.id,
         kind=media.kind,
         url=media_url(media.id),
+        display_url=media_display_url(media.id, media.kind),
         alt=media.alt if alt is None else alt,
         width=media.width,
         height=media.height,
@@ -482,6 +510,7 @@ def guide_out(guide: models.Guide) -> GuideOut:
         updated_at=guide.updated_at,
         published_at=guide.published_at,
         version=guide.version,
+        has_unpublished_changes=guide.has_unpublished_changes,
     )
 
 
@@ -502,6 +531,7 @@ def guide_summary_out(guide: models.Guide, step_count: int) -> GuideSummaryOut:
         view_count=guide.view_count,
         updated_at=guide.updated_at,
         published_at=guide.published_at,
+        has_unpublished_changes=guide.has_unpublished_changes,
     )
 
 
@@ -525,6 +555,7 @@ def page_out(page: models.Page) -> PageOut:
         updated_at=page.updated_at,
         published_at=page.published_at,
         version=page.version,
+        has_unpublished_changes=page.has_unpublished_changes,
     )
 
 
@@ -539,6 +570,7 @@ def page_summary_out(page: models.Page) -> PageSummaryOut:
         status=page.status,
         updated_at=page.updated_at,
         published_at=page.published_at,
+        has_unpublished_changes=page.has_unpublished_changes,
     )
 
 

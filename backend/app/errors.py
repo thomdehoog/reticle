@@ -27,12 +27,13 @@ STATUS_FOR_CODE = {
 
 
 class ApiError(Exception):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, headers: Mapping[str, str] | None = None) -> None:
         if code not in STATUS_FOR_CODE:
             raise ValueError(f"unknown error code {code!r}")
         super().__init__(message)
         self.code = code
         self.message = message
+        self.headers = dict(headers) if headers else None
 
     @property
     def status_code(self) -> int:
@@ -70,8 +71,34 @@ def validation_failed(message: str) -> ApiError:
     return ApiError("validation_failed", message)
 
 
-def rate_limited(message: str = "Too many attempts. Try again later.") -> ApiError:
-    return ApiError("rate_limited", message)
+def rate_limited(message: str = "Too many attempts. Try again later.", retry_after: int | None = None) -> ApiError:
+    """429, with ``Retry-After`` when the caller can be told how long to wait.
+
+    The login throttle gives no number: how long is left on an attacker's
+    window is not something to announce to the attacker. A busy PDF export
+    does, because there the caller is a reader's browser deciding when to ask
+    again.
+    """
+    headers = {"Retry-After": str(retry_after)} if retry_after is not None else None
+    return ApiError("rate_limited", message, headers)
+
+
+INTERNAL_ERROR_CODE = "internal_error"
+
+
+def internal_error_body() -> dict[str, Any]:
+    """The envelope for a failure that is the server's own.
+
+    Not an :class:`ApiError`: nothing in the application raises this on purpose,
+    so there is deliberately no constructor that would let a handler reach for
+    it instead of deciding what actually went wrong.
+    """
+    return {
+        "error": {
+            "code": INTERNAL_ERROR_CODE,
+            "message": "Something went wrong on the server. Try again; if it keeps happening, tell an administrator.",
+        }
+    }
 
 
 # ------------------------------------------------- validation, in plain words
