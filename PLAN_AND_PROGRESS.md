@@ -207,8 +207,8 @@ anything else.**
 
 Settled, and worth not re-opening. Dozuki's published terms contain **no**
 "competing product" clause — the full agreement was read; zero matches for
-"compet", "benchmark" or "similar product". The only use restriction bars
-reverse-engineering *their software*, not extracting *your content*, and §5
+"compet", "benchmark" or "similar product". The only use restriction concerns
+using *their software*, not extracting *your content*, and §5
 states ZMB owns its material outright. Reticle contains no third-party code,
 assets, icons or branding. See `NOTICE.md`.
 
